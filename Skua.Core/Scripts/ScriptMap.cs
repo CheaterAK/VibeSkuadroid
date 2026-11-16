@@ -225,6 +225,10 @@ public partial class ScriptMap : IScriptMap
         if (!Directory.Exists(_cachePath))
             Directory.CreateDirectory(_cachePath);
 
+        // Decompiling map SWFs runs FFDec through cmd.exe; elsewhere only previously saved results are available.
+        if (!OperatingSystem.IsWindows())
+            return !forceRefresh && _savedMapItems.TryGetValue(FileName, out List<MapItem>? savedItems) ? savedItems : null;
+
         if (!Directory.Exists(Path.Combine(AppContext.BaseDirectory, "FFDec")))
         {
             _dialogService.ShowMessageBox("FFDec folder not found.", "FFDec");

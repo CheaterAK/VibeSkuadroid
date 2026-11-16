@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Console harness proving Skua.Core's script pipeline runs on a non-Windows host:
+    compiler built through the reference/namespace seam, script compiled, loaded into a ScriptLoadContext
+    and invoked with a stub IScriptInterface. Run it with "dotnet run" on this project; see Program.cs for
+    the optional extra script files. Exit code 0 means every check passed.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.Core\Skua.Core.csproj" />
+    <ProjectReference Include="..\Skua.Compat.WinForms\Skua.Compat.WinForms.csproj" />
+  </ItemGroup>
+
+</Project>
