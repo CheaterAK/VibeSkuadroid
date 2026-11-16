@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Compile-time stand-ins for the few System.Windows.Forms types community scripts touch, for hosts without
+    WinForms (Linux, Android). Never reference this from the Windows client: there the real WinForms is used.
+    Every type here mirrors a real WinForms type name, so it can only ever be a subset of what scripts see on Windows.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>System.Windows.Forms</RootNamespace>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <LangVersion>latest</LangVersion>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+
+</Project>
