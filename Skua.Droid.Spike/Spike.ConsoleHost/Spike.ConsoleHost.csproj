@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Linux baseline host for the same spike steps. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+  <Import Project="..\SpikeRefs.props" />
+  <ItemGroup>
+    <None Include="$(SpikeRefPackDir)/*.dll" Link="refs/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Spike.Core\Spike.Core.csproj" />
+  </ItemGroup>
+</Project>

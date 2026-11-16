@@ -1,0 +1,117 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    VibeSkua Android spike: runtime Roslyn compile + Assembly.Load on device.
+    Not part of Skua.sln. Build with ../build-spike.sh.
+
+    Variants (-p:SpikeVariant=...):
+      (empty)  com.vibeskua.droid.spike      Release = Mono JIT only, no trimming, no AOT
+      aot      com.vibeskua.droid.spike.aot  Release = Mono AOT of every assembly (incl. Roslyn),
+                                             trimmer run but with every assembly fully rooted
+    Both keep the Mono JIT available for the dynamically loaded script assemblies.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Spike.Android</RootNamespace>
+    <ApplicationId>com.vibeskua.droid.spike</ApplicationId>
+    <ApplicationTitle>Skua Spike</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <!-- arm64-v8a only: every phone from the last ~8 years. -->
+    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+    <!-- A plain .apk for sideloading (Release otherwise defaults to .aab as well). -->
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <!-- Debug builds normally rely on Fast Deployment (assemblies pushed by adb, not in the APK);
+         the spike must be a standalone APK, so embed them in every configuration. -->
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+    <!-- Mono runtime explicitly (the .NET 10 default; CoreCLR on Android is experimental). -->
+    <UseMonoRuntime>true</UseMonoRuntime>
+    <!-- JIT, not the interpreter, executes code that was not AOT-compiled (i.e. the scripts). -->
+    <UseInterpreter>false</UseInterpreter>
+  </PropertyGroup>
+
+  <!--
+    Release settings that matter for runtime-compiled scripts:
+    * No member may be trimmed away. Scripts are arbitrary C# compiled on the device against the full
+      net10.0 reference surface; any BCL member a script uses but the app itself does not would be
+      removed by the trimmer and fail at run time with MissingMethodException/TypeLoadException.
+      Roslyn also uses reflection internally.
+    * .NET for Android refuses AOT without trimming (XA1030). So:
+      - default Release: PublishTrimmed=false (AndroidLinkMode=None), RunAOTCompilation=false.
+        Everything runs on the Mono JIT, like desktop CoreCLR does. Safest, smallest risk.
+      - aot variant: PublishTrimmed=true but every assembly is passed to ILLink as a
+        TrimmerRootAssembly with RootMode=All (nothing removed), RunAOTCompilation=true with
+        profiled AOT off (all assemblies AOT'd, Mono "normal" mixed mode). IL is kept
+        (AndroidStripILAfterAOT=false) so the JIT can still compile anything that is not AOT'd,
+        including assemblies produced by Roslyn and loaded with Assembly.Load.
+    * Never used: Mono full AOT (no JIT at run time), which would make Assembly.Load'ed scripts
+      unexecutable. UseInterpreter stays false, so code without AOT is JIT-compiled, not interpreted.
+  -->
+  <!-- Debug gets its own id so it can be installed next to the Release build. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' and '$(SpikeVariant)' == ''">
+    <ApplicationId>com.vibeskua.droid.spike.debug</ApplicationId>
+    <ApplicationTitle>Skua Spike Debug</ApplicationTitle>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(SpikeVariant)' == ''">
+    <PublishTrimmed>false</PublishTrimmed>
+    <AndroidLinkMode>None</AndroidLinkMode>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SpikeVariant)' == 'aot'">
+    <ApplicationId>com.vibeskua.droid.spike.aot</ApplicationId>
+    <ApplicationTitle>Skua Spike AOT</ApplicationTitle>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <RunAOTCompilation>true</RunAOTCompilation>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <AndroidStripILAfterAOT>false</AndroidStripILAfterAOT>
+    <!-- Feature switches the SDK flips when PublishTrimmed=true; keep desktop behaviour for scripts. -->
+    <UseSystemResourceKeys>false</UseSystemResourceKeys>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <NullabilityInfoContextSupport>true</NullabilityInfoContextSupport>
+    <_AggressiveAttributeTrimming>false</_AggressiveAttributeTrimming>
+    <IntermediateOutputPath>obj/$(Configuration)-aot/</IntermediateOutputPath>
+    <OutputPath>bin/$(Configuration)-aot/</OutputPath>
+  </PropertyGroup>
+
+  <!-- aot variant: root every assembly completely so the trimmer removes nothing. -->
+  <Target Name="SpikeRootAllAssemblies" AfterTargets="PrepareForILLink" Condition="'$(SpikeVariant)' == 'aot'">
+    <ItemGroup>
+      <TrimmerRootAssembly Include="@(ManagedAssemblyToLink->'%(Filename)')" RootMode="All" />
+    </ItemGroup>
+    <Message Importance="high" Text="SpikeRootAllAssemblies: rooted @(ManagedAssemblyToLink->Count()) assemblies" />
+  </Target>
+
+  <Import Project="..\SpikeRefs.props" />
+
+  <ItemGroup>
+    <!-- Framework reference assemblies for on-device compilation, read back via AssetManager streams. -->
+    <AndroidAsset Include="$(SpikeRefPackDir)/*.dll" Link="Assets/refs/%(Filename)%(Extension)" />
+    <!-- Reference image of the host API assembly (alternative to Assembly.TryGetRawMetadata). -->
+    <AndroidAsset Include="..\Spike.HostApi\bin\$(Configuration)\net10.0\Spike.HostApi.dll" Link="Assets/refs-app/Spike.HostApi.dll" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Recorded into the app so the on-device log states exactly how it was built. -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>Configuration</_Parameter1><_Parameter2>$(Configuration)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>SpikeVariant</_Parameter1><_Parameter2>$(SpikeVariant)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>UseMonoRuntime</_Parameter1><_Parameter2>$(UseMonoRuntime)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>RunAOTCompilation</_Parameter1><_Parameter2>$(RunAOTCompilation)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>AndroidEnableProfiledAot</_Parameter1><_Parameter2>$(AndroidEnableProfiledAot)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>PublishTrimmed</_Parameter1><_Parameter2>$(PublishTrimmed)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>AndroidLinkMode</_Parameter1><_Parameter2>$(AndroidLinkMode)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>TrimMode</_Parameter1><_Parameter2>$(TrimMode)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>UseInterpreter</_Parameter1><_Parameter2>$(UseInterpreter)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>RefPack</_Parameter1><_Parameter2>$(SpikeRefPackDir)</_Parameter2></AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Spike.Core\Spike.Core.csproj" />
+    <ProjectReference Include="..\Spike.HostApi\Spike.HostApi.csproj" />
+  </ItemGroup>
+</Project>

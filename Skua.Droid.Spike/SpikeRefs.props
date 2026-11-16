@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Framework reference assemblies shipped with the spike so Roslyn can compile scripts on-device.
+    Taken from the Microsoft.NETCore.App.Ref targeting pack of the SDK doing the build (the same
+    ref pack the desktop build compiles against).
+  -->
+  <PropertyGroup>
+    <SpikeRefPackDir Condition="'$(SpikeRefPackDir)' == ''">$(NetCoreTargetingPackRoot)/Microsoft.NETCore.App.Ref/$(BundledNETCoreAppPackageVersion)/ref/net10.0</SpikeRefPackDir>
+  </PropertyGroup>
+  <Target Name="SpikeCheckRefPack" BeforeTargets="Build">
+    <Error Condition="!Exists('$(SpikeRefPackDir)/System.Runtime.dll')" Text="Reference pack not found at $(SpikeRefPackDir); pass -p:SpikeRefPackDir=..." />
+  </Target>
+</Project>

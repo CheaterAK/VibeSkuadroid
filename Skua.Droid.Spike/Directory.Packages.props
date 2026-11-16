@@ -1,0 +1,6 @@
+<Project>
+  <!-- Stops the repo-root central package management from applying to the spike. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+</Project>
