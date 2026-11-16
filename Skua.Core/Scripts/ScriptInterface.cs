@@ -397,7 +397,7 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
             return;
 
         if (Options.Magnetise)
-            Flash.Call("magnetise");
+            Flash.Call("magnetize");
         if (Options.InfiniteRange)
             Flash.Call("infiniteRange");
         if (Options.AggroMonsters)
