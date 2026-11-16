@@ -275,6 +275,10 @@ public class HotKeys
 
     public static void BroadcastReloadHotkeys()
     {
+        // Hotkey reloads are broadcast as Win32 window messages; there is nothing to notify elsewhere.
+        if (!OperatingSystem.IsWindows())
+            return;
+
         try
         {
             if (HostHwnd != IntPtr.Zero)
@@ -348,7 +352,8 @@ public class HotKeys
 
     private static void ExecuteOrForward(string actionName, Action localExecute)
     {
-        if (IsHostProcess)
+        // Forwarding to a child client uses Win32 window messages; elsewhere the action always runs locally.
+        if (IsHostProcess && OperatingSystem.IsWindows())
         {
             IntPtr childHwnd = IntPtr.Zero;
             IntPtr fg = GetForegroundWindow();
@@ -488,6 +493,9 @@ public class HotKeys
 
     private static bool CanExecuteHotKey()
     {
+        if (!OperatingSystem.IsWindows())
+            return false;
+
         try
         {
             IntPtr foregroundWindow = GetForegroundWindow();
@@ -545,7 +553,7 @@ public class HotKeys
             }
             catch { }
         }
-        else if (HostHwnd != IntPtr.Zero)
+        else if (HostHwnd != IntPtr.Zero && OperatingSystem.IsWindows())
         {
             PostMessage(HostHwnd, WM_SKUA_LOAD_SCRIPT_ALL, IntPtr.Zero, IntPtr.Zero);
         }
@@ -585,6 +593,10 @@ public class HotKeys
 
     private static void BroadcastArmyMessage(uint msg, int wParam, int lParam)
     {
+        // Army commands are delivered as Win32 window messages to the other client processes.
+        if (!OperatingSystem.IsWindows())
+            return;
+
         var skuaProcesses = System.Diagnostics.Process.GetProcessesByName(System.Diagnostics.Process.GetCurrentProcess().ProcessName);
         var pids = skuaProcesses.Select(p => p.Id).ToHashSet();
         

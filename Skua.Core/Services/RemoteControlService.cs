@@ -1496,15 +1496,19 @@ public class RemoteControlService : IRemoteControlService
                 case "/api/tabs/focus":
                 case "/api/tabs/focus-pc":
                     if (method != "POST") { await SendMethodNotAllowedAsync(stream, "POST"); break; }
-                    try
+                    // Focusing the PC window is Win32-only; elsewhere this just acknowledges the request.
+                    if (OperatingSystem.IsWindows())
                     {
-                        var proc = Process.GetCurrentProcess();
-                        if (proc.MainWindowHandle != IntPtr.Zero)
+                        try
                         {
-                            SetForegroundWindow(proc.MainWindowHandle);
+                            var proc = Process.GetCurrentProcess();
+                            if (proc.MainWindowHandle != IntPtr.Zero)
+                            {
+                                SetForegroundWindow(proc.MainWindowHandle);
+                            }
                         }
+                        catch { }
                     }
-                    catch { }
                     await SendJsonResponseAsync(stream, 200, RemoteActionResult.Ok($"Focused tab {Environment.ProcessId} on PC")).ConfigureAwait(false);
                     break;
 

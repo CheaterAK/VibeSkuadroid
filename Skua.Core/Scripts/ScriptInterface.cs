@@ -552,11 +552,20 @@ public class ScriptInterface : IScriptInterface, IScriptInterfaceManager, IDispo
                 {
                     try
                     {
-                        Process.Start(new ProcessStartInfo
+                        // Windows keeps its shell-execute; other hosts open links through their IProcessService.
+                        IProcessService? processService = OperatingSystem.IsWindows() ? null : Ioc.Default.GetService<IProcessService>();
+                        if (processService is not null)
                         {
-                            FileName = url,
-                            UseShellExecute = true
-                        });
+                            processService.OpenLink(url);
+                        }
+                        else
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = url,
+                                UseShellExecute = true
+                            });
+                        }
                     }
                     catch (Exception ex)
                     {
