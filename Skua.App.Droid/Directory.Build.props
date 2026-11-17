@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Skua.App.Droid is self-contained on purpose: it does NOT import the repo-root Directory.Build.props
+    (whose NoWarn list hides nullable warnings) and it has its own central package versions, because the
+    desktop projects are pinned to Avalonia 11 while this app uses Avalonia 12.
+    Existing projects referenced from here (Skua.Core*, Skua.Compat.WinForms) still build with their own settings.
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>0.1.0</Version>
+    <Authors>VibeSkua</Authors>
+    <!-- Every binding in every .axaml file is compiled and type-checked at build time. -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+</Project>

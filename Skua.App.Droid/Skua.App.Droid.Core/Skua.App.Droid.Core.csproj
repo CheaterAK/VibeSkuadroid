@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Platform-neutral heart of the Android app: the IBotEngine seam and its implementation on Skua.Core.Headless,
+    ViewModels (CommunityToolkit.Mvvm, no Avalonia types), settings, credential vault logic, memory watchdog,
+    script library. No Android or Avalonia dependency, so all of it is unit tested on Linux.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Skua.App.Droid.Core</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Skua.Core.Headless\Skua.Core.Headless.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Skua.App.Droid.Tests" />
+  </ItemGroup>
+
+</Project>

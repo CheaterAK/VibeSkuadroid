@@ -1,0 +1,67 @@
+<Project>
+  <!--
+    The assembly images Skua scripts are compiled against at run time (Roslyn on the device needs metadata from
+    streams: Assembly.Location is not a file path on Android). Imported by the Android app, which packs them as
+    APK assets, and by the test project, which copies them next to the tests and compiles real scripts against
+    exactly this set.
+
+      script-refs/framework/*.dll   net10.0 reference pack of the SDK doing the build (public API only)
+      script-refs/app/*.dll         Skua assemblies and their dependencies, the same files the app runs
+      script-refs/manifest.txt      "<folder>/<file> <size>" per image, checked at run time
+
+    The app half is an explicit allowlist (SkuaScriptAppAssembly). Skua.App.Droid.Tests asserts that it covers
+    every non-framework assembly Skua.Core references, apart from the exclusions listed there with a reason.
+  -->
+  <PropertyGroup>
+    <SkuaScriptRefPackDir Condition="'$(SkuaScriptRefPackDir)' == ''">$(NetCoreTargetingPackRoot)/Microsoft.NETCore.App.Ref/$(BundledNETCoreAppPackageVersion)/ref/net10.0</SkuaScriptRefPackDir>
+    <SkuaScriptRefsManifest>$(IntermediateOutputPath)script-refs-manifest.txt</SkuaScriptRefsManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Everything a script can see of Skua, plus what those assemblies expose in their public API. -->
+    <SkuaScriptAppAssembly Include="Skua.Core" />
+    <SkuaScriptAppAssembly Include="Skua.Core.Interfaces" />
+    <SkuaScriptAppAssembly Include="Skua.Core.Models" />
+    <SkuaScriptAppAssembly Include="Skua.Core.Utils" />
+    <SkuaScriptAppAssembly Include="Skua.Compat.WinForms" />
+    <SkuaScriptAppAssembly Include="CommunityToolkit.Mvvm" />
+    <SkuaScriptAppAssembly Include="Newtonsoft.Json" />
+    <SkuaScriptAppAssembly Include="Microsoft.Extensions.DependencyInjection" />
+    <SkuaScriptAppAssembly Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <SkuaScriptAppAssembly Include="Westwind.Scripting" />
+    <SkuaScriptAppAssembly Include="Velopack" />
+  </ItemGroup>
+
+  <Target Name="SkuaCollectScriptReferences" DependsOnTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(SkuaScriptRefPackDir)/System.Runtime.dll')"
+           Text="Reference pack not found at $(SkuaScriptRefPackDir); pass -p:SkuaScriptRefPackDir=..." />
+    <ItemGroup>
+      <_SkuaRefFramework Include="$(SkuaScriptRefPackDir)/*.dll" />
+      <!-- Implementation assemblies the app copies (packages and project references alike). -->
+      <_SkuaRefDll Include="@(ReferenceCopyLocalPaths)" Condition="'%(ReferenceCopyLocalPaths.Extension)' == '.dll'">
+        <SourcePath>%(ReferenceCopyLocalPaths.FullPath)</SourcePath>
+      </_SkuaRefDll>
+      <_SkuaRefCandidate Include="@(_SkuaRefDll->'%(Filename)')" />
+      <_SkuaRefUnwanted Include="@(_SkuaRefCandidate)" Exclude="@(SkuaScriptAppAssembly)" />
+      <_SkuaRefApp Include="@(_SkuaRefCandidate)" Exclude="@(_SkuaRefUnwanted)" />
+      <_SkuaRefMissing Include="@(SkuaScriptAppAssembly)" Exclude="@(_SkuaRefApp)" />
+    </ItemGroup>
+    <Error Condition="'@(_SkuaRefMissing)' != ''"
+           Text="Script reference assemblies not found among this project's references: @(_SkuaRefMissing). Every SkuaScriptAppAssembly must be resolvable, or scripts will not compile on the device." />
+    <RemoveDuplicates Inputs="@(_SkuaRefApp->'%(SourcePath)')">
+      <Output TaskParameter="Filtered" ItemName="SkuaScriptRefApp" />
+    </RemoveDuplicates>
+    <ItemGroup>
+      <SkuaScriptRefFramework Include="@(_SkuaRefFramework)" />
+      <_SkuaRefManifestLine Include="@(SkuaScriptRefFramework->'framework/%(Filename)%(Extension)')" />
+      <_SkuaRefManifestLine Include="@(SkuaScriptRefApp->'app/%(Filename)%(Extension)')" />
+    </ItemGroup>
+    <Error Condition="@(SkuaScriptRefFramework->Count()) &lt; 150"
+           Text="Only @(SkuaScriptRefFramework->Count()) framework reference assemblies found in $(SkuaScriptRefPackDir); expected the full net10.0 reference pack." />
+    <WriteLinesToFile File="$(SkuaScriptRefsManifest)" Lines="@(_SkuaRefManifestLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <FileWrites Include="$(SkuaScriptRefsManifest)" />
+    </ItemGroup>
+    <Message Importance="high" Text="Script references: @(SkuaScriptRefFramework->Count()) framework + @(SkuaScriptRefApp->Count()) app assemblies" />
+  </Target>
+</Project>
