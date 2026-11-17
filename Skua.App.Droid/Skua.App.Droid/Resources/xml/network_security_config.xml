@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  HTTPS only, system CAs only (no user-installed CAs), for everything that goes through the platform HTTP stack
+  (.NET's AndroidMessageHandler uses it). The AQW game protocol is a raw TCP socket (System.Net.Sockets), which
+  this policy does not and cannot cover; it is unencrypted by the game's design.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

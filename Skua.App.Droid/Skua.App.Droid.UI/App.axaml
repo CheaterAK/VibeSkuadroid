@@ -1,0 +1,199 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Skua.App.Droid.UI.App"
+             RequestedThemeVariant="Dark">
+
+  <!-- Palette of the original Skua remote app (Skua.App.Android/app/src/main/res/values/colors.xml). -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <Color x:Key="BgDark">#0A0A0A</Color>
+      <Color x:Key="Surface">#121212</Color>
+      <Color x:Key="SurfaceAlt">#181818</Color>
+      <Color x:Key="SurfaceElevated">#1E1E1E</Color>
+      <Color x:Key="BorderColor">#282828</Color>
+      <Color x:Key="BorderStrong">#3A3A3A</Color>
+      <Color x:Key="Primary">#10B981</Color>
+      <Color x:Key="PrimaryDark">#059669</Color>
+      <Color x:Key="Accent">#34D399</Color>
+      <Color x:Key="TextMain">#F5F5F5</Color>
+      <Color x:Key="TextMuted">#A3A3A3</Color>
+      <Color x:Key="Red">#EF4444</Color>
+      <Color x:Key="Orange">#FBBF24</Color>
+      <Color x:Key="Gold">#FFD700</Color>
+      <Color x:Key="Mana">#29B6F6</Color>
+      <Color x:Key="NavChip">#1C1C1C</Color>
+      <Color x:Key="BtnGreenBg">#14231A</Color>
+      <Color x:Key="BtnGreenBgPressed">#22382A</Color>
+      <Color x:Key="BtnRedBg">#231416</Color>
+      <Color x:Key="BtnRedBgPressed">#371E21</Color>
+      <Color x:Key="BtnOrangeBg">#231B10</Color>
+
+      <SolidColorBrush x:Key="BgDarkBrush" Color="{StaticResource BgDark}" />
+      <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource Surface}" />
+      <SolidColorBrush x:Key="SurfaceAltBrush" Color="{StaticResource SurfaceAlt}" />
+      <SolidColorBrush x:Key="SurfaceElevatedBrush" Color="{StaticResource SurfaceElevated}" />
+      <SolidColorBrush x:Key="BorderBrushMain" Color="{StaticResource BorderColor}" />
+      <SolidColorBrush x:Key="BorderStrongBrush" Color="{StaticResource BorderStrong}" />
+      <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource Primary}" />
+      <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource Accent}" />
+      <SolidColorBrush x:Key="TextMainBrush" Color="{StaticResource TextMain}" />
+      <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMuted}" />
+      <SolidColorBrush x:Key="RedBrush" Color="{StaticResource Red}" />
+      <SolidColorBrush x:Key="OrangeBrush" Color="{StaticResource Orange}" />
+      <SolidColorBrush x:Key="GoldBrush" Color="{StaticResource Gold}" />
+      <SolidColorBrush x:Key="ManaBrush" Color="{StaticResource Mana}" />
+      <SolidColorBrush x:Key="NavChipBrush" Color="{StaticResource NavChip}" />
+
+      <!-- Fluent theme overrides so stock controls pick up the palette. -->
+      <Color x:Key="SystemAccentColor">#10B981</Color>
+      <Color x:Key="SystemAccentColorLight1">#34D399</Color>
+      <Color x:Key="SystemAccentColorLight2">#6EE7B7</Color>
+      <Color x:Key="SystemAccentColorLight3">#A7F3D0</Color>
+      <Color x:Key="SystemAccentColorDark2">#047857</Color>
+      <Color x:Key="SystemAccentColorDark3">#065F46</Color>
+      <Color x:Key="SystemAccentColorDark1">#059669</Color>
+
+      <!-- Icons (Material paths, as used by the original app's vector drawables). -->
+      <StreamGeometry x:Key="IconHome">M10,20v-6h4v6h5v-8h3L12,3 2,12h3v8z</StreamGeometry>
+      <StreamGeometry x:Key="IconScripts">M9.4,16.6L4.8,12l4.6,-4.6L8,6l-6,6 6,6 1.4,-1.4zm5.2,0l4.6,-4.6 -4.6,-4.6L16,6l6,6 -6,6 -1.4,-1.4z</StreamGeometry>
+      <StreamGeometry x:Key="IconWorld">M20,6h-4V4c0,-1.11 -0.89,-2 -2,-2h-4c-1.11,0 -2,0.89 -2,2v2H4c-1.11,0 -1.99,0.89 -1.99,2L2,19c0,1.11 0.89,2 2,2h16c1.11,0 2,-0.89 2,-2V8c0,-1.11 -0.89,-2 -2,-2zm-6,0h-4V4h4v2z</StreamGeometry>
+      <StreamGeometry x:Key="IconConsole">M3,18h6v-2H3v2zM3,6v2h18V6H3zM3,13h12v-2H3v2z</StreamGeometry>
+      <StreamGeometry x:Key="IconSettings">M19.14,12.94c0.04,-0.3 0.06,-0.61 0.06,-0.94c0,-0.32 -0.02,-0.64 -0.07,-0.94l2.03,-1.58c0.18,-0.14 0.23,-0.41 0.12,-0.61l-1.92,-3.32c-0.12,-0.22 -0.37,-0.29 -0.59,-0.22l-2.39,0.96c-0.5,-0.38 -1.03,-0.7 -1.62,-0.94l-0.36,-2.54c-0.04,-0.24 -0.24,-0.41 -0.48,-0.41h-3.84c-0.24,0 -0.43,0.17 -0.47,0.41l-0.36,2.54c-0.59,0.24 -1.13,0.57 -1.62,0.94l-2.39,-0.96c-0.22,-0.08 -0.47,0 -0.59,0.22L2.74,8.87c-0.12,0.21 -0.08,0.47 0.12,0.61l2.03,1.58c-0.05,0.3 -0.09,0.63 -0.09,0.94s0.02,0.64 0.07,0.94l-2.03,1.58c-0.18,0.14 -0.23,0.41 -0.12,0.61l1.92,3.32c0.12,0.22 0.37,0.29 0.59,0.22l2.39,-0.96c0.5,0.38 1.03,0.7 1.62,0.94l0.36,2.54c0.05,0.24 0.24,0.41 0.48,0.41h3.84c0.24,0 0.44,-0.17 0.47,-0.41l0.36,-2.54c0.59,-0.24 1.13,-0.56 1.62,-0.94l2.39,0.96c0.22,0.08 0.47,0 0.59,-0.22l1.92,-3.32c0.12,-0.22 0.07,-0.47 -0.12,-0.61l-2.01,-1.58zM12,15.6c-1.98,0 -3.6,-1.62 -3.6,-3.6s1.62,-3.6 3.6,-3.6s3.6,1.62 3.6,3.6s-1.62,3.6 -3.6,3.6z</StreamGeometry>
+    </ResourceDictionary>
+  </Application.Resources>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <Style Selector="TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource TextMainBrush}" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.title">
+      <Setter Property="FontSize" Value="20" />
+      <Setter Property="FontWeight" Value="Bold" />
+    </Style>
+    <Style Selector="TextBlock.error">
+      <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="monospace" />
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrushMain}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="14" />
+      <Setter Property="Margin" Value="0,0,0,10" />
+    </Style>
+    <Style Selector="Border.banner">
+      <Setter Property="Background" Value="{StaticResource BtnOrangeBg}" />
+      <Setter Property="BorderBrush" Value="{StaticResource OrangeBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
+      <Setter Property="Padding" Value="12,8" />
+      <Setter Property="Margin" Value="12,6,12,0" />
+    </Style>
+
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="44" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="HorizontalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.primary">
+      <Setter Property="Background" Value="{StaticResource BtnGreenBg}" />
+      <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="Foreground" Value="{StaticResource TextMainBrush}" />
+    </Style>
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="{StaticResource BtnRedBg}" />
+      <Setter Property="BorderBrush" Value="{StaticResource RedBrush}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+      <Setter Property="Foreground" Value="{StaticResource TextMainBrush}" />
+    </Style>
+    <Style Selector="Button.small">
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="Button.nav">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+      <Setter Property="VerticalAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="0,6" />
+    </Style>
+    <Style Selector="Button.nav PathIcon">
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+    </Style>
+    <Style Selector="Button.nav TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
+      <Setter Property="FontSize" Value="11" />
+    </Style>
+    <Style Selector="Button.nav.active PathIcon">
+      <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.nav.active TextBlock">
+      <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
+    </Style>
+
+    <Style Selector="Border.pill">
+      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="Padding" Value="10,3" />
+      <Setter Property="Background" Value="{StaticResource NavChipBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.pill.online">
+      <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+    </Style>
+    <Style Selector="Border.pill.busy">
+      <Setter Property="BorderBrush" Value="{StaticResource OrangeBrush}" />
+    </Style>
+    <Style Selector="Border.pill.failed">
+      <Setter Property="BorderBrush" Value="{StaticResource RedBrush}" />
+    </Style>
+
+    <Style Selector="ProgressBar.hp">
+      <Setter Property="Foreground" Value="{StaticResource RedBrush}" />
+      <Setter Property="Background" Value="{StaticResource SurfaceElevatedBrush}" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="MinHeight" Value="10" />
+      <Setter Property="CornerRadius" Value="5" />
+    </Style>
+    <Style Selector="ProgressBar.mp">
+      <Setter Property="Foreground" Value="{StaticResource ManaBrush}" />
+      <Setter Property="Background" Value="{StaticResource SurfaceElevatedBrush}" />
+      <Setter Property="Height" Value="10" />
+      <Setter Property="MinHeight" Value="10" />
+      <Setter Property="CornerRadius" Value="5" />
+    </Style>
+
+    <Style Selector="ToggleButton.tab">
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="12,4" />
+      <Setter Property="CornerRadius" Value="16" />
+      <Setter Property="Margin" Value="0,0,6,0" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="8,6" />
+    </Style>
+  </Application.Styles>
+</Application>

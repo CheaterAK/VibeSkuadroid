@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Desktop preview of the Android app (Linux/Windows/macOS): the same views, ViewModels and engine, with a
+    phone-sized window. For developing and trying the UI and the live login without a phone.
+    No secure storage here: "remember password" is disabled. Data goes under LocalApplicationData/VibeSkua-droid-preview (or the folder given as first argument).
+      dotnet run (project Skua.App.Droid/Skua.App.Droid.Desktop)
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Skua.App.Droid.Desktop</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
+    <ProjectReference Include="..\Skua.App.Droid.UI\Skua.App.Droid.UI.csproj" />
+  </ItemGroup>
+
+</Project>

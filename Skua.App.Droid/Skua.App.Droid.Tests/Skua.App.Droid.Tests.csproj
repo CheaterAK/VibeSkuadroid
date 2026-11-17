@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tests for everything platform neutral in the Android app: engine (against the in-process fake AQW server),
+    host logic, vault format, settings, script library, memory watchdog, ViewModels, the script reference set
+    (real scripts compiled through Skua.Core against exactly the images the APK ships) and the Avalonia views
+    (rendered headless).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Skua.App.Droid.Tests</RootNamespace>
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Avalonia.Headless.XUnit" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
+    <ProjectReference Include="..\Skua.App.Droid.Scripting\Skua.App.Droid.Scripting.csproj" />
+    <ProjectReference Include="..\Skua.App.Droid.UI\Skua.App.Droid.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reused unchanged from the headless library's tests: a real loopback AQW server. -->
+    <Compile Include="..\..\Skua.Core.Headless.Tests\Fakes\FakeAqwServer.cs" Link="Fakes\FakeAqwServer.cs" />
+  </ItemGroup>
+
+  <Import Project="..\ScriptReferences.targets" />
+
+  <!-- Same image set as the APK's assets/script-refs, copied next to the tests. -->
+  <Target Name="SkuaCopyScriptReferencesForTests" AfterTargets="Build" DependsOnTargets="SkuaCollectScriptReferences">
+    <Copy SourceFiles="@(SkuaScriptRefFramework)" DestinationFolder="$(OutDir)script-refs/framework" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(SkuaScriptRefApp)" DestinationFolder="$(OutDir)script-refs/app" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(SkuaScriptRefsManifest)" DestinationFiles="$(OutDir)script-refs/manifest.txt" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

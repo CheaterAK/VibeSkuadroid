@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:e="using:Skua.App.Droid.Core.Engine"
+             x:Class="Skua.App.Droid.UI.Views.LoginView"
+             x:DataType="vm:LoginViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="12" MaxWidth="520">
+      <Border Classes="card">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="title" Text="VibeSkua" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Log in with your AdventureQuest Worlds account. Only one account at a time." />
+
+          <TextBlock Classes="caption" Text="ACCOUNT" />
+          <TextBox Text="{Binding Account}" PlaceholderText="Account name" TextInputOptions.ContentType="Name"
+                   TextInputOptions.AutoCapitalization="False" />
+
+          <TextBlock Classes="caption" Text="PASSWORD" />
+          <TextBox Text="{Binding Password}" PasswordChar="•" PlaceholderText="{Binding PasswordHint}"
+                   TextInputOptions.ContentType="Password" TextInputOptions.IsSensitive="True" />
+
+          <TextBlock Classes="caption" Text="SERVER" />
+          <Grid ColumnDefinitions="*,Auto">
+            <ComboBox ItemsSource="{Binding Servers}" SelectedItem="{Binding SelectedServer}" HorizontalAlignment="Stretch">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="e:ServerChoice">
+                  <TextBlock Text="{Binding Display}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+            <Button Grid.Column="1" Classes="small" Margin="8,0,0,0" Content="Refresh" Command="{Binding LoadServersCommand}" />
+          </Grid>
+
+          <CheckBox IsChecked="{Binding RememberMe}" IsEnabled="{Binding CanRemember}"
+                    Content="Remember password (encrypted with a key in the Android Keystore)" />
+          <Button Classes="small" HorizontalAlignment="Left" Content="Forget saved password"
+                  IsVisible="{Binding HasStoredPassword}" Command="{Binding ForgetPasswordCommand}" />
+
+          <Grid ColumnDefinitions="*,Auto">
+            <Button Classes="primary" HorizontalAlignment="Stretch" Content="Log in" Command="{Binding LoginCommand}" />
+            <Button Grid.Column="1" Classes="danger" Margin="8,0,0,0" Content="Cancel"
+                    IsVisible="{Binding IsWorking}" Command="{Binding CancelLoginCommand}" />
+          </Grid>
+          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding StatusText}" IsVisible="{Binding StatusText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          <TextBlock Classes="error" Text="{Binding ErrorText}" IsVisible="{Binding ErrorText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

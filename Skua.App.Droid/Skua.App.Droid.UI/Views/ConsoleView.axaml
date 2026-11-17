@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:e="using:Skua.App.Droid.Core.Engine"
+             x:Class="Skua.App.Droid.UI.Views.ConsoleView"
+             x:DataType="vm:ConsoleViewModel">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="12,8">
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
+      <ToggleButton Classes="tab" Content="Log" IsChecked="{Binding IsLogTab, Mode=OneWay}" Command="{Binding ShowLogCommand}" />
+      <ToggleButton Classes="tab" Content="Packets" IsChecked="{Binding IsPacketsTab, Mode=OneWay}" Command="{Binding ShowPacketsCommand}" />
+    </StackPanel>
+
+    <!-- Log -->
+    <ListBox x:Name="LogList" Grid.Row="1" ItemsSource="{Binding LogLines}" IsVisible="{Binding IsLogTab}" Background="Transparent">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="e:LogEntry">
+          <TextBlock Classes="mono" Text="{Binding Display}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <StackPanel Grid.Row="2" Spacing="6" Margin="0,6,0,0" IsVisible="{Binding IsLogTab}">
+      <CheckBox IsChecked="{Binding ShowDebug}" Content="Show debug lines" />
+      <Grid ColumnDefinitions="*,*,*">
+        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Copy" Command="{Binding CopyLogCommand}" />
+        <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Share" Command="{Binding ShareLogCommand}" />
+        <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Clear" Command="{Binding ClearLogCommand}" />
+      </Grid>
+      <TextBlock Classes="muted" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+
+    <!-- Packets -->
+    <ListBox x:Name="PacketList" Grid.Row="1" ItemsSource="{Binding PacketLines}" IsVisible="{Binding IsPacketsTab}" Background="Transparent">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="e:PacketEntry">
+          <TextBlock Classes="mono" Text="{Binding Display}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <StackPanel Grid.Row="2" Spacing="6" Margin="0,6,0,0" IsVisible="{Binding IsPacketsTab}">
+      <Grid ColumnDefinitions="Auto,*">
+        <CheckBox IsChecked="{Binding CaptureEnabled}" Content="Capture" />
+        <TextBox Grid.Column="1" Margin="8,0,0,0" Text="{Binding PacketFilter}" PlaceholderText="Filter" TextInputOptions.AutoCapitalization="False" />
+      </Grid>
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBox Text="{Binding RawPacket}" PlaceholderText="%xt%zm%cmd%1%...%" FontFamily="monospace" TextInputOptions.AutoCapitalization="False" />
+        <Button Grid.Column="1" Classes="small primary" Margin="6,0,0,0" Content="Send" Command="{Binding SendPacketCommand}" />
+      </Grid>
+      <Grid ColumnDefinitions="*,*,*">
+        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Copy" Command="{Binding CopyPacketsCommand}" />
+        <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Share" Command="{Binding SharePacketsCommand}" />
+        <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Clear" Command="{Binding ClearPacketsCommand}" />
+      </Grid>
+      <TextBlock Classes="muted" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+  </Grid>
+</UserControl>

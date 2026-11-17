@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.MainView"
+             x:DataType="vm:ShellViewModel"
+             Background="{StaticResource BgDarkBrush}">
+
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:LoginViewModel"><v:LoginView /></DataTemplate>
+    <DataTemplate DataType="vm:DashboardViewModel"><v:DashboardView /></DataTemplate>
+    <DataTemplate DataType="vm:ScriptsViewModel"><v:ScriptsView /></DataTemplate>
+    <DataTemplate DataType="vm:WorldViewModel"><v:WorldView /></DataTemplate>
+    <DataTemplate DataType="vm:ConsoleViewModel"><v:ConsoleView /></DataTemplate>
+    <DataTemplate DataType="vm:SettingsViewModel"><v:SettingsView /></DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Grid x:Name="Root" RowDefinitions="Auto,Auto,*,Auto">
+
+    <!-- Top bar: title, connection pill, memory -->
+    <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushMain}" BorderThickness="0,0,0,1" Padding="14,10">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel>
+          <TextBlock Classes="title" Text="{Binding Title}" />
+          <TextBlock Classes="muted" Text="{Binding MemoryText}" />
+        </StackPanel>
+        <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center"
+                Classes.online="{Binding IsOnline}" Classes.busy="{Binding IsBusy}" Classes.failed="{Binding IsFailed}">
+          <TextBlock Text="{Binding ConnectionText}" FontSize="13" />
+        </Border>
+      </Grid>
+    </Border>
+
+    <!-- Banners -->
+    <StackPanel Grid.Row="1">
+      <Border Classes="banner" IsVisible="{Binding ShowNotificationBanner}">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" FontSize="13"
+                     Text="Notifications are off: the status notification and its Stop button stay hidden." />
+          <Button Grid.Column="1" Classes="small primary" Margin="8,0,0,0" Content="Allow" Command="{Binding RequestNotificationsCommand}" />
+        </Grid>
+      </Border>
+      <Border Classes="banner" IsVisible="{Binding ShowBatteryBanner}">
+        <StackPanel Spacing="6">
+          <TextBlock TextWrapping="Wrap" FontSize="13"
+                     Text="Battery optimisation is on: with the screen off Android may cut the game connection. Allow the app to run in the background." />
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Classes="small" Content="Not now" Command="{Binding DismissBatteryBannerCommand}" />
+            <Button Classes="small primary" Content="Allow" Command="{Binding RequestBatteryExemptionCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+      <Border Classes="banner" IsVisible="{Binding ShowMemoryBanner}">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" FontSize="13" Text="{Binding MemoryBannerText}" />
+          <Button Grid.Column="1" Classes="small primary" Margin="8,0,0,0" Content="Restart" Command="{Binding RestartEngineCommand}" />
+        </Grid>
+      </Border>
+    </StackPanel>
+
+    <!-- Page -->
+    <ContentControl Grid.Row="2" Content="{Binding CurrentContent}" />
+
+    <!-- Bottom navigation -->
+    <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushMain}" BorderThickness="0,1,0,0">
+      <UniformGrid Rows="1" Height="62">
+        <Button Classes="nav" Classes.active="{Binding IsHomePage}" Command="{Binding NavigateCommand}" CommandParameter="Home">
+          <StackPanel HorizontalAlignment="Center" Spacing="2">
+            <PathIcon Data="{StaticResource IconHome}" Width="22" Height="22" />
+            <TextBlock Text="Home" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Classes="nav" Classes.active="{Binding IsScriptsPage}" Command="{Binding NavigateCommand}" CommandParameter="Scripts">
+          <StackPanel HorizontalAlignment="Center" Spacing="2">
+            <PathIcon Data="{StaticResource IconScripts}" Width="22" Height="22" />
+            <TextBlock Text="Scripts" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Classes="nav" Classes.active="{Binding IsWorldPage}" Command="{Binding NavigateCommand}" CommandParameter="World">
+          <StackPanel HorizontalAlignment="Center" Spacing="2">
+            <PathIcon Data="{StaticResource IconWorld}" Width="22" Height="22" />
+            <TextBlock Text="World" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Classes="nav" Classes.active="{Binding IsConsolePage}" Command="{Binding NavigateCommand}" CommandParameter="Console">
+          <StackPanel HorizontalAlignment="Center" Spacing="2">
+            <PathIcon Data="{StaticResource IconConsole}" Width="22" Height="22" />
+            <TextBlock Text="Console" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Classes="nav" Classes.active="{Binding IsSettingsPage}" Command="{Binding NavigateCommand}" CommandParameter="Settings">
+          <StackPanel HorizontalAlignment="Center" Spacing="2">
+            <PathIcon Data="{StaticResource IconSettings}" Width="22" Height="22" />
+            <TextBlock Text="Settings" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+      </UniformGrid>
+    </Border>
+  </Grid>
+</UserControl>

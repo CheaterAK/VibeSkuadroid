@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:e="using:Skua.App.Droid.Core.Engine"
+             x:Class="Skua.App.Droid.UI.Views.WorldView"
+             x:DataType="vm:WorldViewModel">
+  <UserControl.Resources>
+    <DataTemplate x:Key="ItemRow" x:DataType="e:InventoryRow">
+      <Grid ColumnDefinitions="*,Auto">
+        <StackPanel>
+          <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="muted" Text="{Binding Type}" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+          <TextBlock Text="{Binding QuantityText}" HorizontalAlignment="Right" />
+          <TextBlock Classes="muted" Text="equipped" Foreground="{StaticResource PrimaryBrush}" IsVisible="{Binding Equipped}" HorizontalAlignment="Right" />
+        </StackPanel>
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="12,8">
+    <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+      <StackPanel Orientation="Horizontal">
+        <ToggleButton Classes="tab" Content="Inventory" IsChecked="{Binding IsInventoryTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Inventory" />
+        <ToggleButton Classes="tab" Content="Temp" IsChecked="{Binding IsTempTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Temp" />
+        <ToggleButton Classes="tab" Content="Bank" IsChecked="{Binding IsBankTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Bank" />
+        <ToggleButton Classes="tab" Content="Quests" IsChecked="{Binding IsQuestsTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Quests" />
+        <ToggleButton Classes="tab" Content="Drops" IsChecked="{Binding IsDropsTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Drops" />
+        <ToggleButton Classes="tab" Content="Monsters" IsChecked="{Binding IsMonstersTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Monsters" />
+      </StackPanel>
+    </ScrollViewer>
+    <TextBox Grid.Row="1" Margin="0,8,0,4" Text="{Binding Filter}" PlaceholderText="Filter" TextInputOptions.AutoCapitalization="False" />
+    <StackPanel Grid.Row="2" Spacing="4" Margin="2,0,0,6">
+      <TextBlock Classes="muted" Text="{Binding Summary}" TextWrapping="Wrap" />
+      <Button Classes="small primary" HorizontalAlignment="Left" Content="Load bank" Command="{Binding LoadBankCommand}" IsVisible="{Binding IsBankTab}" />
+      <TextBlock Classes="error" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+
+    <Panel Grid.Row="3">
+      <ListBox ItemsSource="{Binding Inventory}" ItemTemplate="{StaticResource ItemRow}" IsVisible="{Binding IsInventoryTab}" Background="Transparent" />
+      <ListBox ItemsSource="{Binding Temp}" ItemTemplate="{StaticResource ItemRow}" IsVisible="{Binding IsTempTab}" Background="Transparent" />
+      <ListBox ItemsSource="{Binding Bank}" ItemTemplate="{StaticResource ItemRow}" IsVisible="{Binding IsBankTab}" Background="Transparent" />
+      <ListBox ItemsSource="{Binding Quests}" IsVisible="{Binding IsQuestsTab}" Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="e:QuestRow">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel>
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="muted" Text="{Binding QuestId, StringFormat='#{0}'}" />
+              </StackPanel>
+              <TextBlock Grid.Column="1" Classes="muted" Text="{Binding StatusText}" VerticalAlignment="Center" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <ListBox ItemsSource="{Binding Drops}" IsVisible="{Binding IsDropsTab}" Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="e:DropRow">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+              <TextBlock Grid.Column="1" Text="{Binding Quantity, StringFormat='x{0}'}" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <ListBox ItemsSource="{Binding Monsters}" IsVisible="{Binding IsMonstersTab}" Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="e:MonsterRow">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel>
+                <TextBlock Text="{Binding Name}" />
+                <TextBlock Classes="muted" Text="{Binding Cell}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Hp}" />
+                <TextBlock Classes="muted" Text="/" />
+                <TextBlock Classes="muted" Text="{Binding HpMax}" />
+              </StackPanel>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Panel>
+  </Grid>
+</UserControl>

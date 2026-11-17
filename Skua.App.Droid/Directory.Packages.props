@@ -1,0 +1,25 @@
+<Project>
+  <!--
+    Central package versions for Skua.App.Droid only. Replaces (does not import) the repo-root
+    Directory.Packages.props, which pins Avalonia 11.3.12 for the desktop projects.
+    Keep every Avalonia package on the same version.
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <AvaloniaDroidVersion>12.1.6</AvaloniaDroidVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Avalonia" Version="$(AvaloniaDroidVersion)" />
+    <PackageVersion Include="Avalonia.Android" Version="$(AvaloniaDroidVersion)" />
+    <PackageVersion Include="Avalonia.Desktop" Version="$(AvaloniaDroidVersion)" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="$(AvaloniaDroidVersion)" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="$(AvaloniaDroidVersion)" />
+    <PackageVersion Include="Avalonia.Headless.XUnit" Version="$(AvaloniaDroidVersion)" />
+    <!-- Same version Skua.Core uses, so the copy scripts compile against is the copy that runs. -->
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <!-- Tests (xunit v3: Avalonia.Headless.XUnit 12 is built on xunit.v3.extensibility.core 3.2.2). -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+</Project>

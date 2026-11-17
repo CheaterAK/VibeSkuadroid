@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:s="using:Skua.App.Droid.Core.Scripts"
+             x:Class="Skua.App.Droid.UI.Views.ScriptsView"
+             x:DataType="vm:ScriptsViewModel">
+  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,8">
+
+    <Border Grid.Row="0" Classes="banner" Margin="0,0,0,8" IsVisible="{Binding ScriptsUnavailable}">
+      <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding ScriptSupportText}" />
+    </Border>
+
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*" Margin="0,0,0,6">
+      <Button Classes="small" Content="Up" Command="{Binding UpCommand}" Margin="0,0,8,0" />
+      <TextBox Grid.Column="1" Text="{Binding SearchText}" PlaceholderText="Search scripts" TextInputOptions.AutoCapitalization="False" />
+    </Grid>
+    <TextBlock Grid.Row="2" Classes="muted" Text="{Binding FolderDisplay}" Margin="2,0,0,6" />
+
+    <ListBox Grid.Row="3" ItemsSource="{Binding Entries}" SelectedItem="{Binding SelectedEntry}" Background="Transparent"
+             Tapped="OnEntryTapped">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="s:ScriptEntry">
+          <Grid ColumnDefinitions="Auto,*,Auto">
+            <PathIcon Data="{StaticResource IconWorld}" Width="16" Height="16" Margin="0,0,10,0" IsVisible="{Binding IsFolder}" Foreground="{StaticResource OrangeBrush}" />
+            <PathIcon Data="{StaticResource IconScripts}" Width="16" Height="16" Margin="0,0,10,0" IsVisible="{Binding IsScript}" Foreground="{StaticResource PrimaryBrush}" />
+            <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            <TextBlock Grid.Column="2" Classes="muted" Text="{Binding Detail}" VerticalAlignment="Center" Margin="8,0,0,0" />
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <StackPanel Grid.Row="4" Spacing="6" Margin="0,8,0,0">
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding LoadedScript, StringFormat='Loaded: {0}'}" IsVisible="{Binding LoadedScript, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      <TextBlock Classes="muted" Text="{Binding ScriptStatus}" />
+      <Grid ColumnDefinitions="*,*">
+        <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Start" Command="{Binding StartCommand}" />
+        <Button Grid.Column="1" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop" Command="{Binding StopCommand}" />
+      </Grid>
+      <Grid ColumnDefinitions="*,*,*">
+        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Import files" Command="{Binding ImportFilesCommand}" />
+        <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Import folder" Command="{Binding ImportFolderCommand}" />
+        <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteCommand}" />
+      </Grid>
+      <Button Classes="small" HorizontalAlignment="Stretch" Content="Community scripts (sync)" Command="{Binding SyncRepositoryCommand}" />
+      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+  </Grid>
+</UserControl>
