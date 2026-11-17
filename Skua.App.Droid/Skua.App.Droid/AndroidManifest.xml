@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifest template; the build merges in the application class name, the activities and the receiver declared
+  with [Activity]/[BroadcastReceiver] attributes in C#, minSdk/targetSdk and the version from the .csproj.
+
+  Permissions (and nothing else):
+    INTERNET                             game web API (HTTPS) and the game socket
+    FOREGROUND_SERVICE                   the engine service keeps the socket and the script thread alive
+    FOREGROUND_SERVICE_SPECIAL_USE       its type on Android 14+ (see the service's <property> below)
+    POST_NOTIFICATIONS                   the status notification with the Stop action (asked at run time, 13+)
+    WAKE_LOCK                            partial wake lock and Wi-Fi lock while a script runs
+    REQUEST_IGNORE_BATTERY_OPTIMIZATIONS lets the app show the system "allow background use" prompt
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:installLocation="internalOnly">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+  <application
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
+      android:theme="@style/VibeSkua.Theme"
+      android:allowBackup="false"
+      android:fullBackupContent="@xml/backup_rules"
+      android:dataExtractionRules="@xml/data_extraction_rules"
+      android:usesCleartextTraffic="false"
+      android:networkSecurityConfig="@xml/network_security_config"
+      android:supportsRtl="true"
+      android:hasFragileUserData="false">
+
+    <!--
+      The engine host. specialUse, not dataSync: dataSync is capped at 6 hours a day on Android 15+, and a bot
+      session is a long-lived user-started connection to a game server, which no other type describes.
+      Not exported: only this app can start or bind it.
+    -->
+    <service
+        android:name="com.vibeskua.droid.EngineService"
+        android:exported="false"
+        android:foregroundServiceType="specialUse"
+        android:stopWithTask="false">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps a user-started game client session (TCP connection and automation script) running while the app is in the background." />
+    </service>
+  </application>
+</manifest>

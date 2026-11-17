@@ -1,0 +1,100 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VibeSkua for Android: the thin platform head. Avalonia 12 single view, the foreground engine service,
+    Keystore credential storage, SAF import, process restart. Everything else lives in the net10.0 libraries
+    next to it (Core, Scripting, UI) and is tested on Linux.
+
+    Build (see build/android/README.md for the SDK):
+      dotnet build   -c Debug   -p:AndroidSdkDirectory=$ANDROID_HOME -p:JavaSdkDirectory=$JAVA_HOME
+      dotnet publish -c Release -p:AndroidSdkDirectory=$ANDROID_HOME -p:JavaSdkDirectory=$JAVA_HOME
+    or ../build-droid.sh [apk-output-dir].
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+    <TargetPlatformVersion>36</TargetPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Skua.App.Droid</RootNamespace>
+    <ApplicationId>com.vibeskua.droid</ApplicationId>
+    <ApplicationTitle>VibeSkua</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+
+    <!--
+      arm64-v8a only by default. Managed assemblies are stored per ABI, so each extra ABI roughly doubles the
+      APK. armeabi-v7a is left out on purpose (32-bit address space against a ~430 MB compile peak);
+      -p:DroidEmulatorAbi=true adds x86_64 for emulators.
+    -->
+    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(DroidEmulatorAbi)' == 'true'">android-arm64;android-x64</RuntimeIdentifiers>
+
+    <!-- Standalone APK in every configuration (Debug otherwise relies on Fast Deployment). -->
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+    <!-- Mono with the JIT: Roslyn-emitted script assemblies are JIT-compiled (never interpreted). -->
+    <UseMonoRuntime>true</UseMonoRuntime>
+    <UseInterpreter>false</UseInterpreter>
+    <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+  </PropertyGroup>
+
+  <!--
+    Scripts are arbitrary C# compiled on the device against the full net10.0 and Skua API surface, so nothing a
+    script can reach may be trimmed, and code must stay JIT-able. These are the Release settings that ran a
+    CoreBots-sized compile on a Galaxy S21 Ultra (Skua.Droid.Spike). Never set PublishTrimmed, RunAOTCompilation
+    full AOT or UseInterpreter here.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishTrimmed>false</PublishTrimmed>
+    <AndroidLinkMode>None</AndroidLinkMode>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <AndroidStripILAfterAOT>false</AndroidStripILAfterAOT>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- Debug installs next to Release. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <ApplicationId>com.vibeskua.droid.debug</ApplicationId>
+    <ApplicationTitle>VibeSkua Debug</ApplicationTitle>
+  </PropertyGroup>
+
+  <!--
+    Optional release signing, only when a keystore is supplied (CI secrets); otherwise the APK is signed with the
+    SDK's auto-generated debug key. No keystore is ever committed.
+  -->
+  <PropertyGroup Condition="'$(DroidKeystore)' != ''">
+    <AndroidKeyStore>true</AndroidKeyStore>
+    <AndroidSigningKeyStore>$(DroidKeystore)</AndroidSigningKeyStore>
+    <AndroidSigningKeyAlias>$(DroidKeyAlias)</AndroidSigningKeyAlias>
+    <AndroidSigningStorePass>env:DROID_KEYSTORE_PASSWORD</AndroidSigningStorePass>
+    <AndroidSigningKeyPass>env:DROID_KEY_PASSWORD</AndroidSigningKeyPass>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Android" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
+    <ProjectReference Include="..\Skua.App.Droid.UI\Skua.App.Droid.UI.csproj" />
+    <ProjectReference Include="..\Skua.App.Droid.Scripting\Skua.App.Droid.Scripting.csproj" />
+  </ItemGroup>
+
+  <Import Project="..\ScriptReferences.targets" />
+
+  <!-- Pack the script reference images as assets (assets/script-refs/...), read back as streams on the device. -->
+  <Target Name="SkuaAddScriptReferenceAssets" BeforeTargets="_ComputeAndroidAssetsPaths" DependsOnTargets="SkuaCollectScriptReferences">
+    <ItemGroup>
+      <AndroidAsset Include="@(SkuaScriptRefFramework)" Link="Assets/script-refs/framework/%(Filename)%(Extension)" />
+      <AndroidAsset Include="@(SkuaScriptRefApp)" Link="Assets/script-refs/app/%(Filename)%(Extension)" />
+      <AndroidAsset Include="$(SkuaScriptRefsManifest)" Link="Assets/script-refs/manifest.txt" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>Configuration</_Parameter1><_Parameter2>$(Configuration)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>PublishTrimmed</_Parameter1><_Parameter2>$(PublishTrimmed)</_Parameter2></AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>RunAOTCompilation</_Parameter1><_Parameter2>$(RunAOTCompilation)</_Parameter2></AssemblyAttribute>
+  </ItemGroup>
+</Project>

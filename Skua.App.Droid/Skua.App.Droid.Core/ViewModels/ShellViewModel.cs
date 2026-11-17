@@ -162,7 +162,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void RestartEngine() => Settings.RestartEngineCommand.Execute(null);
+    private void RestartEngine()
+    {
+        if (!_host.Platform.CanRestartProcess)
+            MemoryBannerText = "Restart is only available on Android.";
+        else if (!_host.RequestRestart("restart requested from the memory banner"))
+            MemoryBannerText = "Stop the script first; the engine restarts once it is idle.";
+    }
 
     partial void OnCurrentPageChanged(AppPage value)
     {

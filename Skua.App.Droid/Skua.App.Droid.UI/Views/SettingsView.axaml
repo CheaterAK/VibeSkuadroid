@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.SettingsView"
+             x:DataType="vm:SettingsViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="12">
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="CONNECTION" />
+          <CheckBox IsChecked="{Binding AutoReconnect}" Content="Reconnect automatically after a drop" />
+          <TextBlock Classes="muted" Text="Client version (blank = detect from the live game)" />
+          <TextBox Text="{Binding ClientVersion}" PlaceholderText="auto" TextInputOptions.AutoCapitalization="False" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="MEMORY" />
+          <TextBlock Text="{Binding MemoryText}" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="Android never frees compiled script assemblies. Above this size the engine restarts its process when no script is running, and logs back in if the password is remembered." />
+          <NumericUpDown Value="{Binding MemoryThresholdMb}" Minimum="{Binding MinThreshold}" Maximum="{Binding MaxThreshold}"
+                         Increment="128" FormatString="0 MB" />
+          <CheckBox IsChecked="{Binding AutoRestartOnMemory}" Content="Restart automatically" />
+          <Button Classes="small" HorizontalAlignment="Left" Content="Restart engine now" Command="{Binding RestartEngineCommand}" IsEnabled="{Binding CanRestart}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="BACKGROUND" />
+          <CheckBox IsChecked="{Binding WifiLock}" Content="Keep Wi-Fi awake while a script runs" />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock VerticalAlignment="Center" Text="Notifications allowed" />
+            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding NotificationsAllowed}" />
+          </Grid>
+          <Button Classes="small" HorizontalAlignment="Left" Content="Notification permission" Command="{Binding RequestNotificationsCommand}" />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock VerticalAlignment="Center" Text="Exempt from battery optimisation" />
+            <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding BatteryExempt}" />
+          </Grid>
+          <Button Classes="small" HorizontalAlignment="Left" Content="Battery optimisation" Command="{Binding RequestBatteryExemptionCommand}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="ACCOUNT" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !CanRememberPasswords}"
+                     Text="No secure storage on this platform: passwords are never saved." />
+          <Button Classes="small danger" HorizontalAlignment="Left" Content="Delete saved password"
+                  IsVisible="{Binding HasRememberedPassword}" Command="{Binding ForgetPasswordCommand}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="ABOUT" />
+          <TextBlock Text="{Binding VersionText}" />
+          <TextBlock Classes="muted" Text="{Binding DeviceText}" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" Text="{Binding ScriptSupportText}" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" Text="{Binding ScriptsPath, StringFormat='Script folder: {0}'}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>
