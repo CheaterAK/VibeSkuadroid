@@ -71,6 +71,25 @@
     <AndroidSigningKeyPass>env:DROID_KEY_PASSWORD</AndroidSigningKeyPass>
   </PropertyGroup>
 
+  <!--
+    The SDK's signing step only reruns when the unsigned APK changes, so switching between the debug key and a
+    release keystore would silently keep the previous signature. Drop the signed outputs whenever the signing
+    identity differs from the last build.
+  -->
+  <Target Name="DroidInvalidateSignatureOnKeyChange" BeforeTargets="BeforeBuild">
+    <PropertyGroup>
+      <_DroidSignStamp>$(IntermediateOutputPath)droid-signing.stamp</_DroidSignStamp>
+      <_DroidSignId>key=$(DroidKeystore)|alias=$(DroidKeyAlias)</_DroidSignId>
+      <_DroidSignOld Condition="Exists('$(_DroidSignStamp)')">$([System.IO.File]::ReadAllText('$(_DroidSignStamp)').Trim())</_DroidSignOld>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(_DroidSignOld)' != '$(_DroidSignId)'">
+      <_DroidStaleSigned Include="$(OutDir)*-Signed.apk;$(OutDir)*-Signed.apk.idsig;$(OutDir)publish/*-Signed.apk" />
+    </ItemGroup>
+    <Message Condition="'@(_DroidStaleSigned)' != ''" Importance="high" Text="Signing identity changed: removing @(_DroidStaleSigned->Count()) previously signed file(s)." />
+    <Delete Files="@(_DroidStaleSigned)" />
+    <WriteLinesToFile File="$(_DroidSignStamp)" Lines="$(_DroidSignId)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Avalonia.Android" />
   </ItemGroup>
