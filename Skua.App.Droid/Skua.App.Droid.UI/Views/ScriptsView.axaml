@@ -4,47 +4,100 @@
              xmlns:s="using:Skua.App.Droid.Core.Scripts"
              x:Class="Skua.App.Droid.UI.Views.ScriptsView"
              x:DataType="vm:ScriptsViewModel">
-  <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,8">
+  <Grid>
+    <!-- Browser -->
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,8" IsVisible="{Binding IsBrowsing}">
 
-    <Border Grid.Row="0" Classes="banner" Margin="0,0,0,8" IsVisible="{Binding ScriptsUnavailable}">
-      <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding ScriptSupportText}" />
-    </Border>
+      <Border Grid.Row="0" Classes="banner" Margin="0,0,0,8" IsVisible="{Binding ScriptsUnavailable}">
+        <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding ScriptSupportText}" />
+      </Border>
 
-    <Grid Grid.Row="1" ColumnDefinitions="Auto,*" Margin="0,0,0,6">
-      <Button Classes="small" Content="Up" Command="{Binding UpCommand}" Margin="0,0,8,0" />
-      <TextBox Grid.Column="1" Text="{Binding SearchText}" PlaceholderText="Search scripts" TextInputOptions.AutoCapitalization="False" />
+      <Grid Grid.Row="1" ColumnDefinitions="Auto,*" Margin="0,0,0,6">
+        <Button Classes="small" Content="Up" Command="{Binding UpCommand}" Margin="0,0,8,0" />
+        <TextBox Grid.Column="1" Text="{Binding SearchText}" PlaceholderText="Search scripts" TextInputOptions.AutoCapitalization="False" />
+      </Grid>
+      <TextBlock Grid.Row="2" Classes="muted" Text="{Binding FolderDisplay}" Margin="2,0,0,6" />
+
+      <ListBox Grid.Row="3" ItemsSource="{Binding Entries}" SelectedItem="{Binding SelectedEntry}" Background="Transparent"
+               Tapped="OnEntryTapped">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="s:ScriptEntry">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+              <PathIcon Data="{StaticResource IconWorld}" Width="16" Height="16" Margin="0,0,10,0" IsVisible="{Binding IsFolder}" Foreground="{StaticResource OrangeBrush}" />
+              <PathIcon Data="{StaticResource IconScripts}" Width="16" Height="16" Margin="0,0,10,0" IsVisible="{Binding IsScript}" Foreground="{StaticResource PrimaryBrush}" />
+              <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="2" Classes="muted" Text="{Binding Detail}" VerticalAlignment="Center" Margin="8,0,0,0" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+
+      <StackPanel Grid.Row="4" Spacing="6" Margin="0,8,0,0">
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding LoadedScript, StringFormat='Loaded: {0}'}" IsVisible="{Binding LoadedScript, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding ScriptStatus}" />
+        <TextBlock Classes="muted" Text="{Binding CountersText}" IsVisible="{Binding CountersText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Grid ColumnDefinitions="*,*,*">
+          <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Start" Command="{Binding StartCommand}" />
+          <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Options" Command="{Binding EditOptionsCommand}" />
+          <Button Grid.Column="2" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop" Command="{Binding StopCommand}" />
+        </Grid>
+        <Grid ColumnDefinitions="*,*,*">
+          <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Import files" Command="{Binding ImportFilesCommand}" />
+          <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Import folder" Command="{Binding ImportFolderCommand}" />
+          <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteCommand}" />
+        </Grid>
+        <Grid ColumnDefinitions="*,Auto">
+          <Button Classes="small" HorizontalAlignment="Stretch" Content="Sync community scripts" Command="{Binding SyncRepositoryCommand}" />
+          <Button Grid.Column="1" Classes="small danger" Margin="6,0,0,0" Content="Cancel" Command="{Binding CancelSyncCommand}" IsVisible="{Binding IsSyncing}" />
+        </Grid>
+        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
+        <ProgressBar Minimum="0" Maximum="1" Value="{Binding SyncProgress}" IsIndeterminate="{Binding !SyncProgressKnown}" IsVisible="{Binding IsSyncing}" />
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </StackPanel>
     </Grid>
-    <TextBlock Grid.Row="2" Classes="muted" Text="{Binding FolderDisplay}" Margin="2,0,0,6" />
 
-    <ListBox Grid.Row="3" ItemsSource="{Binding Entries}" SelectedItem="{Binding SelectedEntry}" Background="Transparent"
-             Tapped="OnEntryTapped">
-      <ListBox.ItemTemplate>
-        <DataTemplate x:DataType="s:ScriptEntry">
-          <Grid ColumnDefinitions="Auto,*,Auto">
-            <PathIcon Data="{StaticResource IconWorld}" Width="16" Height="16" Margin="0,0,10,0" IsVisible="{Binding IsFolder}" Foreground="{StaticResource OrangeBrush}" />
-            <PathIcon Data="{StaticResource IconScripts}" Width="16" Height="16" Margin="0,0,10,0" IsVisible="{Binding IsScript}" Foreground="{StaticResource PrimaryBrush}" />
-            <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="2" Classes="muted" Text="{Binding Detail}" VerticalAlignment="Center" Margin="8,0,0,0" />
-          </Grid>
-        </DataTemplate>
-      </ListBox.ItemTemplate>
-    </ListBox>
-
-    <StackPanel Grid.Row="4" Spacing="6" Margin="0,8,0,0">
-      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding LoadedScript, StringFormat='Loaded: {0}'}" IsVisible="{Binding LoadedScript, Converter={x:Static ObjectConverters.IsNotNull}}" />
-      <TextBlock Classes="muted" Text="{Binding ScriptStatus}" />
-      <Grid ColumnDefinitions="*,*">
-        <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Start" Command="{Binding StartCommand}" />
-        <Button Grid.Column="1" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop" Command="{Binding StopCommand}" />
+    <!-- Options editor (Skua's script options window) -->
+    <Grid RowDefinitions="*,Auto" Margin="12,8" IsVisible="{Binding IsEditingOptions}">
+      <ContentControl Content="{Binding OptionsEditor}">
+        <ContentControl.ContentTemplate>
+          <DataTemplate x:DataType="vm:ScriptOptionsViewModel">
+            <Grid RowDefinitions="Auto,*,Auto">
+              <StackPanel Grid.Row="0" Spacing="2" Margin="0,0,0,8">
+                <TextBlock Classes="title" Text="{Binding Header}" TextWrapping="Wrap" />
+                <TextBlock Classes="muted" Text="{Binding StorageText}" TextWrapping="Wrap" />
+              </StackPanel>
+              <ScrollViewer Grid.Row="1">
+                <ItemsControl ItemsSource="{Binding Items}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ScriptOptionEditor">
+                      <Border Classes="card">
+                        <StackPanel Spacing="4">
+                          <TextBlock Classes="caption" Text="{Binding Category}" IsVisible="{Binding ShowCategory}" />
+                          <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <ToggleSwitch Grid.Column="1" IsVisible="{Binding IsToggle}" IsEnabled="{Binding IsEditable}" IsChecked="{Binding BoolValue}" OnContent="" OffContent="" />
+                          </Grid>
+                          <TextBlock Classes="muted" Text="{Binding Description}" TextWrapping="Wrap" IsVisible="{Binding HasDescription}" />
+                          <ComboBox HorizontalAlignment="Stretch" IsVisible="{Binding IsChoice}" IsEnabled="{Binding IsEditable}" ItemsSource="{Binding Choices}" SelectedItem="{Binding SelectedChoice}" />
+                          <TextBox IsVisible="{Binding IsText}" IsEnabled="{Binding IsEditable}" Text="{Binding Value}" TextInputOptions.AutoCapitalization="False" />
+                          <TextBlock Classes="muted" Foreground="{StaticResource OrangeBrush}" IsVisible="{Binding IsTransient}" TextWrapping="Wrap"
+                                     Text="Reset to its default at every start (the script does not save it)." />
+                        </StackPanel>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+              <TextBlock Grid.Row="2" Classes="error" TextWrapping="Wrap" Margin="0,6,0,0" Text="{Binding Error}"
+                         IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </Grid>
+          </DataTemplate>
+        </ContentControl.ContentTemplate>
+      </ContentControl>
+      <Grid Grid.Row="1" ColumnDefinitions="*,*" Margin="0,8,0,0">
+        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Cancel" Command="{Binding CloseOptionsCommand}" />
+        <Button Grid.Column="1" Classes="primary" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Save" Command="{Binding SaveOptionsCommand}" />
       </Grid>
-      <Grid ColumnDefinitions="*,*,*">
-        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Import files" Command="{Binding ImportFilesCommand}" />
-        <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Import folder" Command="{Binding ImportFolderCommand}" />
-        <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteCommand}" />
-      </Grid>
-      <Button Classes="small" HorizontalAlignment="Stretch" Content="Community scripts (sync)" Command="{Binding SyncRepositoryCommand}" />
-      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
-      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
-    </StackPanel>
+    </Grid>
   </Grid>
 </UserControl>

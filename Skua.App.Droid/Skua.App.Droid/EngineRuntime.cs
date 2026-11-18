@@ -82,7 +82,7 @@ internal static class EngineRuntime
         new AvaloniaUiDispatcher(),
         new AvaloniaFilePicker(),
         s_library ?? throw NotInitialized(),
-        new PendingScriptRepositorySync(),
+        new ScriptRepositorySync(s_library!, Paths.SkuaDir),
         Paths);
 
     private static InvalidOperationException NotInitialized() => new("EngineRuntime.Initialize was not called.");

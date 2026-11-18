@@ -8,7 +8,10 @@ using System.Collections.ObjectModel;
 
 namespace Skua.App.Droid.Core.ViewModels;
 
-/// <summary>Browse the app-private script folder, import through the system picker, start/stop.</summary>
+/// <summary>
+/// Browse the app-private script folder, import through the system picker, sync the community repository, edit a
+/// script's options, start/stop with a live status line.
+/// </summary>
 public sealed partial class ScriptsViewModel : ObservableObject
 {
     private readonly AppServices _services;
@@ -24,6 +27,9 @@ public sealed partial class ScriptsViewModel : ObservableObject
         RepositoryText = services.RepositorySync.Description;
     }
 
+    private CancellationTokenSource? _syncCts;
+    private long _lastProgressTicks;
+
     public ObservableCollection<ScriptEntry> Entries { get; } = new();
 
     [ObservableProperty]
@@ -32,15 +38,39 @@ public sealed partial class ScriptsViewModel : ObservableObject
     private string _currentFolder = string.Empty;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(DeleteCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(DeleteCommand), nameof(EditOptionsCommand))]
     private ScriptEntry? _selectedEntry;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(EditOptionsCommand))]
     private bool _scriptBusy;
+
+    /// <summary>Kills, deaths, quests and drops of the running (or last) script.</summary>
+    [ObservableProperty]
+    private string? _countersText;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(SyncRepositoryCommand), nameof(CancelSyncCommand))]
+    private bool _isSyncing;
+
+    /// <summary>0..1 while files download; the bar is indeterminate when <see cref="SyncProgressKnown"/> is false.</summary>
+    [ObservableProperty]
+    private double _syncProgress;
+
+    [ObservableProperty]
+    private bool _syncProgressKnown;
+
+    /// <summary>The options editor while it is open.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsEditingOptions), nameof(IsBrowsing))]
+    private ScriptOptionsViewModel? _optionsEditor;
+
+    public bool IsEditingOptions => OptionsEditor is not null;
+
+    public bool IsBrowsing => OptionsEditor is null;
 
     [ObservableProperty]
     private string _scriptStatus = "Idle";
@@ -206,14 +236,105 @@ public sealed partial class ScriptsViewModel : ObservableObject
         }
     }
 
-    [RelayCommand]
+    private bool CanSync() => !IsSyncing && _services.RepositorySync.Available;
+
+    /// <summary>
+    /// Downloads new and changed community scripts. Registered with the engine as background work, so the foreground
+    /// service keeps the process alive when the app goes to the background; cancel keeps what was downloaded.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSync))]
     private async Task SyncRepositoryAsync()
     {
+        CancellationTokenSource cts = new();
+        _syncCts = cts;
+        IsSyncing = true;
+        SyncProgress = 0;
+        SyncProgressKnown = false;
+        Message = "Fetching the community script list...";
+        IProgress<RepositorySyncProgress> progress = new DispatchedProgress(this);
+        try
+        {
+            using IDisposable work = _host.Engine.BeginBackgroundWork("Syncing community scripts");
+            RepositorySyncResult result = await Task.Run(() => _services.RepositorySync.SyncAsync(progress, cts.Token));
+            Message = result.Summary + (result.Problems.Count > 0 && !result.RateLimited ? " " + string.Join("; ", result.Problems.Take(3)) : string.Empty);
+            Refresh();
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or HttpRequestException)
+        {
+            Message = $"Sync failed: {e.Message}";
+        }
+        finally
+        {
+            _syncCts = null;
+            cts.Dispose();
+            IsSyncing = false;
+            SyncProgressKnown = false;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsSyncing))]
+    private void CancelSync()
+    {
+        try
+        {
+            _syncCts?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    // Progress lines arrive per file from worker threads: at most ~8 updates a second reach the UI.
+    private sealed class DispatchedProgress : IProgress<RepositorySyncProgress>
+    {
+        private readonly ScriptsViewModel _owner;
+
+        public DispatchedProgress(ScriptsViewModel owner)
+        {
+            _owner = owner;
+        }
+
+        public void Report(RepositorySyncProgress value)
+        {
+            long now = Environment.TickCount64;
+            bool last = value.Stage is "done" || value.Done >= value.Total;
+            if (!last && now - Interlocked.Read(ref _owner._lastProgressTicks) < 120)
+                return;
+            Interlocked.Exchange(ref _owner._lastProgressTicks, now);
+            _owner._services.Dispatcher.Post(() =>
+            {
+                if (!_owner.IsSyncing)
+                    return;
+                _owner.Message = value.Text;
+                _owner.SyncProgressKnown = value.Stage == "downloading" && value.Total > 0;
+                _owner.SyncProgress = value.Fraction;
+            });
+        }
+    }
+
+    private bool CanEditOptions() => SelectedEntry is { IsScript: true } && !ScriptBusy && !ScriptsUnavailable;
+
+    /// <summary>Opens the options editor: compiles the script (later starts reuse the compile) and reads its options.</summary>
+    [RelayCommand(CanExecute = nameof(CanEditOptions))]
+    private async Task EditOptionsAsync()
+    {
+        ScriptEntry entry = SelectedEntry!;
+        Message = $"Reading the options of {entry.Name} (compiling)...";
         IsWorking = true;
         try
         {
-            Message = await _services.RepositorySync.SyncAsync(null, CancellationToken.None);
-            Refresh();
+            ScriptOptionSet set = await _host.Engine.GetScriptOptionsAsync(entry.FullPath);
+            if (set.Items.Count == 0)
+            {
+                Message = $"{entry.Name} has no script options.";
+                return;
+            }
+            OptionsEditor = new ScriptOptionsViewModel(set, entry.Name);
+            Message = null;
+        }
+        catch (EngineException e)
+        {
+            Message = e.Message;
         }
         finally
         {
@@ -221,10 +342,41 @@ public sealed partial class ScriptsViewModel : ObservableObject
         }
     }
 
+    [RelayCommand]
+    private async Task SaveOptionsAsync()
+    {
+        if (OptionsEditor is not ScriptOptionsViewModel editor)
+            return;
+        editor.Error = null;
+        try
+        {
+            await _host.Engine.SaveScriptOptionsAsync(editor.ToSet());
+            OptionsEditor = null;
+            Message = $"Options of {editor.ScriptName} saved.";
+        }
+        catch (EngineException e)
+        {
+            editor.Error = e.Message;
+        }
+    }
+
+    [RelayCommand]
+    private void CloseOptions() => OptionsEditor = null;
+
+    /// <summary>System back closes the options editor first.</summary>
+    public bool CloseOverlay()
+    {
+        if (OptionsEditor is null)
+            return false;
+        OptionsEditor = null;
+        return true;
+    }
+
     internal void Apply(EngineSnapshot s)
     {
         ScriptBusy = s.Script.IsBusy;
-        ScriptStatus = s.Script.State.ToString() + (s.Script.Message is null ? string.Empty : $": {s.Script.Message}");
+        ScriptStatus = Formatting.ScriptLine(s.Script);
+        CountersText = s.ScriptCounters?.Display;
         if (s.Script.ScriptPath is string path && path.StartsWith(_library.Root, StringComparison.Ordinal))
             LoadedScript = Path.GetRelativePath(_library.Root, path).Replace(Path.DirectorySeparatorChar, '/');
         DeleteCommand.NotifyCanExecuteChanged();

@@ -101,28 +101,13 @@ public sealed class ScriptLibrary
                 skipped.Add($"stopped after {MaxImportFiles} files");
                 break;
             }
-            string? relative = SanitizeRelativePath(file.RelativePath);
-            if (relative is null)
+            string? destination = ResolveDestination(target, file.RelativePath, file.Size, out string? problem);
+            if (destination is null)
             {
-                skipped.Add($"{file.RelativePath}: invalid path");
+                skipped.Add(problem!);
                 continue;
             }
-            if (!AllowedExtensions.Contains(Path.GetExtension(relative)))
-            {
-                skipped.Add($"{relative}: not a script or data file");
-                continue;
-            }
-            if (file.Size is long declared && declared > MaxFileBytes)
-            {
-                skipped.Add($"{relative}: larger than {MaxFileBytes / 1048576} MB");
-                continue;
-            }
-            string destination = Path.GetFullPath(Path.Combine(target, relative));
-            if (!IsInside(destination) || IsInsideCache(destination))
-            {
-                skipped.Add($"{relative}: outside the script folder");
-                continue;
-            }
+            string relative = Path.GetRelativePath(target, destination);
 
             long written = await CopyBoundedAsync(file, destination, MaxImportBytes - total, cancellationToken).ConfigureAwait(false);
             if (written < 0)
@@ -134,6 +119,43 @@ public sealed class ScriptLibrary
             imported++;
         }
         return new ImportResult(imported, total, skipped);
+    }
+
+    /// <summary>
+    /// Where an untrusted file path (an import from the picker, a file of the synced repository) may be written, or
+    /// null with the reason: the path must pass <see cref="SanitizeRelativePath"/>, have an allowed extension, declare
+    /// no more than <see cref="MaxFileBytes"/>, and land inside the library root but outside the compiler cache.
+    /// </summary>
+    /// <param name="targetFolder">Absolute folder the path is relative to (the root or a folder below it).</param>
+    /// <param name="untrustedRelativePath">The path as the source gave it.</param>
+    /// <param name="declaredSize">The size the source declares, if any.</param>
+    /// <param name="problem">Why the path was refused.</param>
+    public string? ResolveDestination(string targetFolder, string? untrustedRelativePath, long? declaredSize, out string? problem)
+    {
+        string? relative = SanitizeRelativePath(untrustedRelativePath);
+        if (relative is null)
+        {
+            problem = $"{untrustedRelativePath}: invalid path";
+            return null;
+        }
+        if (!AllowedExtensions.Contains(Path.GetExtension(relative)))
+        {
+            problem = $"{relative}: not a script or data file";
+            return null;
+        }
+        if (declaredSize is long declared && declared > MaxFileBytes)
+        {
+            problem = $"{relative}: larger than {MaxFileBytes / 1048576} MB";
+            return null;
+        }
+        string destination = Path.GetFullPath(Path.Combine(targetFolder, relative));
+        if (!IsInside(destination) || IsInsideCache(destination))
+        {
+            problem = $"{relative}: outside the script folder";
+            return null;
+        }
+        problem = null;
+        return destination;
     }
 
     /// <summary>Deletes a file or folder below the root (never the root itself).</summary>
@@ -234,30 +256,4 @@ public sealed class ScriptLibrary
             throw;
         }
     }
-}
-
-/// <summary>
-/// Placeholder entry point for syncing the community script repository (github.com/auqw/Scripts, branch Skua, the
-/// one Skua.Core's GetScriptsService uses) into <see cref="AppPaths.ScriptsDir"/>. Not implemented in this version:
-/// the intended implementation is Skua.Core's own GetScriptsService once the host project provides its DI container.
-/// </summary>
-public interface IScriptRepositorySync
-{
-    bool Available { get; }
-
-    string Description { get; }
-
-    Task<string> SyncAsync(IProgress<string>? progress, CancellationToken cancellationToken);
-}
-
-public sealed class PendingScriptRepositorySync : IScriptRepositorySync
-{
-    public bool Available => false;
-
-    public string Description =>
-        "Community scripts (github.com/auqw/Scripts) will sync here once the Skua.Core host is wired in. "
-        + "Until then, import a downloaded copy with \"Import folder\".";
-
-    public Task<string> SyncAsync(IProgress<string>? progress, CancellationToken cancellationToken) =>
-        Task.FromResult(Description);
 }

@@ -275,6 +275,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost
         await _compileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ReloadSkillSetsIfUpdated(s);
             failure = await s.StartScriptAsync(path).ConfigureAwait(false);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -440,6 +441,26 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost
         Emit(EngineLogLevel.Error, "scripts", $"Script error: {e.GetType().Name}: {e.Message}");
         if (e.StackTrace is string trace)
             Emit(EngineLogLevel.Debug, "scripts", string.Join(Environment.NewLine, trace.Split('\n').Take(12)));
+    }
+
+    // The repository sync refreshes AdvancedSkills.json (Skua's default skill sets). Skua loaded its copy
+    // (UserAdvancedSkills.json) at start; like the desktop's SyncSkills after an update, copy and reload before a run.
+    private void ReloadSkillSetsIfUpdated(HeadlessSkuaSession s)
+    {
+        try
+        {
+            string defaults = ClientFileSources.SkuaAdvancedSkillsFile;
+            string user = Path.Combine(ClientFileSources.SkuaDIR, "UserAdvancedSkills.json");
+            if (!File.Exists(defaults) || (File.Exists(user) && File.GetLastWriteTimeUtc(user) >= File.GetLastWriteTimeUtc(defaults)))
+                return;
+            File.Copy(defaults, user, overwrite: true);
+            s.Services.GetRequiredService<IAdvancedSkillContainer>().LoadSkills();
+            Emit(EngineLogLevel.Info, "scripts", "Skill sets reloaded from the synced AdvancedSkills.json.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or Newtonsoft.Json.JsonException)
+        {
+            Emit(EngineLogLevel.Warning, "scripts", $"Could not reload the skill sets: {e.Message}");
+        }
     }
 
     private void Forward(HeadlessLogEntry entry)

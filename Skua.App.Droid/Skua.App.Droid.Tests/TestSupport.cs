@@ -211,7 +211,8 @@ internal sealed class TestApp : IAsyncDisposable
         Settings = new SettingsStore(Paths.SettingsFile);
         Engine = Aqw.NewEngine();
         Host = new EngineHost(Engine, Settings, new CredentialVault(Store), new ResumeStore(Paths.ResumeFile), Platform);
-        Services = new AppServices(Host, new InlineDispatcher(), Picker, new ScriptLibrary(Paths.ScriptsDir), new PendingScriptRepositorySync(), Paths);
+        ScriptLibrary library = new(Paths.ScriptsDir);
+        Services = new AppServices(Host, new InlineDispatcher(), Picker, library, new ScriptRepositorySync(library, Paths.SkuaDir, Aqw.Http), Paths);
     }
 
     public FakeAqw Aqw { get; } = new();

@@ -47,7 +47,8 @@
         <StackPanel Spacing="4">
           <TextBlock Classes="caption" Text="SCRIPT" />
           <TextBlock Text="{Binding ScriptName}" FontWeight="SemiBold" />
-          <TextBlock Classes="muted" Text="{Binding ScriptState}" />
+          <TextBlock Classes="muted" Text="{Binding ScriptState}" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" Text="{Binding ScriptCounters}" IsVisible="{Binding ScriptCounters, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Classes="error" Text="{Binding ScriptMessage}" IsVisible="{Binding ScriptMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <Button Classes="danger" HorizontalAlignment="Stretch" Margin="0,6,0,0" Content="Stop script" Command="{Binding StopScriptCommand}" IsVisible="{Binding ScriptBusy}" />
         </StackPanel>

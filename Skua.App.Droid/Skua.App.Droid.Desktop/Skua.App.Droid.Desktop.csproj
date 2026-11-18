@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
     <ProjectReference Include="..\Skua.App.Droid.UI\Skua.App.Droid.UI.csproj" />
+    <ProjectReference Include="..\Skua.App.Droid.Scripting\Skua.App.Droid.Scripting.csproj" />
   </ItemGroup>
 
 </Project>
