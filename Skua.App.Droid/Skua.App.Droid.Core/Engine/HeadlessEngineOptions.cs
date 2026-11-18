@@ -1,3 +1,4 @@
+using Skua.App.Droid.Core.Security;
 using Skua.Core.Headless;
 
 namespace Skua.App.Droid.Core.Engine;
@@ -7,6 +8,13 @@ public sealed class HeadlessEngineOptions
 {
     /// <summary>Creates the protocol session. Tests point it at a fake web API; the app uses the default.</summary>
     public Func<AqwSession> SessionFactory { get; init; } = () => new AqwSession();
+
+    /// <summary>
+    /// Where the engine registers the password and login tokens so they are redacted from its log and packets. The
+    /// Android app passes the process-wide diagnostics registry, so crash reports are scrubbed of the same values.
+    /// Null gives the engine a private one.
+    /// </summary>
+    public SecretScrubber? Scrubber { get; init; }
 
     /// <summary>Reconnect on its own after an unexpected drop that the protocol layer says is worth retrying.</summary>
     public bool AutoReconnect { get; set; } = true;

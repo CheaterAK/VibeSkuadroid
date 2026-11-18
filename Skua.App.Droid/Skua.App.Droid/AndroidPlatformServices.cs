@@ -45,9 +45,15 @@ internal sealed class AndroidPlatformServices : IPlatformServices
         }
     }
 
-    public bool NotificationsAllowed => NotificationManagerCompat.From(_context)!.AreNotificationsEnabled();
+    public bool NotificationsAllowed => Safe("notification state", () => NotificationManagerCompat.From(_context)!.AreNotificationsEnabled(), true);
 
-    public void RequestNotificationPermission()
+    public void RequestNotificationPermission() => Safe("notification permission request", () =>
+    {
+        RequestNotificationPermissionCore();
+        return true;
+    }, false);
+
+    private void RequestNotificationPermissionCore()
     {
         Activity? activity = CurrentActivity;
         if (OperatingSystem.IsAndroidVersionAtLeast(33) && activity is not null
@@ -81,12 +87,21 @@ internal sealed class AndroidPlatformServices : IPlatformServices
     {
         get
         {
-            PowerManager? power = (PowerManager?)_context.GetSystemService(Context.PowerService);
-            return power?.IsIgnoringBatteryOptimizations(_context.PackageName) ?? false;
+            return Safe("battery optimisation state", () =>
+            {
+                PowerManager? power = (PowerManager?)_context.GetSystemService(Context.PowerService);
+                return power?.IsIgnoringBatteryOptimizations(_context.PackageName) ?? false;
+            }, true);
         }
     }
 
-    public void RequestIgnoreBatteryOptimizations()
+    public void RequestIgnoreBatteryOptimizations() => Safe("battery optimisation request", () =>
+    {
+        RequestIgnoreBatteryOptimizationsCore();
+        return true;
+    }, false);
+
+    private void RequestIgnoreBatteryOptimizationsCore()
     {
         Intent direct = new Intent(Android.Provider.Settings.ActionRequestIgnoreBatteryOptimizations)
             .SetData(Android.Net.Uri.Parse("package:" + _context.PackageName))!;
@@ -110,6 +125,20 @@ internal sealed class AndroidPlatformServices : IPlatformServices
     }
 
     public bool EngineServiceRunning => EngineService.IsRunning;
+
+    /// <summary>Platform queries and prompts are never worth a crash: log and fall back.</summary>
+    private static T Safe<T>(string what, Func<T> action, T fallback)
+    {
+        try
+        {
+            return action();
+        }
+        catch (Exception e)
+        {
+            Diagnostics.CrashCapture.NonFatal(what, e);
+            return fallback;
+        }
+    }
 
     private bool OpenSettings(Intent intent)
     {
