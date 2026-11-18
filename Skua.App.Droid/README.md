@@ -27,6 +27,9 @@ dotnet run --project Skua.App.Droid/Skua.App.Droid.Desktop   # desktop preview
 
 `-p:DroidEmulatorAbi=true` adds x86_64 (emulators). Release keeps trimming and AOT off on purpose (scripts are
 compiled on the device against the full API surface); see the comments in `Skua.App.Droid/Skua.App.Droid.csproj`.
+LLVM marshal methods are off too: with them an incremental Release build produced APKs that crashed in
+`Application.onCreate` (UnsatisfiedLinkError) before any window. The build fails if a generated Java wrapper
+lacks method registration, and `build-droid.sh` always builds the Android head from scratch.
 
 ## Signing
 
