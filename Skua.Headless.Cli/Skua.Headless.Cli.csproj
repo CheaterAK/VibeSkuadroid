@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Skua.Core.Headless\Skua.Core.Headless.csproj" />
+    <ProjectReference Include="..\Skua.Core.Headless.Host\Skua.Core.Headless.Host.csproj" />
   </ItemGroup>
 
 </Project>

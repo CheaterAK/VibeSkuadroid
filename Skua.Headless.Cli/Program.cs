@@ -29,6 +29,12 @@ internal static class Program
           --allow-raw               allow 'raw' lines in the script
           --list-servers            print the server list after the web login and exit
 
+        Skua mode (unmodified Skua.Core on the headless bridge; prints the Flash gap log at the end):
+          --skua-script PATH        log in with Skua's own login code and run this Skua script (.cs)
+          --skua-compile PATH       only compile a Skua script (with its //cs_include files); no login
+          --data-dir PATH           Skua data folder (settings, options, Scripts/ for includes)
+          --timeout SECONDS         stop the script after this long (default: run until it ends)
+
         Script lines (# starts a comment):
           join MAP [CELL] [PAD]     jump CELL [PAD]          wait MS
           attack MONMAPID|NAME|* [SKILL] [TIMES]            rest
@@ -58,6 +64,9 @@ internal static class Program
             return 0;
         }
 
+        if (args.TryGetValue("--skua-compile", out string? compileOnly) && compileOnly is not null)
+            return await SkuaMode.CompileAsync(compileOnly, args.GetValueOrDefault("--data-dir"));
+
         AqwCredentials? credentials;
         try
         {
@@ -75,6 +84,9 @@ internal static class Program
             Console.Error.WriteLine("No credentials: set AQW_USER and AQW_PASS, or pass --credentials-file PATH.");
             return 2;
         }
+
+        if (args.TryGetValue("--skua-script", out string? skuaScript) && skuaScript is not null)
+            return await SkuaMode.RunAsync(credentials, skuaScript, args);
 
         using CancellationTokenSource cts = new();
         Console.CancelKeyPress += (_, e) =>
@@ -163,7 +175,7 @@ internal static class Program
     private static Dictionary<string, string?> ParseArgs(string[] argv)
     {
         HashSet<string> flags = new() { "--show-packets", "--allow-raw", "--list-servers", "--help", "-h" };
-        HashSet<string> valued = new() { "--credentials-file", "--server", "--map", "--cell", "--pad", "--script", "--client-version", "--api-base" };
+        HashSet<string> valued = new() { "--credentials-file", "--server", "--map", "--cell", "--pad", "--script", "--client-version", "--api-base", "--skua-script", "--skua-compile", "--data-dir", "--timeout" };
         Dictionary<string, string?> result = new(StringComparer.Ordinal);
         for (int i = 0; i < argv.Length; i++)
         {

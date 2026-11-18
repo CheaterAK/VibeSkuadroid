@@ -135,8 +135,9 @@ public static partial class PacketCodec
                 _ => new InboundPacket(PacketKind.Unknown, text) { WasCompressed = wasCompressed, DecodeError = $"unknown message kind '{text[0]}'" },
             };
         }
-        catch (Exception e) when (e is JsonException or FormatException or InvalidOperationException)
+        catch (Exception e) when (e is JsonException or FormatException or InvalidOperationException or ArgumentException)
         {
+            // ArgumentException: a JSON object with a duplicate key (JsonObject refuses it).
             return new InboundPacket(PacketKind.Unknown, text) { WasCompressed = wasCompressed, DecodeError = e.Message };
         }
     }
@@ -165,7 +166,8 @@ public static partial class PacketCodec
 
     private static InboundPacket ParseJson(string text, bool wasCompressed)
     {
-        JsonNode? root = JsonNode.Parse(text);
+        // Duplicate keys are refused at parse time; otherwise JsonObject would throw later, wherever the object is first read.
+        JsonNode? root = JsonNode.Parse(text, null, new JsonDocumentOptions { AllowDuplicateProperties = false });
         if (root is not JsonObject obj)
             return new InboundPacket(PacketKind.Unknown, text) { WasCompressed = wasCompressed, DecodeError = "JSON message is not an object" };
 
@@ -196,16 +198,30 @@ public static partial class PacketCodec
         };
     }
 
+    private static readonly System.Xml.XmlReaderSettings s_xmlSettings = new()
+    {
+        // No DTDs: an internal entity declaration could expand a short message into gigabytes.
+        DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+        XmlResolver = null,
+        MaxCharactersInDocument = 4 * 1024 * 1024,
+    };
+
     private static InboundPacket ParseXml(string text, bool wasCompressed)
     {
-        Match action = XmlActionRegex().Match(text);
-        Match room = XmlRoomRegex().Match(text);
         int? userId = null;
         string? userName = null;
+        string? actionValue = null;
+        int? roomValue = null;
         try
         {
-            XElement root = XElement.Parse(text);
+            XElement root;
+            using (StringReader sr = new(text))
+            using (System.Xml.XmlReader reader = System.Xml.XmlReader.Create(sr, s_xmlSettings))
+                root = XElement.Load(reader);
             XElement? body = root.Element("body");
+            actionValue = body?.Attribute("action")?.Value;
+            if (int.TryParse(body?.Attribute("r")?.Value, out int parsedRoom))
+                roomValue = parsedRoom;
             XElement? user = body?.Element("u") ?? body?.Element("user");
             string? id = user?.Attribute("i")?.Value ?? user?.Attribute("id")?.Value;
             if (int.TryParse(id, out int uid))
@@ -216,17 +232,21 @@ public static partial class PacketCodec
         }
         catch (System.Xml.XmlException)
         {
-            // Action and room come from the regexes; the user part is optional.
+            // Malformed XML: the action is still read (linear-time regex); the room and user part are optional.
+            Match action = XmlActionRegex().Match(text);
+            if (action.Success)
+                actionValue = action.Groups[1].Value;
         }
 
+        bool hasAction = !string.IsNullOrEmpty(actionValue);
         return new InboundPacket(PacketKind.Xml, text)
         {
             WasCompressed = wasCompressed,
-            Command = action.Success ? action.Groups[1].Value : null,
-            Room = room.Success && int.TryParse(room.Groups[1].Value, out int r) ? r : null,
+            Command = hasAction ? actionValue : null,
+            Room = roomValue,
             XmlUserId = userId,
             XmlUserName = userName,
-            DecodeError = action.Success ? null : "XML message has no body action",
+            DecodeError = hasAction ? null : "XML message has no body action",
         };
     }
 
@@ -283,9 +303,7 @@ public static partial class PacketCodec
         }
     }
 
-    [GeneratedRegex("action\\s*=\\s*['\"]([^'\"]+)['\"]")]
+    // Fallback for malformed XML only; NonBacktracking keeps it linear in the message length.
+    [GeneratedRegex("action\\s*=\\s*['\"]([^'\"]+)['\"]", RegexOptions.NonBacktracking)]
     private static partial Regex XmlActionRegex();
-
-    [GeneratedRegex("<body[^>]*\\sr\\s*=\\s*['\"](-?\\d+)['\"]")]
-    private static partial Regex XmlRoomRegex();
 }

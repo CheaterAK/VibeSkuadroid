@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    IFlashUtil without Flash: answers skua.swf's ExternalInterface callbacks, object paths and game functions from the
+    headless client (Skua.Core.Headless), and raises the events skua.swf raises. References Skua.Core only for its
+    FlashObject/FlashArray (ScriptSkill casts CreateFlashObject's result to them); everything else is Skua.Core.Interfaces.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <RootNamespace>Skua.Core.Headless.Flash</RootNamespace>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Skua.Core.Headless.Host.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.Core.Headless\Skua.Core.Headless.csproj" />
+    <ProjectReference Include="..\Skua.Core\Skua.Core.csproj" />
+  </ItemGroup>
+
+</Project>

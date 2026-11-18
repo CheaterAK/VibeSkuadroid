@@ -69,6 +69,9 @@ public sealed class FakeAqwServer : IAsyncDisposable
 
     public TimeSpan RespawnDelay { get; set; } = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>Cooldown of the auto attack in the skill bar (ms); shorter makes end-to-end fights quicker.</summary>
+    public int AutoAttackCooldownMs { get; set; } = 2000;
+
     public GameServer Server => new("Sandbox", "127.0.0.1", Port, 1, 1000, true, false, 0, 0, "en", null);
 
     public IReadOnlyList<Session> Sessions => _sessions.ToArray();
@@ -399,6 +402,14 @@ public sealed class FakeAqwServer : IAsyncDisposable
                     Complete(int.Parse(a[0], CultureInfo.InvariantCulture));
                     return;
 
+                case "bankToInv" when a.Length >= 1:
+                    MoveBetween(Bank, Inventory, int.Parse(a[0], CultureInfo.InvariantCulture), "bankToInv");
+                    return;
+
+                case "bankFromInv" when a.Length >= 1:
+                    MoveBetween(Inventory, Bank, int.Parse(a[0], CultureInfo.InvariantCulture), "bankFromInv");
+                    return;
+
                 case "loadBank":
                     Json(new JsonObject { ["cmd"] = "loadBank", ["bitSuccess"] = 1, ["items"] = new JsonArray(Bank.Select(x => (JsonNode)x.DeepClone()).ToArray()) });
                     return;
@@ -406,6 +417,21 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 default:
                     return;
             }
+        }
+
+        // bankToInv / bankFromInv: the whole stack moves; the reply names the item.
+        private void MoveBetween(List<JsonObject> from, List<JsonObject> to, int itemId, string cmd)
+        {
+            JsonObject? item = from.FirstOrDefault(x => (int)x["ItemID"]! == itemId);
+            if (item is null)
+            {
+                Json(new JsonObject { ["cmd"] = cmd, ["ItemID"] = itemId, ["bSuccess"] = 0 });
+                return;
+            }
+            from.Remove(item);
+            item["bEquip"] = 0;
+            to.Add(item);
+            Json(new JsonObject { ["cmd"] = cmd, ["ItemID"] = itemId, ["bSuccess"] = 1 });
         }
 
         private void Login(string m)
@@ -481,7 +507,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 ["actions"] = new JsonObject
                 {
                     ["active"] = new JsonArray(
-                        Skill("aa", "Auto attack", "aa", "h", 2000, 0, auto: true),
+                        Skill("aa", "Auto attack", "aa", "h", _server.AutoAttackCooldownMs, 0, auto: true),
                         Skill("a1", "Heal", "m", "f", 3000, 10),
                         Skill("a2", "Smite", "m", "h", 4000, 15),
                         Skill("a3", "Ward", "m", "s", 6000, 20),

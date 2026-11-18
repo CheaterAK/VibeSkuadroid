@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Skua.Core.Headless.Host.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The fake game server and test helpers are shared with Skua.Core.Headless.Tests. -->
+    <Compile Include="..\Skua.Core.Headless.Tests\Fakes\FakeAqwServer.cs" Link="Fakes\FakeAqwServer.cs" />
+    <Compile Include="..\Skua.Core.Headless.Tests\Fakes\SyntheticSwf.cs" Link="Fakes\SyntheticSwf.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.Core.Headless.Host\Skua.Core.Headless.Host.csproj" />
+  </ItemGroup>
+
+</Project>

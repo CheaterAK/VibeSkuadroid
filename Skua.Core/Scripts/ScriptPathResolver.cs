@@ -113,6 +113,18 @@ public sealed class ScriptPathResolver : IScriptPathResolver
             .Where(File.Exists)
             .ToList();
 
+        // Includes are written for Windows, whose file system ignores letter case ("CoreQoM.cs" for CoreQOM.cs).
+        // On case-sensitive file systems (Linux, Android) look the candidates up case-insensitively when none exists as written.
+        if (existing.Count == 0 && !OperatingSystem.IsWindows())
+        {
+            existing = candidates
+                .Select(Canonicalize)
+                .Select(FindIgnoringCase)
+                .OfType<string>()
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
         ScriptPathResolution resolution = new(existing.FirstOrDefault(), existing);
         if (resolution.SelectedPath != null)
             _resolutionCache[cacheKey] = resolution;
@@ -127,4 +139,37 @@ public sealed class ScriptPathResolver : IScriptPathResolver
     }
 
     private static string Canonicalize(string path) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    // The existing file whose path equals this one ignoring letter case, walking from the root; null when none.
+    private static string? FindIgnoringCase(string path)
+    {
+        string? root = Path.GetPathRoot(path);
+        if (string.IsNullOrEmpty(root))
+            return null;
+        string current = root;
+        string[] segments = path[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < segments.Length; i++)
+        {
+            string exact = Path.Combine(current, segments[i]);
+            bool last = i == segments.Length - 1;
+            if (last ? File.Exists(exact) : Directory.Exists(exact))
+            {
+                current = exact;
+                continue;
+            }
+            try
+            {
+                IEnumerable<string> entries = last ? Directory.EnumerateFiles(current) : Directory.EnumerateDirectories(current);
+                string? match = entries.FirstOrDefault(e => string.Equals(Path.GetFileName(e), segments[i], StringComparison.OrdinalIgnoreCase));
+                if (match is null)
+                    return null;
+                current = match;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return null;
+            }
+        }
+        return current;
+    }
 }

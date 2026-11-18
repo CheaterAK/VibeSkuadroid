@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Hosts unmodified Skua.Core on the headless client: DI registration of Skua.Core's services with HeadlessFlashUtil in
+    place of Flash, unattended UI services, and HeadlessSkuaSession (login, logout, script start/stop, state, events).
+    Platform neutral (Linux, Android); the Android app calls AddHeadlessSkua / HeadlessSkuaSession.Create.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <RootNamespace>Skua.Core.Headless.Host</RootNamespace>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.Core.Headless.Flash\Skua.Core.Headless.Flash.csproj" />
+    <ProjectReference Include="..\Skua.Core\Skua.Core.csproj" />
+    <ProjectReference Include="..\Skua.Compat.WinForms\Skua.Compat.WinForms.csproj" />
+  </ItemGroup>
+
+</Project>

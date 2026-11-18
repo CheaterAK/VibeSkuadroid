@@ -13,8 +13,8 @@ public sealed class AqwWebApiOptions
     public Uri BaseUri { get; set; } = new("https://game.aq.com/game/");
 
     /// <summary>
-    /// Sent with every request. The default mimics a browser-hosted client; which headers the endpoints
-    /// actually require has not been confirmed from this environment (the host was unreachable).
+    /// Sent with every request. Required: checked live on 2026-11-17, a login POST without a browser User-Agent
+    /// (and Referer) gets HTTP 403 with an HTML page; with these defaults login, the server list and game files work.
     /// </summary>
     public string UserAgent { get; set; } = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
@@ -22,6 +22,12 @@ public sealed class AqwWebApiOptions
     public string? Referer { get; set; } = "https://game.aq.com/game/gamefiles/";
 
     public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(20);
+
+    /// <summary>Whole-download limit for a game file (headers and body).</summary>
+    public TimeSpan DownloadTimeout { get; set; } = TimeSpan.FromSeconds(120);
+
+    /// <summary>Redirects followed for GET requests (only to https URLs on the same host); a POST is never redirected.</summary>
+    public int MaxRedirects { get; set; } = 3;
 
     /// <summary>Upper bound for a downloaded game SWF (client version discovery).</summary>
     public long MaxGameFileBytes { get; set; } = 64L * 1024 * 1024;
@@ -124,7 +130,11 @@ public sealed class AqwWebApi : IDisposable
     public AqwWebApi(AqwWebApiOptions? options = null, HttpMessageHandler? handler = null)
     {
         Options = options ?? new AqwWebApiOptions();
-        _http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        // Redirects are handled here, not by the handler: the login POST carries the password and must never be
+        // re-sent to whatever host a 307/308 names.
+        _http = handler is null
+            ? new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false })
+            : new HttpClient(handler, disposeHandler: false);
         _http.Timeout = Options.Timeout;
     }
 
@@ -189,11 +199,15 @@ public sealed class AqwWebApi : IDisposable
     /// <summary>Downloads a file under <c>gamefiles/</c> (bounded by <see cref="AqwWebApiOptions.MaxGameFileBytes"/>).</summary>
     public async Task<byte[]> DownloadGameFileAsync(string relativePath, CancellationToken cancellationToken = default)
     {
+        CancellationToken originalToken = cancellationToken;
         string path = "gamefiles/" + relativePath.TrimStart('/');
         using HttpRequestMessage request = NewRequest(HttpMethod.Get, path);
         try
         {
-            using HttpResponseMessage response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(Options.DownloadTimeout);
+            cancellationToken = limit.Token;
+            using HttpResponseMessage response = await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
                 throw new AqwLoginException(LoginFailureKind.Http, $"Game file {relativePath} returned HTTP {(int)response.StatusCode}.");
             if (response.Content.Headers.ContentLength is long length && length > Options.MaxGameFileBytes)
@@ -210,7 +224,7 @@ public sealed class AqwWebApi : IDisposable
             }
             return copy.ToArray();
         }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        catch (Exception e) when (e is HttpRequestException or OperationCanceledException && !originalToken.IsCancellationRequested)
         {
             throw new AqwLoginException(LoginFailureKind.Http, $"Game file request failed: {Describe(e)}", inner: e);
         }
@@ -220,6 +234,28 @@ public sealed class AqwWebApi : IDisposable
     {
         _http.Dispose();
     }
+
+    // GETs follow up to MaxRedirects redirects to https URLs on the same host; anything else (a POST, another host,
+    // plain http) is answered with the redirect itself, which callers treat as a failure.
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, HttpCompletionOption completion, CancellationToken cancellationToken)
+    {
+        HttpResponseMessage response = await _http.SendAsync(request, completion, cancellationToken).ConfigureAwait(false);
+        for (int hops = 0; hops < Options.MaxRedirects && IsRedirect(response.StatusCode) && request.Method == HttpMethod.Get; hops++)
+        {
+            Uri? target = response.Headers.Location is Uri location ? new Uri(request.RequestUri!, location) : null;
+            if (target is null || target.Scheme != Uri.UriSchemeHttps || !string.Equals(target.Host, request.RequestUri!.Host, StringComparison.OrdinalIgnoreCase))
+                return response;
+            response.Dispose();
+            HttpRequestMessage next = new(HttpMethod.Get, target);
+            foreach (KeyValuePair<string, IEnumerable<string>> header in request.Headers)
+                next.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            request = next;
+            response = await _http.SendAsync(request, completion, cancellationToken).ConfigureAwait(false);
+        }
+        return response;
+    }
+
+    private static bool IsRedirect(HttpStatusCode status) => (int)status is 301 or 302 or 303 or 307 or 308;
 
     private HttpRequestMessage NewRequest(HttpMethod method, string relative)
     {
@@ -243,7 +279,7 @@ public sealed class AqwWebApi : IDisposable
         HttpStatusCode status;
         try
         {
-            using HttpResponseMessage response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
             status = response.StatusCode;
             body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -259,7 +295,11 @@ public sealed class AqwWebApi : IDisposable
         catch (JsonException)
         {
             string head = body.Length > 120 ? body[..120] : body;
-            throw new AqwLoginException(LoginFailureKind.Http, $"The {what} request returned HTTP {(int)status} with a non-JSON body: {head}");
+            // Checked live (2026-11-17): game.aq.com answers a request without a browser User-Agent with HTTP 403 and an HTML page.
+            string hint = status == HttpStatusCode.Forbidden && head.TrimStart().StartsWith('<')
+                ? " (the site's bot protection refused it; AqwWebApiOptions.UserAgent must look like a browser)"
+                : string.Empty;
+            throw new AqwLoginException(LoginFailureKind.Http, $"The {what} request returned HTTP {(int)status} with a non-JSON body{hint}: {head}");
         }
     }
 

@@ -192,6 +192,10 @@ public sealed partial class WorldModel
         _skillLastSent.Clear();
         _messages.Clear();
         _actionResults.Clear();
+        _handled.Clear();
+        _unhandled.Clear();
+        _unhandledSamples.Clear();
+        _total = 0;
     }
 
     private void SetIdentityCore(int userId, string username)

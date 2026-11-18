@@ -22,6 +22,21 @@ Where their logic was ported:
         (moveToCell + retrieveUserData, then retrieveInventory), and the pext event
         shape used for Skua.
 
+Phase 3 (client rules, maps; Skua.Core.Headless/Rules, Client, Maps) ported from Seraph app/lib/skua/swfworld.js
+and app/lib/skua/mapcells.js, which follow the decompiled AQW client (World.as, Game.as, Avatar.as):
+  * rank table and rank math (RANK_POINTS, rankFromPoints, updateRep, initFaction);
+  * quest slot values in strQuests*, achievements, maximumQuestTurnIns, checkAllQuestStatus, questAcceptable;
+  * InvCat inventory pools (isMisc/isHouse/poolOf/isFullFor/freedBy) and hasSpaceFor;
+  * World.lock cooldown table, maximumShopBuys, the sendBuyItemRequest checks;
+  * the skill bar (onSAct, potion slot), actionTimeCheck, testAction target selection, getActionResult,
+    showActionResult, the auto attack loop, actionRefused, setTarget/cancelTarget/approachTarget;
+  * HUD aura stacks (hudAuraSync, hudAuraSeed, hudAuraSnap, hudAuraClear, auraSnapshots);
+  * party packets (pa/pr/pl/pk) and following server moves (gtc, dungeonMTC, resTimed);
+  * reading map cells from DefineSceneAndFrameLabelData / FrameLabel tags (the SWF reader itself, the pad
+    detection through SymbolClass/PlaceObject and the cache are new code).
+skua.swf's own semantics (Skills.as, Shop.as, Auras.as, Inventory.as, Monster.as) come from this repository's
+Skua.AS3 sources.
+
 The lenient base64 decoding of Z packets is copied from this repository's own
 Skua.Core/GameProxy/CaptureProxy.cs.
 

@@ -43,17 +43,22 @@ public sealed partial class WorldModel
                 // A packet shaped differently than expected must not stop the reader loop: count it as unhandled.
                 handled = false;
                 key += "!error";
-                _unhandledSamples.TryAdd(key, $"{e.GetType().Name}: {e.Message} | {Truncate(packet.Text)}");
+                key = BoundedKey(_unhandled, key);
+                if (_unhandledSamples.Count < MaxCounterKeys)
+                    _unhandledSamples.TryAdd(key, $"{e.GetType().Name}: {e.Message} | {Truncate(packet.Text)}");
             }
 
             if (handled)
             {
+                key = BoundedKey(_handled, key);
                 _handled[key] = _handled.GetValueOrDefault(key) + 1;
             }
             else
             {
+                key = BoundedKey(_unhandled, key);
                 _unhandled[key] = _unhandled.GetValueOrDefault(key) + 1;
-                _unhandledSamples.TryAdd(key, Truncate(packet.Text));
+                if (_unhandledSamples.Count < MaxCounterKeys)
+                    _unhandledSamples.TryAdd(key, Truncate(packet.Text));
             }
             _version++;
             version = _version;
@@ -105,6 +110,17 @@ public sealed partial class WorldModel
             }
             _version++;
         }
+    }
+
+    /// <summary>Distinct command names counted per table; the server names them, so beyond this they share one bucket.</summary>
+    public const int MaxCounterKeys = 512;
+
+    /// <summary>The bucket for command names past <see cref="MaxCounterKeys"/>.</summary>
+    public const string OverflowCounterKey = "(other)";
+
+    private static string BoundedKey(Dictionary<string, long> table, string key)
+    {
+        return table.ContainsKey(key) || table.Count < MaxCounterKeys - 1 ? key : OverflowCounterKey;
     }
 
     private static string KeyOf(InboundPacket packet)

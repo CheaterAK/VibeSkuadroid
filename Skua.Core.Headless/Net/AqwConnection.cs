@@ -388,6 +388,12 @@ public sealed partial class AqwConnection : IAsyncDisposable
         {
             Close(_pendingReason ?? DisconnectReason.TransportError, _pendingMessage ?? $"Read failed: {e.Message}");
         }
+        catch (Exception e)
+        {
+            // Anything else (a packet shape no layer expected) must not leave a dead reader behind an open socket.
+            RaiseLog(HeadlessLogLevel.Error, $"Reader stopped by {e.GetType().Name}: {e.Message}");
+            Close(DisconnectReason.ProtocolError, $"Reader failed: {e.GetType().Name}: {e.Message}");
+        }
     }
 
     private void HandleFrame(byte[] frame)
