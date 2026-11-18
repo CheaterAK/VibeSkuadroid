@@ -9,6 +9,7 @@ using AndroidX.Core.App;
 using AndroidX.Core.Content;
 using Skua.App.Droid.Core.Engine;
 using Skua.App.Droid.Core.Hosting;
+using Skua.App.Droid.Diagnostics;
 
 namespace Skua.App.Droid;
 
@@ -99,17 +100,27 @@ public sealed class EngineService : Service
         base.OnCreate();
         _main = new Handler(Looper.MainLooper!);
         CreateChannels(this);
-        _host = EngineRuntime.Host;
-        _host.Engine.SnapshotChanged += OnSnapshot;
-        _host.RestartStarting += OnRestartStarting;
         s_running = true;
-        Log.Info(EngineRuntime.LogTag, "Engine service created.");
+        // Started by the system (sticky restart) or the restart alarm in a fresh process: compose the engine if
+        // Application.OnCreate could not. Without it the service only satisfies startForeground and stops.
+        if (EngineRuntime.TryInitialize(this))
+        {
+            _host = EngineRuntime.Host;
+            _host.Engine.SnapshotChanged += OnSnapshot;
+            _host.RestartStarting += OnRestartStarting;
+        }
+        CrashCapture.Info(_host is null ? "Engine service created without an engine; it will stop." : "Engine service created.");
     }
 
     public override StartCommandResult OnStartCommand(Intent? intent, [GeneratedEnum] StartCommandFlags flags, int startId)
     {
         // Must be in the foreground within seconds of startForegroundService, whatever the action.
-        PromoteToForeground();
+        bool foreground = PromoteToForeground();
+        if (_host is null || !foreground)
+        {
+            StopService();
+            return StartCommandResult.NotSticky;
+        }
         switch (intent?.Action)
         {
             case ActionStop:
@@ -136,11 +147,23 @@ public sealed class EngineService : Service
         base.OnDestroy();
     }
 
-    private void PromoteToForeground()
+    /// <summary>startForeground with the specialUse type on 14+ (no type before: the constant does not exist there).</summary>
+    private bool PromoteToForeground()
     {
-        Notification notification = BuildNotification(_host?.Engine.Snapshot ?? EngineSnapshot.Initial);
-        int type = OperatingSystem.IsAndroidVersionAtLeast(34) ? (int)ForegroundService.TypeSpecialUse : 0;
-        ServiceCompat.StartForeground(this, NotificationId, notification, type);
+        try
+        {
+            Notification notification = BuildNotification(_host?.Engine.Snapshot ?? EngineSnapshot.Initial);
+            int type = OperatingSystem.IsAndroidVersionAtLeast(34) ? (int)ForegroundService.TypeSpecialUse : 0;
+            ServiceCompat.StartForeground(this, NotificationId, notification, type);
+            return true;
+        }
+        catch (Exception e)
+        {
+            // ForegroundServiceStartNotAllowedException, a missing FGS permission (SecurityException) or a bad
+            // notification: never crash the process for the status notification.
+            CrashCapture.NonFatal("starting the engine service in the foreground", e);
+            return false;
+        }
     }
 
     private async Task StopRequestedAsync()
@@ -166,13 +189,20 @@ public sealed class EngineService : Service
     {
         try
         {
-            string? result = await _host!.ResumeAfterRestartAsync();
-            if (result is not null)
-                Log.Info(EngineRuntime.LogTag, result);
+            if (_host is null)
+                return;
+            ResumeResult? result = await _host.ResumeAfterRestartAsync();
+            if (result is null)
+                return;
+            CrashCapture.Info(result.Message);
+            // Could not log back in unattended (no password, Keystore unavailable right now, login failed): the
+            // same "tap to reconnect" notice as when Android refused to restart the service.
+            if (result.NeedsUser)
+                PostRestartNotice(this, "The engine restarted but could not log back in by itself. Tap to reconnect.");
         }
-        catch (Exception e) when (e is EngineException or System.OperationCanceledException)
+        catch (Exception e)
         {
-            Log.Warn(EngineRuntime.LogTag, "Resume failed: " + e.Message);
+            CrashCapture.NonFatal("resume after restart", e);
         }
     }
 
@@ -328,7 +358,14 @@ public sealed class EngineService : Service
     private void StopService()
     {
         ReleaseLocks();
-        ServiceCompat.StopForeground(this, ServiceCompat.StopForegroundRemove);
+        try
+        {
+            ServiceCompat.StopForeground(this, ServiceCompat.StopForegroundRemove);
+        }
+        catch (Exception e)
+        {
+            CrashCapture.NonFatal("stopForeground", e);
+        }
         StopSelf();
     }
 
@@ -356,6 +393,18 @@ public sealed class EngineService : Service
     }
 
     private static void CreateChannels(Context context)
+    {
+        try
+        {
+            CreateChannelsCore(context);
+        }
+        catch (Exception e)
+        {
+            CrashCapture.NonFatal("creating notification channels", e);
+        }
+    }
+
+    private static void CreateChannelsCore(Context context)
     {
         if (!OperatingSystem.IsAndroidVersionAtLeast(26))
             return;

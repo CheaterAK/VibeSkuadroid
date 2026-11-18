@@ -108,6 +108,38 @@ public class HeadlessUiTests
         Assert.NotNull(second.GetVisualDescendantOfType(nameof(SettingsView)));
         second.Close();
     }
+
+    [AvaloniaFact]
+    public void AMainViewThatCannotBeCreatedFallsBackToAnErrorViewAndIsReported()
+    {
+        Func<AppServices>? factory = Skua.App.Droid.UI.AppBootstrap.Factory;
+        Action<string, Exception>? report = Skua.App.Droid.UI.AppBootstrap.ReportError;
+        List<string> reported = new();
+        try
+        {
+            Skua.App.Droid.UI.AppBootstrap.Reset();
+            Skua.App.Droid.UI.AppBootstrap.Factory = () => throw new InvalidOperationException("engine unavailable, password=hunter22");
+            Skua.App.Droid.UI.AppBootstrap.ReportError = (where, e) => reported.Add($"{where}: {e.Message}");
+
+            Control view = Skua.App.Droid.UI.App.CreateMainView();
+
+            Assert.IsNotType<MainView>(view);
+            Window window = new() { Content = view };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            TextBlock text = Assert.IsType<TextBlock>(((ScrollViewer)view).Content);
+            Assert.Contains("engine unavailable", text.Text);
+            Assert.DoesNotContain("hunter22", text.Text);
+            window.Close();
+            Assert.Single(reported);
+        }
+        finally
+        {
+            Skua.App.Droid.UI.AppBootstrap.Factory = factory;
+            Skua.App.Droid.UI.AppBootstrap.ReportError = report;
+            Skua.App.Droid.UI.AppBootstrap.Reset();
+        }
+    }
 }
 
 internal sealed class ImmediateUiDispatcher : Skua.App.Droid.Core.Platform.IUiDispatcher

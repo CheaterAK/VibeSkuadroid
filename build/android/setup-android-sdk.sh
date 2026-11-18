@@ -18,7 +18,9 @@ set -euo pipefail
 ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
 JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-21-openjdk-amd64}"
 CMDLINE_ZIP="commandlinetools-linux-13114758_latest.zip"
-CMDLINE_SHA1="5fdcc763663eefb86a5b8879697aa6088b041e70"
+# SHA-256 of that exact archive (computed from the download; its SHA-1 matches Google's repository manifest,
+# 5fdcc763663eefb86a5b8879697aa6088b041e70). The archive is never unpacked unless it matches.
+CMDLINE_SHA256="7ec965280a073311c339e571cd5de778b9975026cfcbe79f2b1cdcb1e15317ee"
 PACKAGES=("platforms;android-36" "build-tools;36.0.0" "platform-tools")
 
 if [ ! -x "$JAVA_HOME/bin/javac" ]; then
@@ -32,7 +34,11 @@ SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 if [ ! -x "$SDKMANAGER" ]; then
   tmp="$(mktemp -d)"
   curl -sSfL -o "$tmp/$CMDLINE_ZIP" "https://dl.google.com/android/repository/$CMDLINE_ZIP"
-  echo "$CMDLINE_SHA1  $tmp/$CMDLINE_ZIP" | sha1sum -c -
+  if ! echo "$CMDLINE_SHA256  $tmp/$CMDLINE_ZIP" | sha256sum -c --strict -; then
+    echo "SHA-256 mismatch for $CMDLINE_ZIP: refusing to install it." >&2
+    rm -rf "$tmp"
+    exit 1
+  fi
   mkdir -p "$ANDROID_HOME/cmdline-tools"
   unzip -q "$tmp/$CMDLINE_ZIP" -d "$tmp/x"
   rm -rf "$ANDROID_HOME/cmdline-tools/latest"

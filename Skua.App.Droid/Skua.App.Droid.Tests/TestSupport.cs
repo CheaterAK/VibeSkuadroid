@@ -62,9 +62,31 @@ internal sealed class MemorySecretStore : ISecretStore
 
     public bool IsAvailable { get; set; } = true;
 
-    public void Save(string name, ReadOnlySpan<byte> plaintext) => Entries[name] = plaintext.ToArray();
+    /// <summary>Simulates a Keystore that fails transiently: Load answers Unavailable and keeps the entry.</summary>
+    public bool Transient { get; set; }
 
-    public byte[]? Load(string name) => Entries.TryGetValue(name, out byte[]? v) ? v.ToArray() : null;
+    /// <summary>How many times an entry was decrypted (Load called).</summary>
+    public int Loads { get; private set; }
+
+    /// <summary>Simulates a Keystore that refuses to encrypt.</summary>
+    public bool FailSaves { get; set; }
+
+    public void Save(string name, ReadOnlySpan<byte> plaintext)
+    {
+        if (FailSaves)
+            throw new InvalidOperationException("Keystore refused to encrypt.");
+        Entries[name] = plaintext.ToArray();
+    }
+
+    public SecretLookup Load(string name)
+    {
+        Loads++;
+        if (!Entries.TryGetValue(name, out byte[]? v))
+            return SecretLookup.NotFound;
+        return Transient ? SecretLookup.Unavailable : SecretLookup.Found(v.ToArray());
+    }
+
+    public bool Contains(string name) => Entries.ContainsKey(name);
 
     public void Delete(string name) => Entries.Remove(name);
 }

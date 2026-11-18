@@ -74,7 +74,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         MemoryThresholdMb = s.MemoryThresholdMb;
         WifiLock = s.WifiLockWhileScriptRuns;
         ClientVersion = s.ClientVersion ?? string.Empty;
-        HasRememberedPassword = s.RememberPassword && _host.Vault.StoredAccount() is not null;
+        HasRememberedPassword = _host.RememberedAccount is not null; // metadata only, nothing decrypted
         _loading = false;
     }
 

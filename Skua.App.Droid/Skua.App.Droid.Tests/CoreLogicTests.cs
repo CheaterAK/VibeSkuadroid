@@ -143,6 +143,47 @@ public class CredentialVaultTests
     }
 
     [Fact]
+    public void TransientFailureKeepsTheEntryAndSaysSo()
+    {
+        MemorySecretStore store = new();
+        CredentialVault vault = new(store);
+        vault.Save("Hero", "pw-1234");
+        store.Transient = true;
+        Assert.Null(vault.Load("Hero", out VaultStatus status));
+        Assert.Equal(VaultStatus.Unavailable, status);
+        Assert.Null(vault.TryLoad("Hero"));
+        Assert.True(vault.HasStoredPassword);
+        Assert.Single(store.Entries);
+
+        store.Transient = false;
+        Assert.Equal("pw-1234", vault.Load("Hero", out status));
+        Assert.Equal(VaultStatus.Found, status);
+        Assert.Null(vault.Load("Villain", out status));
+        Assert.Equal(VaultStatus.None, status);
+    }
+
+    [Theory]
+    [InlineData("javax.crypto.AEADBadTagException")]
+    [InlineData("AEADBadTagException")]
+    [InlineData("android.security.keystore.KeyPermanentlyInvalidatedException")]
+    [InlineData("System.IO.InvalidDataException")]
+    [InlineData("MissingKeyException")]
+    public void DefinitiveKeystoreFailures(string exception) =>
+        Assert.True(SecretFailurePolicy.IsDefinitive(["SomeWrapperException", exception]));
+
+    [Theory]
+    [InlineData("java.security.KeyStoreException")]
+    [InlineData("java.security.ProviderException")]
+    [InlineData("java.security.UnrecoverableKeyException")]
+    [InlineData("android.security.keystore.UserNotAuthenticatedException")]
+    [InlineData("java.security.InvalidKeyException")]
+    [InlineData("javax.crypto.IllegalBlockSizeException")]
+    [InlineData("android.security.KeyStoreException")]
+    [InlineData("System.IO.IOException")]
+    public void TransientKeystoreFailures(string exception) =>
+        Assert.False(SecretFailurePolicy.IsDefinitive(["Java.Lang.Exception", exception]));
+
+    [Fact]
     public void UnavailableStoreRemembersNothing()
     {
         CredentialVault vault = new(new UnavailableSecretStore());

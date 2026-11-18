@@ -77,6 +77,8 @@ public sealed class RestartReceiver : BroadcastReceiver
     {
         if (context is null || intent?.Action != ActionRestart)
             return;
+        if (!EngineRuntime.TryInitialize(context))
+            return; // recorded by TryInitialize; nothing to resume without an engine
         if (!File.Exists(EngineRuntime.Paths.ResumeFile))
             return; // already resumed by the reopened activity
         if (!EngineService.Start(context, EngineService.ActionResume))
@@ -92,6 +94,7 @@ public sealed class RestartReceiver : BroadcastReceiver
 [Activity(
     Exported = false,
     Process = ProcessInfo.RestartProcessSuffix,
+    TaskAffinity = "",
     Theme = "@style/VibeSkua.Restart",
     NoHistory = true,
     ExcludeFromRecents = true)]

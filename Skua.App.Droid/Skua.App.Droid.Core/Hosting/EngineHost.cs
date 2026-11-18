@@ -49,8 +49,25 @@ public sealed class EngineHost : IAsyncDisposable
     /// <summary>Raised right before the process restarts itself (the service tears down its notification and locks).</summary>
     public event EventHandler<string>? RestartStarting;
 
-    /// <summary>A password is remembered for <paramref name="account"/>.</summary>
-    public bool HasRememberedPassword(string? account) => Settings.Current.RememberPassword && Vault.TryLoad(account) is not null;
+    /// <summary>
+    /// The account a password is remembered for, from the settings metadata and the presence of the encrypted entry.
+    /// Nothing is decrypted, so this is cheap enough for every keystroke and every memory sample.
+    /// </summary>
+    public string? RememberedAccount
+    {
+        get
+        {
+            AppSettings s = Settings.Current;
+            if (!s.RememberPassword || !Vault.HasStoredPassword)
+                return null;
+            return s.RememberedAccount ?? s.AccountName;
+        }
+    }
+
+    /// <summary>A password is remembered for <paramref name="account"/> (metadata only: it may still fail to decrypt).</summary>
+    public bool HasRememberedPassword(string? account) =>
+        !string.IsNullOrWhiteSpace(account) && RememberedAccount is string bound
+        && string.Equals(bound, account.Trim(), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Logs in. An empty <paramref name="password"/> uses the remembered one. On success the account and server are
@@ -58,18 +75,40 @@ public sealed class EngineHost : IAsyncDisposable
     /// </summary>
     public async Task LoginAsync(string account, string password, string? server, bool remember, CancellationToken cancellationToken = default)
     {
-        string? effective = string.IsNullOrEmpty(password) ? Vault.TryLoad(account) : password;
+        VaultStatus stored = VaultStatus.None;
+        string? effective = string.IsNullOrEmpty(password) ? Vault.Load(account, out stored) : password;
         if (string.IsNullOrEmpty(effective))
-            throw new EngineException("Enter the password.");
+        {
+            throw new EngineException(stored == VaultStatus.Unavailable
+                ? "The saved password cannot be read right now. Enter the password."
+                : "Enter the password.");
+        }
 
         await Engine.LoginAsync(new LoginRequest(account, effective, server, Settings.Current.ClientVersion), cancellationToken).ConfigureAwait(false);
 
         bool canRemember = remember && Vault.IsAvailable;
         if (canRemember)
-            Vault.Save(account, effective);
-        else
+        {
+            try
+            {
+                Vault.Save(account, effective);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                // The session is up; failing to remember the password must not turn it into a failed login.
+                canRemember = false;
+                RememberFailed?.Invoke(this, e);
+            }
+        }
+        if (!canRemember)
             Vault.Forget();
-        Settings.Update(s => s with { AccountName = account, Server = server, RememberPassword = canRemember });
+        Settings.Update(s => s with
+        {
+            AccountName = account,
+            Server = server,
+            RememberPassword = canRemember,
+            RememberedAccount = canRemember ? account.Trim() : null,
+        });
     }
 
     public Task LogoutAsync(CancellationToken cancellationToken = default) => Engine.LogoutAsync(cancellationToken);
@@ -77,31 +116,41 @@ public sealed class EngineHost : IAsyncDisposable
     public void ForgetPassword()
     {
         Vault.Forget();
-        Settings.Update(s => s with { RememberPassword = false });
+        Settings.Update(s => s with { RememberPassword = false, RememberedAccount = null });
     }
+
+    /// <summary>Raised when "remember me" was asked for but the password could not be stored (the login itself succeeded).</summary>
+    public event EventHandler<Exception>? RememberFailed;
 
     /// <summary>
     /// Acts on a restart hand-over left by the previous process: logs back in when it asked for that and a password is
-    /// remembered. Returns a line for the log/notification, or null when there was nothing to resume.
+    /// remembered. Returns what happened, or null when there was nothing to resume. When the login could not be
+    /// resumed by itself (<see cref="ResumeResult.NeedsUser"/>), the app shows its "tap to reconnect" notice.
     /// </summary>
-    public async Task<string?> ResumeAfterRestartAsync(CancellationToken cancellationToken = default)
+    public async Task<ResumeResult?> ResumeAfterRestartAsync(CancellationToken cancellationToken = default)
     {
         ResumeRequest? request = _resume.Take();
         if (request is null)
             return null;
         if (!request.ResumeLogin || string.IsNullOrWhiteSpace(request.Account))
-            return $"Engine restarted ({request.Reason}).";
-        string? password = Settings.Current.RememberPassword ? Vault.TryLoad(request.Account) : null;
+            return new ResumeResult($"Engine restarted ({request.Reason}).", LoggedIn: false, NeedsUser: false);
+        VaultStatus status = VaultStatus.None;
+        string? password = Settings.Current.RememberPassword ? Vault.Load(request.Account, out status) : null;
         if (password is null)
-            return $"Engine restarted ({request.Reason}). Log in again: no password is remembered.";
+        {
+            string why = status == VaultStatus.Unavailable
+                ? "the saved password could not be read right now"
+                : "no password is remembered";
+            return new ResumeResult($"Engine restarted ({request.Reason}). Log in again: {why}.", LoggedIn: false, NeedsUser: true);
+        }
         try
         {
             await Engine.LoginAsync(new LoginRequest(request.Account, password, request.Server, Settings.Current.ClientVersion), cancellationToken).ConfigureAwait(false);
-            return $"Engine restarted ({request.Reason}) and logged back in.";
+            return new ResumeResult($"Engine restarted ({request.Reason}) and logged back in.", LoggedIn: true, NeedsUser: false);
         }
         catch (EngineException e)
         {
-            return $"Engine restarted ({request.Reason}); logging back in failed: {e.Message}";
+            return new ResumeResult($"Engine restarted ({request.Reason}); logging back in failed: {e.Message}", LoggedIn: false, NeedsUser: true);
         }
     }
 
@@ -168,3 +217,9 @@ public sealed class EngineHost : IAsyncDisposable
         await Engine.DisposeAsync().ConfigureAwait(false);
     }
 }
+
+/// <summary>What <see cref="EngineHost.ResumeAfterRestartAsync"/> did.</summary>
+/// <param name="Message">A line for the log.</param>
+/// <param name="LoggedIn">The session is back.</param>
+/// <param name="NeedsUser">A login was wanted but could not be done unattended: tell the user to reconnect.</param>
+public sealed record ResumeResult(string Message, bool LoggedIn, bool NeedsUser);

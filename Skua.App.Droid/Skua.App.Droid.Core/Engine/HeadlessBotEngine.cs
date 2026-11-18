@@ -24,7 +24,7 @@ public sealed class HeadlessBotEngine : IBotEngine
     private readonly IScriptHost _scripts;
     private readonly IMemoryProbe _memoryProbe;
     private readonly TimeProvider _time;
-    private readonly SecretScrubber _scrubber = new();
+    private readonly SecretScrubber _scrubber;
     private readonly RingBuffer<LogEntry> _log;
     private readonly RingBuffer<PacketEntry> _packets;
     private readonly SemaphoreSlim _opLock = new(1, 1);
@@ -50,6 +50,7 @@ public sealed class HeadlessBotEngine : IBotEngine
     public HeadlessBotEngine(HeadlessEngineOptions? options = null, IScriptHost? scriptHost = null, IMemoryProbe? memoryProbe = null, TimeProvider? time = null)
     {
         _options = options ?? new HeadlessEngineOptions();
+        _scrubber = _options.Scrubber ?? new SecretScrubber();
         _scripts = scriptHost ?? new UnavailableScriptHost();
         _memoryProbe = memoryProbe ?? new ProcMemoryProbe();
         _time = time ?? TimeProvider.System;
