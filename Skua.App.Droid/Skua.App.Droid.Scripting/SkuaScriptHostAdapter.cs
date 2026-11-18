@@ -134,13 +134,15 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost
     public event EventHandler<LogEntry>? Log;
 
     /// <summary>
-    /// Questions get "no" (scripts ask before doing something optional), button choices prefer the harmless
-    /// acknowledgements; everything is logged.
+    /// Nobody is there to answer, so: yes/no questions get "no" (scripts ask before doing something optional, such
+    /// as CoreBots' "join our Discord?"), button choices prefer the harmless acknowledgements and the most private
+    /// choice ("None" in CoreBots' data collection consent), else the first button. Every question and its answer
+    /// is logged as a "dialog" warning in the console.
     /// </summary>
     public static HeadlessDialogPolicy DefaultDialogPolicy()
     {
         HeadlessDialogPolicy policy = new() { YesNoAnswer = false };
-        foreach (string b in new[] { "OK", "Ok", "Continue", "Close", "Got it", "Understood", "Skip", "No", "Cancel" })
+        foreach (string b in new[] { "OK", "Ok", "Continue", "Close", "Got it", "Understood", "Skip", "None", "No", "Cancel" })
             policy.PreferredButtons.Add(b);
         return policy;
     }

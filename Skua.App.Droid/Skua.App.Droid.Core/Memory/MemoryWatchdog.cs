@@ -65,6 +65,23 @@ public sealed class MemoryWatchdog
 
     public MemoryVerdict LastVerdict { get; private set; } = MemoryVerdict.Normal;
 
+    /// <summary>
+    /// Feeds one sample with the script runner's state. Never restarts while a script compiles, runs or stops (that
+    /// would kill the run); after it ends the idle grace starts. A sample taken while compiling is Roslyn's transient
+    /// peak (several hundred MB for a CoreBots-sized script, measured), not leaked script assemblies: it never becomes
+    /// the start-up baseline, and it does not count as being over the threshold.
+    /// </summary>
+    public MemoryVerdict Evaluate(long rssBytes, Engine.ScriptRunState state)
+    {
+        if (state == Engine.ScriptRunState.Compiling)
+        {
+            _idleSince = null;
+            LastVerdict = LastVerdict == MemoryVerdict.ThresholdTooLow ? LastVerdict : MemoryVerdict.Normal;
+            return LastVerdict;
+        }
+        return Evaluate(rssBytes, state is Engine.ScriptRunState.Running or Engine.ScriptRunState.Stopping);
+    }
+
     /// <summary>Feeds one sample. <paramref name="scriptBusy"/> is true while a script compiles, runs or stops.</summary>
     public MemoryVerdict Evaluate(long rssBytes, bool scriptBusy)
     {
