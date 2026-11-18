@@ -77,8 +77,11 @@ public sealed class RestartReceiver : BroadcastReceiver
     {
         if (context is null || intent?.Action != ActionRestart)
             return;
-        if (!EngineRuntime.TryInitialize(context))
-            return; // recorded by TryInitialize; nothing to resume without an engine
+        // Starts the composition (if Application.OnCreate did not) without waiting for it: the paths are ready at once,
+        // and the service, in the foreground immediately, runs the resume once the engine is composed.
+        Task<bool> engine = EngineRuntime.StartInitialization(context);
+        if (engine.IsCompleted && !engine.Result)
+            return; // recorded; nothing to resume without an engine
         if (!File.Exists(EngineRuntime.Paths.ResumeFile))
             return; // already resumed by the reopened activity
         if (!EngineService.Start(context, EngineService.ActionResume))

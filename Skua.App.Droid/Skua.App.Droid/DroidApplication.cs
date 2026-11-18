@@ -14,8 +14,9 @@ namespace Skua.App.Droid;
 /// <remarks>
 /// <list type="number">
 /// <item>Constructor: installs crash capture (it needs nothing else) and starts the startup marker.</item>
-/// <item>OnCreate: composes the engine (process-wide; the foreground service needs it without any UI). A failure is
-/// recorded and the process keeps running without the engine instead of dying.</item>
+/// <item>OnCreate: starts composing the engine on a background thread (process-wide; the foreground service needs it
+/// without any UI) and returns. A failure is recorded and the process keeps running without the engine instead of
+/// dying.</item>
 /// <item>Avalonia is NOT started here but lazily by <see cref="MainActivity"/> (<see cref="EnsureAvaloniaStarted"/>).
 /// So the plain-Android <see cref="LaunchActivity"/> and <see cref="CrashActivity"/> work even when Avalonia's startup
 /// is what crashes, and a process started only for the service never loads Skia or EGL.</item>
@@ -58,6 +59,8 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
         AppBootstrap.Factory = EngineRuntime.CreateAppServices;
         AppBootstrap.ReportError = (where, e) => CrashCapture.Recovered(where, e);
         AppBootstrap.MainViewCreated = () => CrashCapture.Step(StartupStep.MainViewCreated);
+        // The main view waits for the composition (a short "starting" view) instead of the main thread.
+        AppBootstrap.EngineReady = () => EngineRuntime.StartInitialization(this);
 
         if (CrashCapture.PreviousStartup is { DiedInEngineInit: true } && CrashCapture.Store?.HasPendingReport == true)
         {
@@ -67,7 +70,8 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
         }
         else
         {
-            EngineRuntime.TryInitialize(this);
+            // On a background thread: Application.onCreate (and so the first frame) never waits for it.
+            _ = EngineRuntime.StartInitialization(this);
         }
         CrashCapture.Step(StartupStep.ApplicationReady);
     }

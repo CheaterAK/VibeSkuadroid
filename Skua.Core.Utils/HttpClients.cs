@@ -4,17 +4,24 @@ using System.Net.Http.Headers;
 namespace Skua.Core.Utils;
 
 /// <summary>
-/// HttpClient with connection pooling
+/// HttpClient with connection pooling. Its GitHub credential (the app's OAuth client pair, or a user token) is attached
+/// per request, and only to HTTPS requests for GitHub hosts (see <see cref="GitHubCredentialHandler"/>): the same
+/// client is also used for game hosts, which must never receive it.
 /// </summary>
 public class WebClient : HttpClient
 {
     //private readonly string _authString1 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("726820423be5c752df62:63b2a5b1a55fbeade88deab3b6c8914808bad7a6"));
-    private readonly string _authString2 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("449f889db3d655d2ef4a:27863d426bc5bb46c410daf7ed6b479ba4a9f7eb"));
+    private static readonly string _authString2 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("449f889db3d655d2ef4a:27863d426bc5bb46c410daf7ed6b479ba4a9f7eb"));
 
     /// <param name="accJson"></param>
-    public WebClient(bool accJson) : base(CreateHttpClientHandler())
+    public WebClient(bool accJson) : this(accJson, CreateHttpClientHandler())
     {
-        DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", _authString2);
+    }
+
+    /// <summary>Same as <see cref="WebClient(bool)"/> over <paramref name="innerHandler"/> (tests use a fake one).</summary>
+    public WebClient(bool accJson, HttpMessageHandler innerHandler)
+        : base(new GitHubCredentialHandler(new AuthenticationHeaderValue("Basic", _authString2), innerHandler))
+    {
         if (accJson)
             DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         DefaultRequestHeaders.UserAgent.ParseAdd("Skua");
@@ -22,9 +29,14 @@ public class WebClient : HttpClient
     }
 
     /// <param name="token"></param>
-    public WebClient(string token) : base(CreateHttpClientHandler())
+    public WebClient(string token) : this(token, CreateHttpClientHandler())
     {
-        DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", token);
+    }
+
+    /// <summary>Same as <see cref="WebClient(string)"/> over <paramref name="innerHandler"/> (tests use a fake one).</summary>
+    public WebClient(string token, HttpMessageHandler innerHandler)
+        : base(new GitHubCredentialHandler(new AuthenticationHeaderValue("bearer", token), innerHandler))
+    {
         DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         DefaultRequestHeaders.UserAgent.ParseAdd("Skua/ScriptsUser");
         Timeout = TimeSpan.FromSeconds(60);
@@ -37,6 +49,41 @@ public class WebClient : HttpClient
             MaxConnectionsPerServer = 10,
             UseCookies = false
         };
+    }
+}
+
+/// <summary>
+/// Adds a GitHub credential to HTTPS requests for GitHub hosts (github.com and its subdomains, such as api.github.com)
+/// that carry no Authorization header of their own; every other request (game hosts, plain http, other sites) goes out
+/// without it. Redirects are followed by the inner handler, which drops the Authorization header on every redirect.
+/// </summary>
+public sealed class GitHubCredentialHandler : DelegatingHandler
+{
+    private readonly AuthenticationHeaderValue _credential;
+
+    /// <param name="credential">The credential for GitHub hosts.</param>
+    /// <param name="innerHandler">The handler that sends the requests.</param>
+    public GitHubCredentialHandler(AuthenticationHeaderValue credential, HttpMessageHandler innerHandler) : base(innerHandler)
+    {
+        _credential = credential;
+    }
+
+    /// <summary>Whether <paramref name="uri"/> may receive a GitHub credential: HTTPS to github.com or a subdomain of it.</summary>
+    public static bool IsGitHubHost(Uri? uri)
+    {
+        if (uri is null || !uri.IsAbsoluteUri || uri.Scheme != Uri.UriSchemeHttps)
+            return false;
+        string host = uri.IdnHost.TrimEnd('.');
+        return host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc/>
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (request.Headers.Authorization is null && IsGitHubHost(request.RequestUri))
+            request.Headers.Authorization = _credential;
+        return base.SendAsync(request, cancellationToken);
     }
 }
 

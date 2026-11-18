@@ -50,6 +50,11 @@ public sealed class EngineService : Service
     private bool _notifyPosted;
     private DateTimeOffset? _idleSince;
 
+    // Main thread only. Commands received while the engine is still being composed, run once it is.
+    private readonly List<string?> _pending = new();
+    private bool _composed;
+    private bool _destroyed;
+
     public EngineService()
     {
         _binder = new LocalBinder(this);
@@ -101,26 +106,54 @@ public sealed class EngineService : Service
         CreateChannels(this);
         s_running = true;
         // Started by the system (sticky restart) or the restart alarm in a fresh process: compose the engine if
-        // Application.OnCreate could not. Without it the service only satisfies startForeground and stops.
-        if (EngineRuntime.TryInitialize(this))
+        // Application.OnCreate could not, without waiting for it here. Commands that arrive meanwhile are queued and
+        // run once it is composed; without an engine the service only satisfies startForeground and stops.
+        EngineRuntime.WhenInitialized(this, OnEngineComposed);
+        CrashCapture.Info("Engine service created.");
+    }
+
+    /// <summary>Main thread, once the composition completed: attach to the engine and run the queued commands.</summary>
+    private void OnEngineComposed(bool available)
+    {
+        if (_destroyed)
+            return;
+        _composed = true;
+        if (!available)
         {
-            _host = EngineRuntime.Host;
-            _host.Engine.SnapshotChanged += OnSnapshot;
-            _host.RestartStarting += OnRestartStarting;
+            CrashCapture.Info("Engine service has no engine; it stops.");
+            _pending.Clear();
+            StopService();
+            return;
         }
-        CrashCapture.Info(_host is null ? "Engine service created without an engine; it will stop." : "Engine service created.");
+        _host = EngineRuntime.Host;
+        _host.Engine.SnapshotChanged += OnSnapshot;
+        _host.RestartStarting += OnRestartStarting;
+        OnSnapshot(this, _host.Engine.Snapshot);
+        string?[] pending = _pending.ToArray();
+        _pending.Clear();
+        foreach (string? action in pending)
+            Run(action);
     }
 
     public override StartCommandResult OnStartCommand(Intent? intent, [GeneratedEnum] StartCommandFlags flags, int startId)
     {
-        // Must be in the foreground within seconds of startForegroundService, whatever the action.
+        // Must be in the foreground within seconds of startForegroundService, whatever the action, engine or not.
         bool foreground = PromoteToForeground();
-        if (_host is null || !foreground)
+        if (!foreground || _composed && _host is null)
         {
             StopService();
             return StartCommandResult.NotSticky;
         }
-        switch (intent?.Action)
+        if (_host is null)
+            _pending.Add(intent?.Action); // still composing: OnEngineComposed runs it
+        else
+            Run(intent?.Action);
+        return StartCommandResult.Sticky;
+    }
+
+    private void Run(string? action)
+    {
+        switch (action)
         {
             case ActionStop:
                 _ = StopRequestedAsync();
@@ -130,11 +163,12 @@ public sealed class EngineService : Service
                 _ = ResumeAsync();
                 break;
         }
-        return StartCommandResult.Sticky;
     }
 
     public override void OnDestroy()
     {
+        _destroyed = true;
+        _pending.Clear();
         if (_host is not null)
         {
             _host.Engine.SnapshotChanged -= OnSnapshot;

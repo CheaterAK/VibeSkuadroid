@@ -125,6 +125,8 @@ public static class HeadlessSkuaServiceCollectionExtensions
         services.AddSingleton(s => new HeadlessGame(options.Game, options.WebApi, options.Time));
         services.AddSingleton(s => new HeadlessFlashUtil(s.GetRequiredService<HeadlessGame>(), new Lazy<IScriptManager>(() => s.GetRequiredService<IScriptManager>())));
         services.AddSingleton<IFlashUtil>(s => s.GetRequiredService<HeadlessFlashUtil>());
+        // Skua's server list over HTTPS (or the login reply's), never its plain-http fetch from content.aq.com.
+        services.AddSingleton<IServerListProvider>(s => new HeadlessServerListProvider(s.GetRequiredService<HeadlessGame>(), log));
         services.AddSingleton<ISettingsService, HeadlessSettingsService>();
         services.AddSingleton<IDispatcherService, HeadlessDispatcher>();
         services.AddSingleton<IClipboardService, HeadlessClipboard>();

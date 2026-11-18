@@ -53,6 +53,25 @@ Environment `release`, which the repository owner sets up once (Settings > Envir
 
 Without those secrets the sign job only prints a notice. Never commit a keystore.
 
+## Startup
+
+The engine (Skua's DI container and services, folders, Keystore, script references) is composed on a background
+thread, never on the main thread: `Application.OnCreate` sets HOME and creates the folders (cheap, and it must happen
+before other threads read the environment), starts the composition (`EngineStartup` in
+`Skua.App.Droid.Core/Hosting`) and returns. Everything that needs the engine continues when it completes:
+
+* the UI shows a short "Starting the engine..." view, then the main view; if composition failed, the error view
+  (the crash screen explains it on the next launch);
+* `MainActivity` requests the notification permission, resumes after a restart and binds the service afterwards;
+* `EngineService` goes to the foreground at once and queues its commands (resume, stop) until then; without an
+  engine it stops;
+* the restart receiver only starts the composition and the service.
+
+Concurrent callers share one attempt; a failed attempt is recorded before anyone continues, and the next start
+(activity, service, receiver) retries it. The startup marker records the composition separately from the UI steps
+(`engine=` line), so a process that dies while composing is recognised and the next start skips composition until
+the crash screen was seen.
+
 ## If the app crashes
 
 The launcher entry is a plain Android activity (no Avalonia). Crash capture is installed in the Application
@@ -77,6 +96,12 @@ logout keeps the session object and forgets every credential in place: Skua's lo
 (username, password, server list) and the session's credentials and token (`HeadlessGame.ForgetLogin`,
 `AqwSession.ForgetCredentials`). Without a session host (tests) the engine keeps its old behaviour: a fresh
 `AqwSession` per logout.
+
+**Server list.** Skua's relogin reads the server list through `IServerListProvider` (a Skua.Core seam; the desktop
+registers none and keeps its own fetch). The headless host's provider reads `api/data/servers` from game.aq.com over
+HTTPS with the headers the site requires, and falls back to the list the HTTP login returned. Skua.Core's own fetch
+(plain http to content.aq.com, which Android's network security config refuses) is never attempted. Skua.Core's
+GitHub client credential is only ever sent to HTTPS GitHub hosts.
 
 **Reconnects: one owner at a time.** While a script compiles, runs or stops, or Skua's relogin is pending or running,
 Skua owns reconnecting (its AutoRelogin option); the engine shows "Reconnecting (script relogin)" and its own loop, if

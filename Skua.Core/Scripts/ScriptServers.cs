@@ -19,7 +19,26 @@ public partial class ScriptServers : ObservableRecipient, IScriptServers
         Lazy<IScriptBotStats> stats,
         Lazy<IScriptManager> manager,
         Lazy<ILogService> logger)
+        : this(flash, player, wait, options, stats, manager, logger, null)
     {
+    }
+
+    /// <summary>
+    /// With a host's <see cref="IServerListProvider"/>: <see cref="GetServers(bool)"/> reads the server list from it
+    /// instead of fetching it from content.aq.com. The dependency container picks this constructor when one is
+    /// registered and the one above (the desktop's) when not.
+    /// </summary>
+    public ScriptServers(
+        Lazy<IFlashUtil> flash,
+        Lazy<IScriptPlayer> player,
+        Lazy<IScriptWait> wait,
+        Lazy<IScriptOption> options,
+        Lazy<IScriptBotStats> stats,
+        Lazy<IScriptManager> manager,
+        Lazy<ILogService> logger,
+        IServerListProvider? serverListProvider)
+    {
+        _serverListProvider = serverListProvider;
         _lazyFlash = flash;
         _lazyPlayer = player;
         _lazyWait = wait;
@@ -36,6 +55,7 @@ public partial class ScriptServers : ObservableRecipient, IScriptServers
     private readonly Lazy<IScriptBotStats> _lazyStats;
     private readonly Lazy<IScriptManager> _lazyManager;
     private readonly Lazy<ILogService> _lazyLogger;
+    private readonly IServerListProvider? _serverListProvider;
 
     private IFlashUtil Flash => _lazyFlash.Value;
     private IScriptPlayer Player => _lazyPlayer.Value;
@@ -170,11 +190,19 @@ public partial class ScriptServers : ObservableRecipient, IScriptServers
 
         try
         {
-            string response = await ValidatedHttpExtensions.GetStringAsync(HttpClients.GetGHClient()
+            List<Server>? servers;
+            if (_serverListProvider is not null)
+            {
+                servers = await _serverListProvider.GetServersAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                string response = await ValidatedHttpExtensions.GetStringAsync(HttpClients.GetGHClient()
 , $"http://content.aq.com/game/api/data/servers")
-                .ConfigureAwait(false);
+                    .ConfigureAwait(false);
+                servers = JsonConvert.DeserializeObject<List<Server>>(response);
+            }
 
-            List<Server>? servers = JsonConvert.DeserializeObject<List<Server>>(response);
             if (servers == null || servers.Count == 0)
                 return new();
 
