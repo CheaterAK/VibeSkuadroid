@@ -23,7 +23,9 @@ internal static class Sandbox
     [ModuleInitializer]
     internal static void Init()
     {
-        Directory.CreateDirectory(Root);
+        // GetFolderPath(ApplicationData) returns "" for a folder that does not exist, and Skua's data would land in the
+        // working directory (the test bin folder): create it first.
+        Directory.CreateDirectory(Path.Combine(Root, "xdg"));
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(Root, "xdg"));
     }
 

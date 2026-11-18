@@ -81,6 +81,25 @@ public class HeadlessUiTests
             shell.NavigateCommand.Execute(page);
             Render();
         }
+        // The options editor with every kind of option, and the CoreBots settings editor.
+        File.WriteAllText(Path.Combine(app.Paths.ScriptsDir, "CoreBots.cs"), "class CoreBots { void R() { CBOBool(\"PrivateRooms\", out bool a); CBOInt(\"ActionDelay\", out int b); CBOString(\"SoloClassSelect\", out string c); } }");
+        shell.NavigateCommand.Execute("Scripts");
+        shell.Scripts.EditCoreBotsOptionsCommand.NotifyCanExecuteChanged();
+        shell.Scripts.EditCoreBotsOptionsCommand.Execute(null);
+        Render();
+        Assert.True(shell.Scripts.IsEditingOptions, shell.Scripts.Message);
+        Assert.Equal(3, shell.Scripts.OptionsEditor!.Items.Count);
+        shell.Scripts.OptionsEditor = new ScriptOptionsViewModel(new Skua.App.Droid.Core.Engine.ScriptOptionSet("/x/S.cs", "S",
+        [
+            new("Options", "a", "A", "toggle", Skua.App.Droid.Core.Engine.ScriptOptionKind.Toggle, "True", [], false),
+            new("Group_One", "b", "B", "number", Skua.App.Droid.Core.Engine.ScriptOptionKind.Number, "3", [], false),
+            new("Options", "c", "C", "", Skua.App.Droid.Core.Engine.ScriptOptionKind.Text, "x", [], true),
+            new("Options", "d", "D", "choice", Skua.App.Droid.Core.Engine.ScriptOptionKind.Choice, "Two", ["One", "Two"], false),
+        ]), "S.cs");
+        Render();
+        Assert.True(shell.GoBack()); // back closes the editor first
+        Assert.False(shell.Scripts.IsEditingOptions);
+        Render();
         shell.World.SelectTabCommand.Execute("Quests");
         shell.Console.ShowPacketsCommand.Execute(null);
         Render();

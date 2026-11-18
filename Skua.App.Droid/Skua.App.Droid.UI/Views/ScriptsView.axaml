@@ -46,9 +46,10 @@
           <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Import folder" Command="{Binding ImportFolderCommand}" />
           <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteCommand}" />
         </Grid>
-        <Grid ColumnDefinitions="*,Auto">
-          <Button Classes="small" HorizontalAlignment="Stretch" Content="Sync community scripts" Command="{Binding SyncRepositoryCommand}" />
-          <Button Grid.Column="1" Classes="small danger" Margin="6,0,0,0" Content="Cancel" Command="{Binding CancelSyncCommand}" IsVisible="{Binding IsSyncing}" />
+        <Grid ColumnDefinitions="*,*,Auto">
+          <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Sync community scripts" Command="{Binding SyncRepositoryCommand}" />
+          <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="CoreBots options" Command="{Binding EditCoreBotsOptionsCommand}" />
+          <Button Grid.Column="2" Classes="small danger" Margin="6,0,0,0" Content="Cancel" Command="{Binding CancelSyncCommand}" IsVisible="{Binding IsSyncing}" />
         </Grid>
         <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
         <ProgressBar Minimum="0" Maximum="1" Value="{Binding SyncProgress}" IsIndeterminate="{Binding !SyncProgressKnown}" IsVisible="{Binding IsSyncing}" />

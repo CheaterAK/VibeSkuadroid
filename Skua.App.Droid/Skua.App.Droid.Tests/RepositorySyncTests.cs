@@ -243,6 +243,44 @@ public class RepositorySyncTests
         Assert.Contains(vm.Entries, e => e.Name == "Story");
     }
 
+    [Fact]
+    public void CoreBotsKeysComeFromTheCoreSourcesAndSavingKeepsUnknownLines()
+    {
+        string root = Sandbox.NewDir();
+        string scripts = Path.Combine(root, "Scripts");
+        string options = Path.Combine(root, "options");
+        Directory.CreateDirectory(scripts);
+        Directory.CreateDirectory(options);
+        File.WriteAllText(Path.Combine(scripts, "CoreBots.cs"),
+            "if (CBOBool(\"PrivateRooms\", out bool a)) {} if (CBOInt(\"PrivateRoomNr\", out int n)) {} CBOString(\"SoloClassSelect\", out string s); CBOBool(\"PrivateRooms\", out a);");
+        File.WriteAllText(Path.Combine(scripts, "CoreFarms.cs"), "CBOString(\"FarmClassSelect\", out string f);");
+        File.WriteAllText(Path.Combine(scripts, "NotCore.cs"), "CBOBool(\"Ignored\", out bool i);");
+        File.WriteAllLines(Path.Combine(options, "CBO_Storage(Hero).txt"), ["PrivateRooms: True", "Weapon1Select: Sword", "SoloClassSelect: Old"]);
+
+        ScriptOptionSet set = CoreBotsOptions.Load(scripts, options, "hero"); // the existing file matches ignoring case
+        Assert.Equal("CBO_Storage(Hero)", set.Storage);
+        Assert.Equal(["PrivateRooms", "PrivateRoomNr", "SoloClassSelect", "FarmClassSelect"], set.Items.Select(i => i.Name));
+        Assert.Equal([ScriptOptionKind.Toggle, ScriptOptionKind.Number, ScriptOptionKind.Text, ScriptOptionKind.Text], set.Items.Select(i => i.Kind));
+        Assert.Equal(["True", "", "Old", ""], set.Items.Select(i => i.Value));
+        Assert.Equal("Private Room Nr", set.Items[1].Title);
+
+        Assert.Throws<EngineException>(() => CoreBotsOptions.Save(set with { Items = set.Items.Select(i => i.Name == "PrivateRoomNr" ? i with { Value = "abc" } : i).ToList() }, options));
+        CoreBotsOptions.Save(set with
+        {
+            Items = set.Items.Select(i => i.Name switch
+            {
+                "PrivateRooms" => i with { Value = "False" },
+                "PrivateRoomNr" => i with { Value = "4242" },
+                "SoloClassSelect" => i with { Value = "" },
+                _ => i,
+            }).ToList(),
+        }, options);
+        Assert.Equal(["PrivateRooms: False", "Weapon1Select: Sword", "PrivateRoomNr: 4242"], File.ReadAllLines(Path.Combine(options, "CBO_Storage(Hero).txt")));
+
+        // A new account gets the lower-case name AQW reports.
+        Assert.Equal(Path.Combine(options, "CBO_Storage(newbie).txt"), CoreBotsOptions.FileFor(options, "Newbie"));
+    }
+
     private sealed class SyncProgressList : IProgress<RepositorySyncProgress>
     {
         private readonly List<RepositorySyncProgress> _list;

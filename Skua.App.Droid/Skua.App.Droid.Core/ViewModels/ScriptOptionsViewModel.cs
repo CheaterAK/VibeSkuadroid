@@ -12,21 +12,27 @@ public sealed partial class ScriptOptionsViewModel : ObservableObject
 {
     private readonly ScriptOptionSet _set;
 
-    public ScriptOptionsViewModel(ScriptOptionSet set, string scriptName)
+    public ScriptOptionsViewModel(ScriptOptionSet set, string scriptName, bool isCoreBots = false)
     {
         _set = set;
         ScriptName = scriptName;
+        IsCoreBots = isCoreBots;
         foreach (ScriptOptionItem item in set.Items)
             Items.Add(new ScriptOptionEditor(item, set.Items.Any(i => i.Category != "Options")));
     }
 
     public string ScriptName { get; }
 
+    /// <summary>CoreBots' own settings (CBO file) rather than one script's options.</summary>
+    public bool IsCoreBots { get; }
+
     public string Storage => _set.Storage;
 
     public string Header => $"{ScriptName} options";
 
-    public string StorageText => $"Saved as {_set.Storage}.cfg in Skua's options folder; read at every start.";
+    public string StorageText => IsCoreBots
+        ? $"Saved as {_set.Storage}.txt in Skua's options folder; every CoreBots script reads it at start. Empty means CoreBots' default."
+        : $"Saved as {_set.Storage}.cfg in Skua's options folder; read at every start.";
 
     public ObservableCollection<ScriptOptionEditor> Items { get; } = new();
 

@@ -342,6 +342,33 @@ public sealed partial class ScriptsViewModel : ObservableObject
         }
     }
 
+    private string OptionsDir => Path.Combine(_services.Paths.SkuaDir, "options");
+
+    private string? CurrentAccount => _host.Engine.Snapshot.Character?.Name ?? _host.Engine.Snapshot.AccountName;
+
+    private bool CanEditCoreBotsOptions() => CoreBotsOptions.Available(_library.Root) && CurrentAccount is not null;
+
+    /// <summary>CoreBots' own settings (class and gear sets, private rooms, delays) for the logged-in account.</summary>
+    [RelayCommand(CanExecute = nameof(CanEditCoreBotsOptions))]
+    private void EditCoreBotsOptions()
+    {
+        try
+        {
+            ScriptOptionSet set = CoreBotsOptions.Load(_library.Root, OptionsDir, CurrentAccount!);
+            if (set.Items.Count == 0)
+            {
+                Message = "CoreBots.cs declares no settings (sync the community scripts first).";
+                return;
+            }
+            OptionsEditor = new ScriptOptionsViewModel(set, "CoreBots", isCoreBots: true);
+            Message = null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Message = e.Message;
+        }
+    }
+
     [RelayCommand]
     private async Task SaveOptionsAsync()
     {
@@ -350,11 +377,18 @@ public sealed partial class ScriptsViewModel : ObservableObject
         editor.Error = null;
         try
         {
-            await _host.Engine.SaveScriptOptionsAsync(editor.ToSet());
+            if (editor.IsCoreBots)
+                await Task.Run(() => CoreBotsOptions.Save(editor.ToSet(), OptionsDir));
+            else
+                await _host.Engine.SaveScriptOptionsAsync(editor.ToSet());
             OptionsEditor = null;
             Message = $"Options of {editor.ScriptName} saved.";
         }
         catch (EngineException e)
+        {
+            editor.Error = e.Message;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             editor.Error = e.Message;
         }
@@ -377,6 +411,7 @@ public sealed partial class ScriptsViewModel : ObservableObject
         ScriptBusy = s.Script.IsBusy;
         ScriptStatus = Formatting.ScriptLine(s.Script);
         CountersText = s.ScriptCounters?.Display;
+        EditCoreBotsOptionsCommand.NotifyCanExecuteChanged();
         if (s.Script.ScriptPath is string path && path.StartsWith(_library.Root, StringComparison.Ordinal))
             LoadedScript = Path.GetRelativePath(_library.Root, path).Replace(Path.DirectorySeparatorChar, '/');
         DeleteCommand.NotifyCanExecuteChanged();

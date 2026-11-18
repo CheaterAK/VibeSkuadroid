@@ -75,6 +75,7 @@ public class ScriptReferenceTests
     {
         // In tests ApplicationData comes from XDG_CONFIG_HOME; on Android it is $HOME/.config (AppPaths.ApplicationDataDir).
         string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        Assert.Equal(Path.Combine(Sandbox.Root, "xdg"), appData);
         Assert.Equal(Path.Combine(appData, "VibeSkua", "Scripts"), ClientFileSources.SkuaScriptsDIR);
     }
 
