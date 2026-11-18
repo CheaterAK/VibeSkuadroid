@@ -21,6 +21,9 @@ fi
 OUT="${1:-}"
 
 dotnet test Skua.App.Droid.Tests -c Release
+# The APKs are always built from a clean Android head: incremental Android builds can reuse generated Java
+# wrappers and native tables from an earlier build (see AndroidEnableMarshalMethods in the .csproj).
+rm -rf Skua.App.Droid/obj Skua.App.Droid/bin
 dotnet build Skua.App.Droid -c Debug "${SDK_ARGS[@]}"
 dotnet publish Skua.App.Droid -c Release "${SDK_ARGS[@]}" "${SIGN_ARGS[@]}"
 

@@ -37,6 +37,17 @@
     <UseMonoRuntime>true</UseMonoRuntime>
     <UseInterpreter>false</UseInterpreter>
     <AndroidEnableProfiledAot>false</AndroidEnableProfiledAot>
+    <!--
+      No LLVM marshal methods (the .NET 10 default for Mono Release builds). With them, the Java wrappers declare
+      native methods that are resolved only through a table generated into libxamarin-app.so, and with workload
+      36.1.118 an incremental Release build after any change to this project regenerates that table almost empty
+      (verified: 759 entries after a clean build, 2 after touching one .cs file) while the wrappers still expect it.
+      Such an APK dies in Application.onCreate with UnsatisfiedLinkError before any window appears: the crash
+      reported for the first sideloaded Release APK. Debug never used them (debug symbols turn them off). Without
+      them every wrapper registers its methods at class load, which does not depend on build history.
+      DroidCheckJavaStubRegistration below fails the build if a wrapper ever ends up without registration again.
+    -->
+    <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
   </PropertyGroup>
 
   <!--
@@ -88,6 +99,22 @@
     <Message Condition="'@(_DroidStaleSigned)' != ''" Importance="high" Text="Signing identity changed: removing @(_DroidStaleSigned->Count()) previously signed file(s)." />
     <Delete Files="@(_DroidStaleSigned)" />
     <WriteLinesToFile File="$(_DroidSignStamp)" Lines="$(_DroidSignId)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <!--
+    Every generated Java wrapper of this app that declares native methods must register them itself
+    (__md_methods), since marshal methods are off. A wrapper without it would crash with UnsatisfiedLinkError the
+    first time Android calls it (for DroidApplication: at process start, before any window).
+  -->
+  <Target Name="DroidCheckJavaStubRegistration" BeforeTargets="_CompileJava" Condition="'$(_AndroidUseMarshalMethods)' != 'True'">
+    <ItemGroup>
+      <_DroidJavaStub Include="$(IntermediateOutputPath)android/src/com/vibeskua/**/*.java;$(IntermediateOutputPath)android/src/crc*/*.java" />
+      <_DroidUnregisteredStub Include="@(_DroidJavaStub)"
+          Condition="$([System.IO.File]::ReadAllText('%(_DroidJavaStub.FullPath)').Contains('private native')) and !$([System.IO.File]::ReadAllText('%(_DroidJavaStub.FullPath)').Contains('__md_methods'))" />
+    </ItemGroup>
+    <Error Condition="'@(_DroidJavaStub)' == ''" Text="No generated Java wrappers found under $(IntermediateOutputPath)android/src: the registration check cannot run." />
+    <Error Condition="'@(_DroidUnregisteredStub)' != ''" Text="Java wrappers with native methods but no registration (they would crash with UnsatisfiedLinkError): @(_DroidUnregisteredStub->'%(Filename)', ', ')" />
+    <Message Importance="high" Text="Java wrapper registration check: @(_DroidJavaStub->Count()) wrappers, all self-registering." />
   </Target>
 
   <ItemGroup>
