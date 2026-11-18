@@ -180,6 +180,19 @@ public class ScriptAssemblyStoreTests
     }
 
     [Fact]
+    public void UnattendedDialogsAnswerNoAndPreferThePrivateChoiceAndAreLogged()
+    {
+        List<Skua.Core.Headless.Host.HeadlessLogEntry> log = new();
+        Skua.Core.Headless.Host.HeadlessDialogService dialogs = new(SkuaScriptHostAdapter.DefaultDialogPolicy(), log.Add);
+        Assert.False(dialogs.ShowMessageBox("Join our Discord?", "One Time-Only Message", true));
+        Assert.Equal("None", dialogs.ShowMessageBox("Data collection consent", "Data Collection", "Full", "Partial", "None").Text);
+        Assert.Equal("OK", dialogs.ShowMessageBox("Done", "Info", "Retry", "OK").Text);
+        Assert.Equal("Alpha", dialogs.ShowMessageBox("Pick", "Q", "Alpha", "Beta").Text);
+        Assert.Equal(4, log.Count(l => l.Source == "dialog"));
+        Assert.Contains(log, l => l.Message.EndsWith("-> None", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void AnUnchangedImageBindsToAChangedDependencyAsANewLoad()
     {
         // CoreFarms recompiled against an edited CoreBots can be byte-identical (references are by name): it must bind
