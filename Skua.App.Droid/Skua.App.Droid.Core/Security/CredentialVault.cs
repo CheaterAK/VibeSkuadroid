@@ -4,6 +4,35 @@ using System.Text;
 
 namespace Skua.App.Droid.Core.Security;
 
+/// <summary>Outcome of reading a secret.</summary>
+public enum SecretStatus
+{
+    /// <summary>The entry was read and decrypted.</summary>
+    Found,
+
+    /// <summary>
+    /// There is no entry, or there was one that can never be decrypted again (wrong key, tampered or malformed data,
+    /// permanently invalidated key) and it has been deleted.
+    /// </summary>
+    NotFound,
+
+    /// <summary>
+    /// The entry exists but could not be read right now (the Keystore was busy, locked or failed transiently). It is
+    /// kept: a later attempt may succeed.
+    /// </summary>
+    Unavailable,
+}
+
+/// <summary>Result of <see cref="ISecretStore.Load"/>. <see cref="Value"/> is set only for <see cref="SecretStatus.Found"/>.</summary>
+public readonly record struct SecretLookup(SecretStatus Status, byte[]? Value)
+{
+    public static SecretLookup NotFound => new(SecretStatus.NotFound, null);
+
+    public static SecretLookup Unavailable => new(SecretStatus.Unavailable, null);
+
+    public static SecretLookup Found(byte[] value) => new(SecretStatus.Found, value);
+}
+
 /// <summary>
 /// Platform storage for small secrets. The Android implementation (KeystoreSecretStore) encrypts with an
 /// AES-256-GCM key that never leaves the Android Keystore. Implementations must never log the plaintext.
@@ -17,10 +46,13 @@ public interface ISecretStore
     void Save(string name, ReadOnlySpan<byte> plaintext);
 
     /// <summary>
-    /// The decrypted value, or null when there is none or it cannot be decrypted (key deleted, data restored from
-    /// another device, tampering). An undecryptable entry is deleted.
+    /// Reads and decrypts an entry. Only a definitive failure (see <see cref="SecretStatus.NotFound"/>) deletes the
+    /// entry; a transient one returns <see cref="SecretStatus.Unavailable"/> and keeps it.
     /// </summary>
-    byte[]? Load(string name);
+    SecretLookup Load(string name);
+
+    /// <summary>An entry exists (nothing is decrypted).</summary>
+    bool Contains(string name);
 
     void Delete(string name);
 }
@@ -32,11 +64,61 @@ public sealed class UnavailableSecretStore : ISecretStore
 
     public void Save(string name, ReadOnlySpan<byte> plaintext) => throw new InvalidOperationException("No secure storage on this platform.");
 
-    public byte[]? Load(string name) => null;
+    public SecretLookup Load(string name) => SecretLookup.NotFound;
+
+    public bool Contains(string name) => false;
 
     public void Delete(string name)
     {
     }
+}
+
+/// <summary>
+/// Which secret-store failures are definitive (the entry can never be decrypted again, so it is deleted and the user
+/// is asked for the password) and which are transient (the entry is kept and the caller falls back for now).
+/// </summary>
+/// <remarks>
+/// Platform neutral so it can be tested off the device: the Android store passes the Java class names of the
+/// exception and its causes. Anything not listed is treated as transient: deleting a still-valid password because the
+/// Keystore hiccuped would break unattended reconnects, while keeping an unusable blob costs nothing.
+/// </remarks>
+public static class SecretFailurePolicy
+{
+    /// <summary>Simple class names that mean "this entry is gone for good".</summary>
+    public static IReadOnlyCollection<string> DefinitiveFailures { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        // GCM tag mismatch: different key (reinstall, key regenerated), tampered or truncated data.
+        "AEADBadTagException",
+        // The key was invalidated by the OS (e.g. secure lock screen removed for keys bound to it).
+        "KeyPermanentlyInvalidatedException",
+        // Our own: the file does not have the expected layout.
+        "InvalidDataException",
+        // The key alias no longer exists, so nothing stored under it can be decrypted.
+        "MissingKeyException",
+    };
+
+    /// <summary>True when any exception in the chain (outermost first) is a definitive failure.</summary>
+    public static bool IsDefinitive(IEnumerable<string> exceptionChainClassNames) =>
+        exceptionChainClassNames.Any(name => DefinitiveFailures.Contains(SimpleName(name)));
+
+    private static string SimpleName(string name)
+    {
+        int dot = Math.Max(name.LastIndexOf('.'), name.LastIndexOf('$'));
+        return dot >= 0 ? name[(dot + 1)..] : name;
+    }
+}
+
+/// <summary>What the vault found for an account.</summary>
+public enum VaultStatus
+{
+    /// <summary>A password is stored for this account.</summary>
+    Found,
+
+    /// <summary>No password is stored for this account (none at all, another account's, or it was unusable and deleted).</summary>
+    None,
+
+    /// <summary>A password is stored but cannot be read right now; ask the user or try again later.</summary>
+    Unavailable,
 }
 
 /// <summary>
@@ -59,6 +141,9 @@ public sealed class CredentialVault
 
     public bool IsAvailable => _store.IsAvailable;
 
+    /// <summary>An encrypted entry exists. Cheap: nothing is decrypted (use it for UI state, not as proof it can be read).</summary>
+    public bool HasStoredPassword => _store.IsAvailable && _store.Contains(EntryName);
+
     /// <summary>Stores the password for <paramref name="username"/>, replacing any other account's.</summary>
     public void Save(string username, string password)
     {
@@ -78,21 +163,37 @@ public sealed class CredentialVault
     }
 
     /// <summary>The stored password if it was saved for <paramref name="username"/> (case-insensitive), else null.</summary>
-    public string? TryLoad(string? username)
+    public string? TryLoad(string? username) => Load(username, out _);
+
+    /// <summary>
+    /// The stored password if it was saved for <paramref name="username"/> (case-insensitive), else null, with why.
+    /// Decrypts: call it when the password is needed, not to update UI state.
+    /// </summary>
+    public string? Load(string? username, out VaultStatus status)
     {
+        status = VaultStatus.None;
         if (string.IsNullOrWhiteSpace(username) || !_store.IsAvailable)
             return null;
-        byte[]? blob = _store.Load(EntryName);
-        if (blob is null)
+        SecretLookup lookup = _store.Load(EntryName);
+        if (lookup.Status == SecretStatus.Unavailable)
+        {
+            status = VaultStatus.Unavailable;
+            return null;
+        }
+        if (lookup.Value is not byte[] blob)
             return null;
         try
         {
             if (!TryDecode(blob, out string? storedUser, out string? password))
             {
+                // Decrypted fine but not our layout: definitively unusable.
                 _store.Delete(EntryName);
                 return null;
             }
-            return string.Equals(storedUser, username.Trim(), StringComparison.OrdinalIgnoreCase) ? password : null;
+            if (!string.Equals(storedUser, username.Trim(), StringComparison.OrdinalIgnoreCase))
+                return null;
+            status = VaultStatus.Found;
+            return password;
         }
         finally
         {
@@ -100,13 +201,12 @@ public sealed class CredentialVault
         }
     }
 
-    /// <summary>The account a password is stored for, if any.</summary>
+    /// <summary>The account a password is stored for, if any. Decrypts; prefer the settings metadata for UI state.</summary>
     public string? StoredAccount()
     {
         if (!_store.IsAvailable)
             return null;
-        byte[]? blob = _store.Load(EntryName);
-        if (blob is null)
+        if (_store.Load(EntryName).Value is not byte[] blob)
             return null;
         try
         {

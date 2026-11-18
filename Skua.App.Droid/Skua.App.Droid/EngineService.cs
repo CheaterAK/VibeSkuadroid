@@ -191,13 +191,18 @@ public sealed class EngineService : Service
         {
             if (_host is null)
                 return;
-            string? result = await _host.ResumeAfterRestartAsync();
-            if (result is not null)
-                Log.Info(EngineRuntime.LogTag, result);
+            ResumeResult? result = await _host.ResumeAfterRestartAsync();
+            if (result is null)
+                return;
+            CrashCapture.Info(result.Message);
+            // Could not log back in unattended (no password, Keystore unavailable right now, login failed): the
+            // same "tap to reconnect" notice as when Android refused to restart the service.
+            if (result.NeedsUser)
+                PostRestartNotice(this, "The engine restarted but could not log back in by itself. Tap to reconnect.");
         }
-        catch (Exception e) when (e is EngineException or System.OperationCanceledException)
+        catch (Exception e)
         {
-            Log.Warn(EngineRuntime.LogTag, "Resume failed: " + e.Message);
+            CrashCapture.NonFatal("resume after restart", e);
         }
     }
 

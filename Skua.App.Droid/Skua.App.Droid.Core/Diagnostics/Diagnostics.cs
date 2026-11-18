@@ -86,7 +86,7 @@ public static class DiagnosticText
     // (sToken, loginToken, user_password). The value stops at whitespace, quotes, & , ; < > or a closing bracket.
     private static readonly Regex s_keyValue = new(
         @"(?i)(\b[a-z_]*(?:pass(?:word|wd)?|pwd|token|secret|api[_-]?key|session(?:id)?|cookie|authorization|credentials?)\b[""']?\s*[:=]\s*[""']?)(?:(?:bearer|basic)\s+)?[^\s""'&,;<>)\]}]+",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexOptions.CultureInvariant,
         TimeSpan.FromSeconds(1));
 
     public static string Scrub(string? text)

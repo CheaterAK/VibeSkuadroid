@@ -86,7 +86,7 @@ internal static class EngineRuntime
         CrashCapture.Info("engine: paths ready");
 
         SettingsStore settings = new(paths.SettingsFile);
-        CredentialVault vault = new(CreateSecretStore(paths.SecretsDir));
+        CredentialVault vault = new(CreateSecretStore(application, paths.SecretsDir));
         AndroidPlatformServices platform = new(application);
         s_library = new ScriptLibrary(paths.ScriptsDir);
         CrashCapture.Info($"engine: settings, vault (available: {vault.IsAvailable}) and script library ready");
@@ -103,6 +103,7 @@ internal static class EngineRuntime
         CrashCapture.Info("engine: engine created");
         s_platform = platform;
         s_host = new EngineHost(engine, settings, vault, new ResumeStore(paths.ResumeFile), platform);
+        s_host.RememberFailed += (_, e) => CrashCapture.NonFatal("remembering the password", e);
 
         // The foreground service follows the engine: started as soon as a session or script is active.
         engine.SnapshotChanged += (_, snapshot) => EngineService.EnsureRunningFor(application, snapshot);
@@ -110,11 +111,11 @@ internal static class EngineRuntime
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
-    private static ISecretStore CreateSecretStore(string directory)
+    private static ISecretStore CreateSecretStore(Context context, string directory)
     {
         try
         {
-            return new KeystoreSecretStore(directory);
+            return new KeystoreSecretStore(context, directory);
         }
         catch (Exception e)
         {

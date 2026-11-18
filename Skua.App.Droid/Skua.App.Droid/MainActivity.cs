@@ -50,6 +50,7 @@ public class MainActivity : AvaloniaMainActivity
         // Composes the engine if Application.OnCreate skipped it or it failed there (no-op otherwise).
         bool engine = EngineRuntime.TryInitialize(this);
 
+        ProtectScreenContent();
         ((DroidApplication)Application!).EnsureAvaloniaStarted();
         base.OnCreate(savedInstanceState); // creates the Avalonia view through MainViewFactory
         CrashCapture.Step(StartupStep.MainActivityCreated);
@@ -111,6 +112,30 @@ public class MainActivity : AvaloniaMainActivity
     {
         base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
         TryRun("refresh platform state", () => AppBootstrap.ShellIfCreated?.RefreshPlatformState());
+    }
+
+    /// <summary>
+    /// No screenshots, screen recording, casting to insecure displays or Recents thumbnail of this activity: it shows the
+    /// password field, the live log and captured packets.
+    /// </summary>
+    /// <remarks>
+    /// App-wide (the whole activity), not per page. Avalonia draws every page into one SurfaceView, and a SurfaceView
+    /// takes the window's FLAG_SECURE when its surface is created, so toggling the flag while switching pages would
+    /// not reliably protect (or unprotect) what is already on screen. It is set here, before Avalonia attaches its view.
+    /// </remarks>
+    private void ProtectScreenContent()
+    {
+        TryRun("FLAG_SECURE", () => Window?.AddFlags(WindowManagerFlags.Secure));
+        if (!OperatingSystem.IsAndroidVersionAtLeast(33))
+            return;
+        try
+        {
+            SetRecentsScreenshotEnabled(false);
+        }
+        catch (Exception e)
+        {
+            CrashCapture.NonFatal("disable the Recents screenshot", e);
+        }
     }
 
     /// <summary>Runs a non-essential step; a failure is logged and the activity carries on.</summary>

@@ -18,6 +18,13 @@ public sealed record AppSettings
     /// <summary>Keep the password (encrypted with a Keystore key) to log in again after a restart.</summary>
     public bool RememberPassword { get; init; }
 
+    /// <summary>
+    /// The account the remembered password is bound to (metadata only, so the UI can tell whether a password is
+    /// remembered without decrypting it). Null in settings written before it existed: then <see cref="AccountName"/>,
+    /// which was always saved together with the password, is used.
+    /// </summary>
+    public string? RememberedAccount { get; init; }
+
     /// <summary>Forces the AQW client version (blank discovers it from the live game file).</summary>
     public string? ClientVersion { get; init; }
 
@@ -46,6 +53,7 @@ public sealed record AppSettings
     {
         MemoryThresholdMb = Math.Clamp(MemoryThresholdMb, MinMemoryThresholdMb, MaxMemoryThresholdMb),
         AccountName = string.IsNullOrWhiteSpace(AccountName) ? null : AccountName.Trim(),
+        RememberedAccount = string.IsNullOrWhiteSpace(RememberedAccount) ? null : RememberedAccount.Trim(),
         Server = string.IsNullOrWhiteSpace(Server) ? null : Server.Trim(),
         ClientVersion = string.IsNullOrWhiteSpace(ClientVersion) ? null : ClientVersion.Trim(),
     };
