@@ -6,6 +6,7 @@ using Skua.App.Droid.Core.Scripts;
 using Skua.App.Droid.Core.Security;
 using Skua.App.Droid.Core.Settings;
 using Skua.App.Droid.Core.ViewModels;
+using Skua.App.Droid.Scripting;
 using Skua.App.Droid.UI;
 using Skua.App.Droid.UI.Services;
 
@@ -22,10 +23,13 @@ internal static class Program
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", paths.ApplicationDataDir);
 
         SettingsStore settings = new(paths.SettingsFile);
-        HeadlessBotEngine engine = new(new HeadlessEngineOptions { AutoReconnect = settings.Current.AutoReconnect });
+        // Scripts compile against the managed assemblies next to the preview (no APK assets on the desktop).
+        SkuaScriptHostAdapter scripts = new(null, new ScriptAssemblyStore(), paths.ScriptsDir);
+        HeadlessBotEngine engine = new(new HeadlessEngineOptions { AutoReconnect = settings.Current.AutoReconnect }, scripts);
         // Deliberately no secret store on desktop: the desktop CryptoUtils key is derived from machine/user name.
         EngineHost host = new(engine, settings, new CredentialVault(new UnavailableSecretStore()), new ResumeStore(paths.ResumeFile), new NullPlatformServices());
-        AppBootstrap.Factory = () => new AppServices(host, new AvaloniaUiDispatcher(), new AvaloniaFilePicker(), new ScriptLibrary(paths.ScriptsDir), new PendingScriptRepositorySync(), paths);
+        ScriptLibrary library = new(paths.ScriptsDir);
+        AppBootstrap.Factory = () => new AppServices(host, new AvaloniaUiDispatcher(), new AvaloniaFilePicker(), library, new ScriptRepositorySync(library, paths.SkuaDir), paths);
 
         try
         {

@@ -66,8 +66,7 @@ public sealed class EngineService : Service
     /// <summary>Starts the service if the engine needs it (session or script active) and it is not running.</summary>
     public static void EnsureRunningFor(Context context, EngineSnapshot snapshot)
     {
-        bool active = snapshot.Connection is not (ConnectionPhase.Offline or ConnectionPhase.Failed) || snapshot.Script.IsBusy;
-        if (!active || s_running)
+        if (!snapshot.NeedsForegroundService || s_running)
             return;
         // At most one attempt per 5 s: snapshots arrive several times a second.
         long now = System.Environment.TickCount64;
@@ -219,7 +218,7 @@ public sealed class EngineService : Service
 
         UpdateLocks(snapshot.Script.IsBusy);
 
-        bool idle = snapshot.Connection is ConnectionPhase.Offline or ConnectionPhase.Failed && !snapshot.Script.IsBusy;
+        bool idle = !snapshot.NeedsForegroundService;
         if (idle)
         {
             _idleSince ??= DateTimeOffset.UtcNow;
@@ -279,6 +278,8 @@ public sealed class EngineService : Service
             ScriptRunState.Faulted => "Script failed",
             _ => "No script running",
         };
+        if (s.BackgroundWork is string work)
+            script = s.Script.IsBusy ? $"{script} · {work}" : work;
         string memory = s.Memory.RssBytes > 0 ? $" · {s.Memory.RssMb:0} MB" : string.Empty;
         string character = s.Character is CharacterState c ? $"{c.Name} (lvl {c.Level}) · {c.Map} · " : string.Empty;
 

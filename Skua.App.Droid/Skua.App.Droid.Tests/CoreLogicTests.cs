@@ -77,6 +77,24 @@ public class MemoryWatchdogTests
     }
 
     [Fact]
+    public void FollowsTheScriptRunState()
+    {
+        (MemoryWatchdog dog, ManualTime time) = New();
+        // A compile peak is neither the start-up baseline nor "over the threshold".
+        Assert.Equal(MemoryVerdict.Normal, dog.Evaluate(1400 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Compiling));
+        Assert.Equal(MemoryVerdict.Normal, dog.Evaluate(300 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Running));
+        time.Advance(TimeSpan.FromMinutes(10));
+        Assert.Equal(MemoryVerdict.RestartPending, dog.Evaluate(1500 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Running));
+        Assert.Equal(MemoryVerdict.RestartPending, dog.Evaluate(1500 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Stopping));
+        Assert.Equal(MemoryVerdict.RestartPending, dog.Evaluate(1500 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Faulted)); // idle grace starts
+        time.Advance(TimeSpan.FromSeconds(20));
+        Assert.Equal(MemoryVerdict.Normal, dog.Evaluate(1500 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Compiling)); // the user started the next one
+        Assert.Equal(MemoryVerdict.RestartPending, dog.Evaluate(1500 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Idle)); // grace restarts
+        time.Advance(TimeSpan.FromSeconds(31));
+        Assert.Equal(MemoryVerdict.RestartNow, dog.Evaluate(1500 * Mb, Skua.App.Droid.Core.Engine.ScriptRunState.Idle));
+    }
+
+    [Fact]
     public void ThresholdBelowStartupMemoryIsReportedNotLooped()
     {
         (MemoryWatchdog dog, ManualTime time) = New(thresholdMb: 400);

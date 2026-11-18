@@ -23,7 +23,9 @@ internal static class Sandbox
     [ModuleInitializer]
     internal static void Init()
     {
-        Directory.CreateDirectory(Root);
+        // GetFolderPath(ApplicationData) returns "" for a folder that does not exist, and Skua's data would land in the
+        // working directory (the test bin folder): create it first.
+        Directory.CreateDirectory(Path.Combine(Root, "xdg"));
         Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(Root, "xdg"));
     }
 
@@ -233,7 +235,8 @@ internal sealed class TestApp : IAsyncDisposable
         Settings = new SettingsStore(Paths.SettingsFile);
         Engine = Aqw.NewEngine();
         Host = new EngineHost(Engine, Settings, new CredentialVault(Store), new ResumeStore(Paths.ResumeFile), Platform);
-        Services = new AppServices(Host, new InlineDispatcher(), Picker, new ScriptLibrary(Paths.ScriptsDir), new PendingScriptRepositorySync(), Paths);
+        ScriptLibrary library = new(Paths.ScriptsDir);
+        Services = new AppServices(Host, new InlineDispatcher(), Picker, library, new ScriptRepositorySync(library, Paths.SkuaDir, Aqw.Http), Paths);
     }
 
     public FakeAqw Aqw { get; } = new();

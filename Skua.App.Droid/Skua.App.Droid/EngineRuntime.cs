@@ -147,7 +147,7 @@ internal static class EngineRuntime
         new AvaloniaUiDispatcher(),
         new AvaloniaFilePicker(),
         s_library ?? throw NotInitialized(),
-        new PendingScriptRepositorySync(),
+        new ScriptRepositorySync(s_library!, Paths.SkuaDir),
         Paths);
 
     private static InvalidOperationException NotInitialized() => new("The engine is not available (its composition failed or was skipped; see the crash report).");

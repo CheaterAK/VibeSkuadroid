@@ -182,7 +182,7 @@ public sealed class EngineHost : IAsyncDisposable
             return;
         _lastMemorySample = snapshot.Memory.SampledAt;
         MemoryVerdict before = _watchdog.LastVerdict;
-        MemoryVerdict verdict = _watchdog.Evaluate(snapshot.Memory.RssBytes, snapshot.Script.IsBusy);
+        MemoryVerdict verdict = _watchdog.Evaluate(snapshot.Memory.RssBytes, snapshot.Script.State);
 
         if (verdict == MemoryVerdict.RestartNow)
         {

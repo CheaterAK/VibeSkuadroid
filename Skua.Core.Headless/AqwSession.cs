@@ -144,6 +144,16 @@ public sealed class AqwSession : IAsyncDisposable
         await ConnectAsync(server, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Drops the credentials kept for <see cref="ReconnectAsync"/> and the last HTTP login (its token and server
+    /// list). The session stays usable: the next <see cref="LoginAsync"/> starts over.
+    /// </summary>
+    public void ForgetCredentials()
+    {
+        _credentials = null;
+        Account = null;
+    }
+
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
         if (_connection is not null)

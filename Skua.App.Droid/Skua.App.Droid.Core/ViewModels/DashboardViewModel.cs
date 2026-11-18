@@ -64,6 +64,10 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private string? _scriptMessage;
 
+    /// <summary>Kills, deaths, quests and drops (Skua's bot stats) while logged in.</summary>
+    [ObservableProperty]
+    private string? _scriptCounters;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StopScriptCommand))]
     private bool _scriptBusy;
@@ -129,8 +133,9 @@ public sealed partial class DashboardViewModel : ObservableObject
 
         ScriptBusy = s.Script.IsBusy;
         ScriptName = s.Script.ScriptName ?? "No script loaded";
-        ScriptState = s.Script.State.ToString();
-        ScriptMessage = s.Script.Message;
+        ScriptState = Formatting.ScriptLine(s.Script);
+        ScriptMessage = s.Script.State == ScriptRunState.Faulted ? s.Script.Message : null;
+        ScriptCounters = s.ScriptCounters?.Display;
         MemoryText = Formatting.Memory(s.Memory);
         MemoryDetail = s.Memory.RssBytes < 0
             ? string.Empty

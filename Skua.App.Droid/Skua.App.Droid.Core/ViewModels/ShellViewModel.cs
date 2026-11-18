@@ -130,7 +130,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>System back: returns to the home page first; false when already there (the activity then goes to the background).</summary>
     public bool GoBack()
     {
-        if (CurrentPage == AppPage.Scripts && Scripts.GoUp())
+        if (CurrentPage == AppPage.Scripts && (Scripts.CloseOverlay() || Scripts.GoUp()))
             return true;
         if (CurrentPage != AppPage.Home)
         {

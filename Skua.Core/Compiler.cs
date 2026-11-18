@@ -122,8 +122,7 @@ public class Compiler : CSharpScriptExecution
                 {
                     if (loadContext != null)
                     {
-                        using FileStream stream = File.OpenRead(cachedAssemblyPath);
-                        Assembly = loadContext.LoadFromStream(stream);
+                        Assembly = loadContext.LoadScriptAssembly(cachedAssemblyPath);
                     }
                     else
                     {
@@ -392,8 +391,7 @@ public class Compiler : CSharpScriptExecution
                     {
                         if (loadContext != null)
                         {
-                            using FileStream stream = File.OpenRead(outputPath);
-                            Assembly = loadContext.LoadFromStream(stream);
+                            Assembly = loadContext.LoadScriptAssembly(outputPath);
                         }
                         else
                         {
@@ -418,8 +416,7 @@ public class Compiler : CSharpScriptExecution
 
                 if (loadContext != null)
                 {
-                    using FileStream stream = File.OpenRead(outputPath);
-                    Assembly = loadContext.LoadFromStream(stream);
+                    Assembly = loadContext.LoadScriptAssembly(outputPath);
                 }
                 else
                 {
@@ -440,8 +437,7 @@ public class Compiler : CSharpScriptExecution
                 {
                     if (loadContext != null)
                     {
-                        using FileStream stream = File.OpenRead(outputPath);
-                        Assembly = loadContext.LoadFromStream(stream);
+                        Assembly = loadContext.LoadScriptAssembly(outputPath);
                     }
                     else
                     {

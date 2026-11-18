@@ -47,7 +47,7 @@ public sealed record ScriptStatus(ScriptRunState State, string? ScriptPath, Date
 }
 
 /// <summary>Whether this build can run scripts.</summary>
-/// <param name="Available">False while the Skua.Core host adapter is not wired in.</param>
+/// <param name="Available">False when scripts cannot run (no script host, or its compile references are incomplete).</param>
 /// <param name="Reason">Shown to the user when <paramref name="Available"/> is false.</param>
 public sealed record ScriptSupport(bool Available, string? Reason);
 
@@ -98,7 +98,20 @@ public sealed record EngineSnapshot(
 {
     public static EngineSnapshot Initial { get; } = new(ConnectionPhase.Offline, null, null, null, null, ScriptStatus.Idle, MemoryStatus.Unknown, 0, DateTimeOffset.MinValue);
 
+    /// <summary>Kills, deaths, quests and drops of the current or last script run (null without a Skua host).</summary>
+    public ScriptCounters? ScriptCounters { get; init; }
+
+    /// <summary>Long work the engine is doing besides the game (for example a script repository sync), or null.</summary>
+    public string? BackgroundWork { get; init; }
+
     public bool IsOnline => Connection == ConnectionPhase.Online;
+
+    /// <summary>
+    /// The process must be kept alive in the background (the foreground service runs): a session is active, a script
+    /// is busy, or background work runs.
+    /// </summary>
+    public bool NeedsForegroundService =>
+        Connection is not (ConnectionPhase.Offline or ConnectionPhase.Failed) || Script.IsBusy || BackgroundWork is not null;
 
     /// <summary>Login or connect in progress, or waiting to reconnect.</summary>
     public bool IsBusy => Connection is ConnectionPhase.LoggingIn or ConnectionPhase.Connecting or ConnectionPhase.Reconnecting;

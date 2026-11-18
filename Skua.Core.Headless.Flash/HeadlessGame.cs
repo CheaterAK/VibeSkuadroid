@@ -380,6 +380,25 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
             _loginVisible = true;
     }
 
+    /// <summary>
+    /// Forgets the last login: the account name and password skua reads back (loginInfo), the server list, and the
+    /// session's credentials and token (<see cref="AqwSession.ForgetCredentials"/>). Call after a logout; the next
+    /// <see cref="Login"/> starts over.
+    /// </summary>
+    public void ForgetLogin()
+    {
+        lock (_gate)
+        {
+            _username = string.Empty;
+            _password = string.Empty;
+            _servers = Array.Empty<GameServer>();
+            _loginRequests++;
+        }
+        Session.ForgetCredentials();
+        if (!IsConnected)
+            SetState(HeadlessGameState.LoggedOut);
+    }
+
     /// <summary>sfc.disconnect.</summary>
     public void Disconnect()
     {
