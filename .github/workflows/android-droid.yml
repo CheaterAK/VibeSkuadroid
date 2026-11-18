@@ -4,18 +4,32 @@
 # android workload, OpenJDK 21, and the Android SDK installed by build/android/setup-android-sdk.sh (not the
 # workload's InstallAndroidDependencies).
 #
-# Signing: by default the APKs are signed with the auto-generated debug key (sideloading only). For a release
-# signature add these repository secrets; nothing else changes:
-#   DROID_KEYSTORE_BASE64     base64 of the .jks/.keystore file (base64 -w0 my.keystore)
-#   DROID_KEY_ALIAS           key alias in it
-#   DROID_KEYSTORE_PASSWORD   store password
-#   DROID_KEY_PASSWORD        key password
-# The keystore is written to the runner's temp directory and deleted at the end; passwords reach MSBuild only
-# through environment variables (AndroidSigningStorePass/KeyPass use env:), never on the command line.
+# Two jobs, so signing secrets never meet build code:
+#   build  No secrets. Restores packages, runs the tests and every MSBuild task (third-party ones included),
+#          builds the Debug and Release APKs signed with the auto-generated debug key (sideloading only) and
+#          uploads them. Runs for every push and pull request (fork PRs included).
+#   sign   Only for tags and the default branch, never for pull requests. Takes the unsigned Release APK from
+#          the build job and runs nothing but zipalign and apksigner. Its secrets come from the GitHub
+#          Environment "release", not from repository secrets.
+#
+# One-time setup by the repository owner (Settings > Environments > New environment "release"):
+#   * Required reviewers: at least one maintainer, so every release signature is approved by a person.
+#   * Deployment branches and tags: "Selected branches and tags", add the default branch and the release tag
+#     pattern (e.g. v*). Without this rule any branch could ask for the environment.
+#   * Environment secrets (and delete any repository secrets with these names):
+#       DROID_KEYSTORE_BASE64     base64 of the .jks/.keystore file (base64 -w0 my.keystore)
+#       DROID_KEY_ALIAS           key alias in it
+#       DROID_KEYSTORE_PASSWORD   store password
+#       DROID_KEY_PASSWORD        key password (same as the store password for PKCS12 keystores)
+#   If the environment does not exist, GitHub creates it on the first run without protection rules; the sign
+#   job then skips signing because it has no secrets.
+#
+# Third-party actions are pinned to full commit SHAs (the tag they were resolved from is in the comment).
 name: Android app
 
 on:
   push:
+    # Tag pushes are not path-filtered by GitHub, so release tags always build (and sign).
     paths:
       - 'Skua.App.Droid/**'
       - 'Skua.Core/**'
@@ -46,14 +60,16 @@ jobs:
       DOTNET_NOLOGO: '1'
       AVALONIA_TELEMETRY_OPTOUT: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: '10.0.1xx'
 
@@ -63,31 +79,96 @@ jobs:
       - name: Install the Android SDK (platform 36, build-tools 36.0.0)
         run: bash build/android/setup-android-sdk.sh
 
-      - name: Prepare optional release keystore
+      # No signing secrets anywhere in this job: the APKs are signed with the SDK's debug key.
+      - name: Test, build Debug and Release APKs
+        run: bash Skua.App.Droid/build-droid.sh "${{ runner.temp }}/apk"
+
+      - name: Keep the unsigned Release APK for the sign job
+        run: |
+          mkdir -p "$RUNNER_TEMP/unsigned"
+          cp Skua.App.Droid/Skua.App.Droid/bin/Release/net10.0-android/com.vibeskua.droid.apk "$RUNNER_TEMP/unsigned/"
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: vibeskua-android-apks
+          path: ${{ runner.temp }}/apk/*.apk
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: vibeskua-android-unsigned
+          path: ${{ runner.temp }}/unsigned/com.vibeskua.droid.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    needs: build
+    # Tags and the default branch only; never pull requests (fork or not), never other branches.
+    if: >-
+      github.event_name != 'pull_request' &&
+      (startsWith(github.ref, 'refs/tags/') ||
+       github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    env:
+      ANDROID_HOME: ${{ github.workspace }}/../android-sdk
+    steps:
+      # Only for build/android/setup-android-sdk.sh (zipalign, apksigner); no project code is built or run here.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: build/android
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install the Android SDK build-tools
+        run: bash build/android/setup-android-sdk.sh
+
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: vibeskua-android-unsigned
+          path: ${{ runner.temp }}/unsigned
+
+      # The only step that sees the secrets. It runs zipalign and apksigner and nothing else; passwords reach
+      # apksigner through environment variables (env:), never on a command line.
+      - name: Sign the Release APK
+        id: sign
         env:
           DROID_KEYSTORE_BASE64: ${{ secrets.DROID_KEYSTORE_BASE64 }}
-        run: |
-          if [ -n "$DROID_KEYSTORE_BASE64" ]; then
-            echo "$DROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/droid.keystore"
-            echo "DROID_KEYSTORE=$RUNNER_TEMP/droid.keystore" >> "$GITHUB_ENV"
-            echo "Release signing enabled."
-          else
-            echo "No DROID_KEYSTORE_BASE64 secret: APKs are signed with the debug key."
-          fi
-
-      - name: Test, build Debug and Release APKs
-        env:
           DROID_KEY_ALIAS: ${{ secrets.DROID_KEY_ALIAS }}
           DROID_KEYSTORE_PASSWORD: ${{ secrets.DROID_KEYSTORE_PASSWORD }}
           DROID_KEY_PASSWORD: ${{ secrets.DROID_KEY_PASSWORD }}
-        run: bash Skua.App.Droid/build-droid.sh "${{ runner.temp }}/apk"
+        run: |
+          set -euo pipefail
+          if [ -z "$DROID_KEYSTORE_BASE64" ] || [ -z "$DROID_KEY_ALIAS" ]; then
+            echo "::notice::No signing secrets in the 'release' environment: no release-signed APK."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          umask 077
+          bt="$ANDROID_HOME/build-tools/36.0.0"
+          printf '%s' "$DROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/droid.keystore"
+          mkdir -p "$RUNNER_TEMP/release"
+          "$bt/zipalign" -P 16 -f 4 "$RUNNER_TEMP/unsigned/com.vibeskua.droid.apk" "$RUNNER_TEMP/aligned.apk"
+          "$bt/apksigner" sign --ks "$RUNNER_TEMP/droid.keystore" --ks-key-alias "$DROID_KEY_ALIAS" \
+            --ks-pass env:DROID_KEYSTORE_PASSWORD --key-pass env:DROID_KEY_PASSWORD \
+            --out "$RUNNER_TEMP/release/com.vibeskua.droid-release.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$RUNNER_TEMP/droid.keystore"
+          "$bt/apksigner" verify --print-certs "$RUNNER_TEMP/release/com.vibeskua.droid-release.apk"
+          "$bt/zipalign" -c -P 16 4 "$RUNNER_TEMP/release/com.vibeskua.droid-release.apk"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - name: Remove keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/droid.keystore"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: steps.sign.outputs.signed == 'true'
         with:
-          name: vibeskua-android-apks
-          path: ${{ runner.temp }}/apk/*.apk
+          name: vibeskua-android-release-signed
+          path: ${{ runner.temp }}/release/com.vibeskua.droid-release.apk
           if-no-files-found: error
