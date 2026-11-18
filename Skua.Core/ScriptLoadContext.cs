@@ -15,9 +15,45 @@ public class ScriptLoadContext : AssemblyLoadContext
         Unloading += context => _isUnloading = true;
     }
 
+    /// <summary>For hosts that load script assemblies elsewhere (see <see cref="LoadScriptAssembly"/>).</summary>
+    protected ScriptLoadContext(string? name, bool isCollectible) : base(name, isCollectible)
+    {
+        Unloading += context => _isUnloading = true;
+    }
+
     public void RegisterKnownAssembly(string assemblyName, string dllPath)
     {
         _knownAssemblyPaths[assemblyName] = dllPath;
+    }
+
+    /// <summary>
+    /// Loads a compiled script or include (a file of the compiler's disk cache) for the current run. The compiler and
+    /// <see cref="Scripts.ScriptManager"/> load every script assembly through this method. Default: into this context.
+    /// </summary>
+    public virtual Assembly LoadScriptAssembly(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        return LoadFromStream(stream);
+    }
+
+    /// <summary>
+    /// The file a script assembly named <paramref name="assemblyName"/> resolves to: an include registered for this
+    /// run, else the newest compiled file of that name in the disk cache. Null when there is none.
+    /// </summary>
+    protected string? FindScriptAssemblyPath(string assemblyName)
+    {
+        if (_knownAssemblyPaths.TryGetValue(assemblyName, out string? knownPath) && File.Exists(knownPath))
+            return knownPath;
+
+        if (!Directory.Exists(_cacheDirectory))
+            return null;
+
+        string[] matchingFiles = Directory.GetFiles(_cacheDirectory, $"*-{assemblyName}.dll");
+        if (matchingFiles.Length == 0)
+            return null;
+
+        string latestFile = matchingFiles.OrderByDescending(f => File.GetLastWriteTimeUtc(f)).First();
+        return File.Exists(latestFile) ? latestFile : null;
     }
 
     protected override Assembly? Load(AssemblyName assemblyName)

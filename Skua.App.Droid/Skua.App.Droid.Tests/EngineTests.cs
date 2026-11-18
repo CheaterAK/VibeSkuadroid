@@ -106,7 +106,7 @@ public class EngineTests : IAsyncLifetime
         Assert.False(_engine.ScriptSupport.Available);
         _engine.LoadScript("/tmp/x.cs");
         EngineException e = await Assert.ThrowsAsync<EngineException>(() => _engine.StartScriptAsync());
-        Assert.Contains("HeadlessFlashUtil", e.Message);
+        Assert.Contains("no script host", e.Message);
     }
 
     [Fact]

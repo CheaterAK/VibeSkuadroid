@@ -196,6 +196,14 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
 
     public IScriptOptionContainer? Config { get; set; }
 
+    /// <summary>
+    /// Creates the load context of each compile. Null (the default) creates a new collectible
+    /// <see cref="ScriptLoadContext"/> per compile. A host that must not reload unchanged assemblies (Android, where
+    /// collectible contexts are never collected) supplies a context whose <see cref="ScriptLoadContext.LoadScriptAssembly"/>
+    /// reuses what it loaded before.
+    /// </summary>
+    public Func<ScriptLoadContext>? LoadContextFactory { get; set; }
+
     public IScriptOptionContainer? RunningConfig { get; private set; }
 
     public string? OverrideStorage { get; set; }
@@ -556,7 +564,7 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
         // Recursively discover all transitive includes using single-pass BFS and populate sourceCache
         DiscoverAllIncludes(references, sourceCache);
 
-        ScriptLoadContext loadContext = new();
+        ScriptLoadContext loadContext = LoadContextFactory?.Invoke() ?? new ScriptLoadContext();
         lock (_stateLock)
         {
             _currentLoadContext = loadContext;
@@ -1211,8 +1219,7 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
                     {
                         try
                         {
-                            using FileStream stream = File.OpenRead(compiledPath);
-                            Assembly loadedAssembly = loadContext.LoadFromStream(stream);
+                            Assembly loadedAssembly = loadContext.LoadScriptAssembly(compiledPath);
                             Compiler.RegisterLoaded(compiledPath, loadedAssembly);
                         }
                         catch

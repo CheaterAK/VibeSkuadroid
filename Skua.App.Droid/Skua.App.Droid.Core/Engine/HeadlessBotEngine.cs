@@ -14,14 +14,26 @@ namespace Skua.App.Droid.Core.Engine;
 /// reconnect, live world state, map joins, raw packets. Scripts are delegated to an <see cref="IScriptHost"/>.
 /// </summary>
 /// <remarks>
-/// The engine owns exactly one <see cref="AqwSession"/> at a time. A logout disposes it (dropping the credentials it
-/// holds for reconnects) and creates a fresh one, which is handed to the script host again via
-/// <see cref="IScriptHost.Attach"/>.
+/// <para>
+/// With an <see cref="ISessionScriptHost"/> (the Skua.Core host, the app's normal case) the host creates the one
+/// <see cref="AqwSession"/> of the engine's lifetime: login and reconnect run through Skua's own login code, and a
+/// logout keeps the session object but makes the host forget every credential and token in it. The engine, Skua's
+/// services and the Flash bridge therefore never point at different sessions. Reconnects: while a script is busy or
+/// Skua's relogin runs, Skua reconnects (its AutoRelogin option, which the app's auto-reconnect setting turns on at
+/// every script start and scripts may change) and the engine's loop waits; otherwise the engine's loop reconnects
+/// through the host.
+/// </para>
+/// <para>
+/// Without one, the engine owns exactly one <see cref="AqwSession"/> at a time from its session factory. A logout
+/// disposes it (dropping the credentials it holds for reconnects) and creates a fresh one, which is handed to the
+/// script host again via <see cref="IScriptHost.Attach"/>.
+/// </para>
 /// </remarks>
 public sealed class HeadlessBotEngine : IBotEngine
 {
     private readonly HeadlessEngineOptions _options;
     private readonly IScriptHost _scripts;
+    private ISessionScriptHost? _sessionHost;
     private readonly IMemoryProbe _memoryProbe;
     private readonly TimeProvider _time;
     private readonly SecretScrubber _scrubber = new();
@@ -43,6 +55,9 @@ public sealed class HeadlessBotEngine : IBotEngine
     private volatile bool _packetCapture;
     private volatile bool _wantOnline;
     private volatile bool _connecting;
+    private volatile bool _loggingOut;
+    private readonly List<string> _work = new();
+    private string? _lastToken;
     private CancellationTokenSource? _reconnectCts;
     private int _dirty = 1;
     private int _disposed;
@@ -58,6 +73,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         _scriptStatus = _scripts.Status;
         _scripts.StatusChanged += OnScriptStatus;
         _scripts.Log += OnScriptLog;
+        _sessionHost = _scripts as ISessionScriptHost;
 
         _session = CreateSession();
         SampleMemory();
@@ -78,7 +94,12 @@ public sealed class HeadlessBotEngine : IBotEngine
     public bool AutoReconnect
     {
         get => _options.AutoReconnect;
-        set => _options.AutoReconnect = value;
+        set
+        {
+            _options.AutoReconnect = value;
+            if (_sessionHost is ISessionScriptHost host)
+                host.AutoRelogin = value;
+        }
     }
 
     public bool PacketCaptureEnabled
@@ -87,7 +108,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         set => _packetCapture = value;
     }
 
-    /// <summary>The live session (for the host adapter and tests). Replaced after each logout.</summary>
+    /// <summary>The live session (for the host adapter and tests). Replaced after each logout unless a session host owns it.</summary>
     public AqwSession Session => _session;
 
     public IReadOnlyList<LogEntry> GetRecentLog() => _log.Snapshot();
@@ -120,6 +141,11 @@ public sealed class HeadlessBotEngine : IBotEngine
             throw new EngineException("Stop the running script before logging in again.");
 
         CancelReconnect();
+        if (_sessionHost is ISessionScriptHost host)
+        {
+            await LoginThroughHostAsync(host, request, cancellationToken).ConfigureAwait(false);
+            return;
+        }
         await _opLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -175,6 +201,75 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
     }
 
+    // Skua's login code (through the host) instead of the session's: same phases, messages and secret handling.
+    private async Task LoginThroughHostAsync(ISessionScriptHost host, LoginRequest request, CancellationToken cancellationToken)
+    {
+        await _opLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            _scrubber.Add(request.Password);
+            _connecting = true;
+            if (_session.Connection is { State: not ConnectionState.Closed })
+                await LogoutThroughHostQuietlyAsync(host).ConfigureAwait(false);
+
+            _wantOnline = false;
+            _account = request.Username.Trim();
+            _server = null;
+            SetPhase(ConnectionPhase.LoggingIn, "Logging in...");
+            AddLog(EngineLogLevel.Info, "engine", $"Logging in as {_account}.");
+
+            string server = await host.LoginAsync(request, name =>
+            {
+                _scrubber.Add(_session.Account?.Token);
+                _server = name;
+                SetPhase(ConnectionPhase.Connecting, $"Connecting to {name}...");
+            }, cancellationToken).ConfigureAwait(false);
+            _scrubber.Add(_session.Account?.Token);
+            _server = server;
+            _wantOnline = true;
+            SetPhase(ConnectionPhase.Online, $"Online on {server}");
+            AddLog(EngineLogLevel.Info, "engine", $"Online on {server} (client {_session.ClientVersion?.Version}).");
+        }
+        catch (EngineException e)
+        {
+            Fail(Scrub(e.Message));
+            await LogoutThroughHostQuietlyAsync(host).ConfigureAwait(false);
+            throw new EngineException(Scrub(e.Message), e);
+        }
+        catch (OperationCanceledException)
+        {
+            SetPhase(ConnectionPhase.Offline, "Login cancelled");
+            await LogoutThroughHostQuietlyAsync(host).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception e) when (e is AqwLoginException || IsNetworkFailure(e))
+        {
+            string message = e is AqwLoginException ? $"Login failed: {Scrub(e.Message)}" : $"Connection failed: {Scrub(e.Message)}";
+            Fail(message);
+            await LogoutThroughHostQuietlyAsync(host).ConfigureAwait(false);
+            throw new EngineException(message, e);
+        }
+        finally
+        {
+            _connecting = false;
+            _opLock.Release();
+            PublishNow();
+        }
+    }
+
+    private async Task LogoutThroughHostQuietlyAsync(ISessionScriptHost host)
+    {
+        try
+        {
+            await host.LogoutAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is EngineException or InvalidOperationException || IsNetworkFailure(e))
+        {
+            AddLog(EngineLogLevel.Debug, "engine", $"Logout: {Scrub(e.Message)}");
+        }
+    }
+
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
         CancelReconnect();
@@ -187,6 +282,26 @@ public sealed class HeadlessBotEngine : IBotEngine
         {
             if (Volatile.Read(ref _disposed) != 0)
                 return;
+            if (_sessionHost is ISessionScriptHost host)
+            {
+                // The host keeps the session and drops the credentials, token and server list in it.
+                _loggingOut = true;
+                try
+                {
+                    await LogoutThroughHostQuietlyAsync(host).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _loggingOut = false;
+                }
+                _scrubber.Clear();
+                _lastToken = null;
+                _account = null;
+                _server = null;
+                SetPhase(ConnectionPhase.Offline, "Logged out");
+                AddLog(EngineLogLevel.Info, "engine", "Logged out.");
+                return;
+            }
             AqwSession old = _session;
             DetachSession(old);
             try
@@ -300,6 +415,8 @@ public sealed class HeadlessBotEngine : IBotEngine
             throw new EngineException(_scripts.Support.Reason ?? "Scripts are not available.");
         if (_scripts.Status.IsBusy)
             throw new EngineException("A script is already running.");
+        if (_connecting)
+            throw new EngineException("Wait for the login to finish.");
         if (scriptPath is not null)
             _scripts.Load(scriptPath);
         if (_scripts.Status.ScriptPath is null)
@@ -327,18 +444,80 @@ public sealed class HeadlessBotEngine : IBotEngine
         MarkDirty();
     }
 
+    public async Task<ScriptOptionSet> GetScriptOptionsAsync(string scriptPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+        ISessionScriptHost host = _sessionHost ?? throw new EngineException(_scripts.Support.Reason ?? "Script options are not available.");
+        if (_scripts.Status.IsBusy)
+            throw new EngineException("Stop the script before editing options.");
+        return await host.GetOptionsAsync(scriptPath, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task SaveScriptOptionsAsync(ScriptOptionSet options, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ISessionScriptHost host = _sessionHost ?? throw new EngineException(_scripts.Support.Reason ?? "Script options are not available.");
+        await host.SaveOptionsAsync(options, cancellationToken).ConfigureAwait(false);
+        AddLog(EngineLogLevel.Info, "scripts", $"Saved the options of {Path.GetFileName(options.ScriptPath)} ({options.Storage}).");
+    }
+
+    public IDisposable BeginBackgroundWork(string description)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(description);
+        lock (_work)
+            _work.Add(description);
+        PublishNow();
+        return new WorkRegistration(this, description);
+    }
+
+    private void EndBackgroundWork(string description)
+    {
+        lock (_work)
+            _work.Remove(description);
+        PublishNow();
+    }
+
+    private sealed class WorkRegistration : IDisposable
+    {
+        private HeadlessBotEngine? _engine;
+        private readonly string _description;
+
+        public WorkRegistration(HeadlessBotEngine engine, string description)
+        {
+            _engine = engine;
+            _description = description;
+        }
+
+        public void Dispose() => Interlocked.Exchange(ref _engine, null)?.EndBackgroundWork(_description);
+    }
+
     // ------------------------------------------------------------------ session wiring
 
     private AqwSession CreateSession()
     {
-        AqwSession session = _options.SessionFactory();
+        AqwSession? owned = null;
+        if (_sessionHost is ISessionScriptHost host)
+        {
+            owned = host.OpenSession();
+            if (owned is null)
+            {
+                AddLog(EngineLogLevel.Error, "engine", "The script host did not start; scripts are unavailable.");
+                _sessionHost = null;
+            }
+            else
+            {
+                host.AutoRelogin = _options.AutoReconnect;
+            }
+        }
+        AqwSession session = owned ?? _options.SessionFactory();
         session.StateChanged += OnSessionStateChanged;
         session.Disconnected += OnSessionDisconnected;
         session.Log += OnSessionLog;
         session.PacketReceived += OnPacketReceived;
         session.PacketSent += OnPacketSent;
         session.World.Changed += OnWorldChanged;
-        _scripts.Attach(session);
+        if (owned is null)
+            _scripts.Attach(session);
         return session;
     }
 
@@ -352,7 +531,20 @@ public sealed class HeadlessBotEngine : IBotEngine
         session.World.Changed -= OnWorldChanged;
     }
 
-    private void OnSessionStateChanged(object? sender, ConnectionState state) => MarkDirty();
+    private void OnSessionStateChanged(object? sender, ConnectionState state)
+    {
+        MarkDirty();
+        // Skua (a script's relogin or server change) brought the session back without the engine.
+        if (state == ConnectionState.Ready && _sessionHost is not null && ReferenceEquals(sender, _session)
+            && !_connecting && !_loggingOut && _account is not null && _phase != ConnectionPhase.Online)
+        {
+            _wantOnline = true;
+            _server = _session.Server?.Name;
+            _scrubber.Add(_session.Account?.Token);
+            SetPhase(ConnectionPhase.Online, $"Online on {_server}");
+            AddLog(EngineLogLevel.Info, "engine", $"Online on {_server}.");
+        }
+    }
 
     private void OnWorldChanged(object? sender, WorldChangedEventArgs e) => MarkDirty();
 
@@ -376,6 +568,13 @@ public sealed class HeadlessBotEngine : IBotEngine
 
     private void OnPacketSent(object? sender, PacketSentEventArgs e)
     {
+        // The host's login code logs in over HTTP again on its own: register each new socket token before it is shown.
+        string? token = _session.Account?.Token;
+        if (token is not null && !ReferenceEquals(token, _lastToken))
+        {
+            _lastToken = token;
+            _scrubber.Add(token);
+        }
         if (_packetCapture)
             AddPacket(PacketDirection.Out, e.Text);
     }
@@ -383,7 +582,30 @@ public sealed class HeadlessBotEngine : IBotEngine
     private void OnSessionDisconnected(object? sender, DisconnectInfo info)
     {
         MarkDirty();
-        if (info.Intentional || _connecting || !ReferenceEquals(sender, _session))
+        if (_connecting || _loggingOut || !ReferenceEquals(sender, _session))
+            return;
+
+        if (_sessionHost is ISessionScriptHost host && _wantOnline)
+        {
+            if (host.OwnsReconnect)
+            {
+                // A script is busy or Skua's relogin runs: Skua reconnects. The engine's loop (if on) only waits as a fallback.
+                AddLog(EngineLogLevel.Warning, "engine", $"Disconnected: {Describe(info)} Skua's relogin takes over while the script runs.");
+                SetPhase(ConnectionPhase.Reconnecting, "Reconnecting (script relogin)...");
+                if (_options.AutoReconnect)
+                    StartReconnectLoop();
+                return;
+            }
+            if (info.Intentional)
+            {
+                // Skua logged out on purpose (for example a stuck map load with relogin off).
+                _wantOnline = false;
+                SetPhase(ConnectionPhase.Offline, "Disconnected");
+                AddLog(EngineLogLevel.Warning, "engine", "Disconnected by Skua.");
+                return;
+            }
+        }
+        if (info.Intentional)
             return;
 
         AddLog(EngineLogLevel.Warning, "engine", $"Disconnected: {Describe(info)}");
@@ -420,6 +642,21 @@ public sealed class HeadlessBotEngine : IBotEngine
             try
             {
                 await Task.Delay(delay, _time, cancellationToken).ConfigureAwait(false);
+                // Never fight Skua: while a script is busy or Skua's relogin runs, it reconnects and this loop waits.
+                while (_sessionHost is { OwnsReconnect: true } && _session.Connection is not { IsReady: true })
+                {
+                    SetPhase(ConnectionPhase.Reconnecting, "Reconnecting (script relogin)...");
+                    await Task.Delay(TimeSpan.FromSeconds(1), _time, cancellationToken).ConfigureAwait(false);
+                }
+                if (_session.Connection is { IsReady: true })
+                {
+                    if (_phase != ConnectionPhase.Online)
+                    {
+                        _server = _session.Server?.Name;
+                        SetPhase(ConnectionPhase.Online, $"Online on {_server}");
+                    }
+                    return;
+                }
                 await _opLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
@@ -433,7 +670,10 @@ public sealed class HeadlessBotEngine : IBotEngine
                     return;
                 _connecting = true;
                 SetPhase(ConnectionPhase.Connecting, $"Reconnecting (attempt {attempt})...");
-                await _session.ReconnectAsync(cancellationToken).ConfigureAwait(false);
+                if (_sessionHost is ISessionScriptHost host)
+                    await host.ReconnectAsync(_server, cancellationToken).ConfigureAwait(false);
+                else
+                    await _session.ReconnectAsync(cancellationToken).ConfigureAwait(false);
                 _scrubber.Add(_session.Account?.Token);
                 _server = _session.Server?.Name;
                 SetPhase(ConnectionPhase.Online, $"Online on {_server}");
@@ -450,7 +690,7 @@ public sealed class HeadlessBotEngine : IBotEngine
                 Fail($"Reconnect refused: {Scrub(e.Message)}");
                 return;
             }
-            catch (Exception e) when (e is AqwLoginException || IsNetworkFailure(e))
+            catch (Exception e) when (e is AqwLoginException or EngineException || IsNetworkFailure(e))
             {
                 AddLog(EngineLogLevel.Warning, "engine", $"Reconnect attempt {attempt} failed: {Scrub(e.Message)}");
             }
@@ -618,6 +858,10 @@ public sealed class HeadlessBotEngine : IBotEngine
                 me.Afk);
         }
 
+        string? work;
+        lock (_work)
+            work = _work.Count == 0 ? null : string.Join("; ", _work);
+
         return new EngineSnapshot(
             _phase,
             _statusText,
@@ -627,7 +871,23 @@ public sealed class HeadlessBotEngine : IBotEngine
             _scriptStatus,
             _memory,
             w.Version,
-            _time.GetUtcNow());
+            _time.GetUtcNow())
+        {
+            ScriptCounters = ReadCounters(),
+            BackgroundWork = work,
+        };
+    }
+
+    private ScriptCounters? ReadCounters()
+    {
+        try
+        {
+            return _sessionHost?.Counters;
+        }
+        catch (Exception e) when (e is InvalidOperationException or ObjectDisposedException or NullReferenceException)
+        {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ helpers
@@ -675,9 +935,10 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
         _scripts.StatusChanged -= OnScriptStatus;
         _scripts.Log -= OnScriptLog;
-        await _scripts.DisposeAsync().ConfigureAwait(false);
         DetachSession(_session);
-        await _session.DisposeAsync().ConfigureAwait(false);
+        await _scripts.DisposeAsync().ConfigureAwait(false);
+        if (_sessionHost is null)
+            await _session.DisposeAsync().ConfigureAwait(false); // a session host disposes the session it created
         _scrubber.Clear();
         _lifetime.Dispose();
     }

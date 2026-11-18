@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Script-engine hosting pieces for Android that do not need the (not yet existing) Skua.Core headless host:
-    which assemblies scripts compile against and how they are read from APK assets, the in-process cache that
-    keeps identical assemblies from being loaded twice, and the pending adapter that will bind IScriptHost to
-    the host project. Platform neutral and tested on Linux.
+    Script-engine hosting for Android: which assemblies scripts compile against and how they are read from APK
+    assets, the in-process cache that keeps identical assemblies from being loaded twice, and the adapter that runs
+    Skua.Core (HeadlessSkuaSession) behind IScriptHost. Platform neutral and tested on Linux.
   -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -16,6 +15,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
     <ProjectReference Include="..\..\Skua.Core\Skua.Core.csproj" />
+    <!-- HeadlessSkuaSession: Skua.Core's services on the headless Flash bridge (brings Skua.Core.Headless.Flash). -->
+    <ProjectReference Include="..\..\Skua.Core.Headless.Host\Skua.Core.Headless.Host.csproj" />
     <!-- Scripts need System.Windows.Forms types to compile at all; this shim provides them off Windows. -->
     <ProjectReference Include="..\..\Skua.Compat.WinForms\Skua.Compat.WinForms.csproj" />
   </ItemGroup>

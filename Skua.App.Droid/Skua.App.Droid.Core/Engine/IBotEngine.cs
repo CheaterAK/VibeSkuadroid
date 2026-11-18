@@ -7,8 +7,7 @@ namespace Skua.App.Droid.Core.Engine;
 /// <para>
 /// One instance per process, created by the host (on Android the foreground service owns it, so the socket and
 /// the script thread outlive any activity). The UI never touches Skua.Core.Headless or Skua.Core directly; it
-/// only sees this interface and the plain records in <c>EngineModels.cs</c>, so the implementation behind it can
-/// be swapped when the Skua.Core host project (HeadlessFlashUtil + DI entry point) lands.
+/// only sees this interface and the plain records in <c>EngineModels.cs</c> (and <c>IScriptHost.cs</c>).
 /// </para>
 /// <para>
 /// Threading: every member may be called from any thread. Events are raised on background threads; subscribers
@@ -86,4 +85,31 @@ public interface IBotEngine : IAsyncDisposable
 
     /// <summary>Asks the running script to stop and waits for it (bounded).</summary>
     Task StopScriptAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The options a script declares (Skua's script options window), with their saved values. Compiles the script
+    /// (or reuses its compile); refused while a script runs.
+    /// </summary>
+    /// <exception cref="EngineException">Not supported by this engine, a script is running, or the script does not compile.</exception>
+    Task<ScriptOptionSet> GetScriptOptionsAsync(string scriptPath, CancellationToken cancellationToken = default) =>
+        throw new EngineException("Script options are not available in this engine.");
+
+    /// <summary>Saves edited script options where the script reads them.</summary>
+    Task SaveScriptOptionsAsync(ScriptOptionSet options, CancellationToken cancellationToken = default) =>
+        throw new EngineException("Script options are not available in this engine.");
+
+    /// <summary>
+    /// Registers long work done for the user outside the game (a script repository sync): it shows in
+    /// <see cref="EngineSnapshot.BackgroundWork"/> and keeps the process (the foreground service) alive until disposed.
+    /// </summary>
+    IDisposable BeginBackgroundWork(string description) => NoWork.Instance;
+
+    private sealed class NoWork : IDisposable
+    {
+        public static readonly NoWork Instance = new();
+
+        public void Dispose()
+        {
+        }
+    }
 }

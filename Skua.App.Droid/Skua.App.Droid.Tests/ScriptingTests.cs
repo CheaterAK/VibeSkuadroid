@@ -177,6 +177,30 @@ public class ScriptAssemblyStoreTests
         Assert.Equal("hi", s.GetType().GetMethod("Run")!.Invoke(s, null));
         Assert.True(store.TryGet(include, out Assembly? again) && ReferenceEquals(again, includeAsm));
     }
+
+    [Fact]
+    public void AnUnchangedImageBindsToAChangedDependencyAsANewLoad()
+    {
+        // CoreFarms recompiled against an edited CoreBots can be byte-identical (references are by name): it must bind
+        // to the new CoreBots, not reuse the copy bound to the old one; with the same CoreBots it is reused.
+        ScriptAssemblyStore store = new();
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        byte[] core1 = Emit("CoreX" + suffix, "public static class CoreX { public static int V() => 1; }");
+        byte[] core2 = Emit("CoreX" + suffix, "public static class CoreX { public static int V() => 2; }");
+        byte[] farms = Emit("Farms" + suffix, "public static class Farms { public static int V() => CoreX.V() * 10; }", MetadataReference.CreateFromImage(core1));
+        Assembly c1 = store.GetOrLoad(core1);
+        Assembly c2 = store.GetOrLoad(core2);
+        string name = c1.GetName().Name!;
+
+        Assembly f1 = store.GetOrLoad(farms, new Dictionary<string, Assembly> { [name] = c1, ["Unrelated"] = typeof(object).Assembly });
+        Assembly f2 = store.GetOrLoad(farms, new Dictionary<string, Assembly> { [name] = c2 });
+        Assert.NotSame(f1, f2);
+        Assert.Equal(10, f1.GetType("Farms")!.GetMethod("V")!.Invoke(null, null));
+        Assert.Equal(20, f2.GetType("Farms")!.GetMethod("V")!.Invoke(null, null));
+        Assert.Same(f1, store.GetOrLoad(farms, new Dictionary<string, Assembly> { [name] = c1 })); // unrelated entries do not matter
+        Assert.Equal(4, store.Count);
+        Assert.IsAssignableFrom<Skua.Core.ScriptLoadContext>(System.Runtime.Loader.AssemblyLoadContext.GetLoadContext(f1));
+    }
 }
 
 public class ScriptInterfaceStub : DispatchProxy

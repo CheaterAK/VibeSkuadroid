@@ -158,7 +158,7 @@ public class ViewModelTests
         shell.Scripts.OpenCommand.Execute(shell.Scripts.Entries[0]);
         Assert.Equal("Story/Quest.cs", shell.Scripts.LoadedScript);
         await shell.Scripts.StartCommand.ExecuteAsync(null);
-        Assert.Contains("HeadlessFlashUtil", shell.Scripts.Message);
+        Assert.Contains("no script host", shell.Scripts.Message);
         Assert.True(shell.GoBack()); // up a folder first
         Assert.Equal(string.Empty, shell.Scripts.CurrentFolder);
     }
