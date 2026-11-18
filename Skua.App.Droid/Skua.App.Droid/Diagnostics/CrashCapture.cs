@@ -28,7 +28,9 @@ internal static class CrashCapture
     private static bool s_handlersInstalled;
     private static bool s_trackStartup;
     private static int s_fatalWritten;
+    private static readonly object s_markerLock = new();
     private static StartupStep s_lastStep;
+    private static EngineInitPhase s_engine;
     private static DiagnosticsStore? s_store;
     private static Context? s_context;
 
@@ -113,14 +115,43 @@ internal static class CrashCapture
         {
             string text = $"startup {(int)step} {step}{(detail is null ? string.Empty : ": " + detail)}";
             Android.Util.Log.Info(Tag, DiagnosticText.Scrub(text));
-            if (step <= s_lastStep)
-                return;
-            s_lastStep = step;
-            DiagnosticsStore? store = s_store;
-            if (store is null || !s_trackStartup)
-                return;
-            store.Log(text);
-            store.WriteMarker(Process.MyPid(), s_processStart, step);
+            lock (s_markerLock)
+            {
+                if (step <= s_lastStep)
+                    return;
+                s_lastStep = step;
+                DiagnosticsStore? store = s_store;
+                if (store is null || !s_trackStartup)
+                    return;
+                store.Log(text);
+                store.WriteMarker(Process.MyPid(), s_processStart, step, s_engine);
+            }
+        }
+        catch (Exception)
+        {
+            // Diagnostics only.
+        }
+    }
+
+    /// <summary>
+    /// Records the engine composition, which runs on a background thread next to the startup steps: in the marker
+    /// alongside the last step, so a process that dies while composing is recognised whatever the UI reached.
+    /// </summary>
+    public static void Engine(EngineInitPhase phase, string? detail = null)
+    {
+        try
+        {
+            string text = $"startup engine composition {phase.ToString().ToLowerInvariant()}{(detail is null ? string.Empty : ": " + detail)}";
+            Android.Util.Log.Info(Tag, DiagnosticText.Scrub(text));
+            lock (s_markerLock)
+            {
+                s_engine = phase;
+                DiagnosticsStore? store = s_store;
+                if (store is null || !s_trackStartup)
+                    return;
+                store.Log(text);
+                store.WriteMarker(Process.MyPid(), s_processStart, s_lastStep, phase);
+            }
         }
         catch (Exception)
         {
@@ -222,7 +253,7 @@ internal static class CrashCapture
         Add("android", () => $"{Build.VERSION.Release} (API {(int)Build.VERSION.SdkInt}), patch {Build.VERSION.SecurityPatch}");
         Add("abi", () => string.Join(",", Build.SupportedAbis ?? []));
         Add("process", () => $"{ProcessInfo.CurrentName()} pid {Process.MyPid()}, up {(DateTimeOffset.UtcNow - s_processStart).TotalSeconds:0.0} s");
-        Add("startup step", () => $"{(int)s_lastStep} {s_lastStep}");
+        Add("startup step", () => $"{(int)s_lastStep} {s_lastStep}, engine composition {s_engine}");
         Add("thread", () => $"{System.Environment.CurrentManagedThreadId} {Thread.CurrentThread.Name}");
         Add("memory", () => $"managed {GC.GetTotalMemory(false) / (1024 * 1024)} MB");
         return items;

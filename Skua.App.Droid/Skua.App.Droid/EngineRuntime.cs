@@ -19,76 +19,148 @@ namespace Skua.App.Droid;
 /// Process-wide composition root. The engine lives here, not in an activity or the service object, so it survives
 /// activities being destroyed and the service being rebound; the foreground service only keeps the process alive.
 /// </summary>
+/// <remarks>
+/// Composition (Skua's DI container, folders, Keystore, script references) takes seconds on a phone, so it never runs
+/// on the main thread: <see cref="StartInitialization"/> does the cheap, process-global part (HOME, the folders) on
+/// the caller's thread and the rest on a background thread (<see cref="EngineStartup{T}"/>), and returns at once.
+/// Everything that needs the engine continues when that task completes: the UI shows a short "starting" view, the
+/// service is in the foreground immediately and runs its commands afterwards, the activity requests permissions and
+/// resumes afterwards. A failure is recorded (crash report + log) before anyone continues, the app keeps running
+/// without an engine, and the next <see cref="StartInitialization"/> tries again.
+/// </remarks>
 internal static class EngineRuntime
 {
     public const string LogTag = CrashCapture.Tag;
 
-    private static readonly object s_initLock = new();
+    private static readonly object s_pathsLock = new();
+    private static readonly EngineStartup<Composition> s_startup = new(Compose, OnStartupChanged);
     private static AppPaths? s_paths;
-    private static EngineHost? s_host;
-    private static AndroidPlatformServices? s_platform;
-    private static ScriptLibrary? s_library;
+    private static Context? s_application;
 
     public static AppPaths Paths => s_paths ?? throw NotInitialized();
 
-    public static EngineHost Host => s_host ?? throw NotInitialized();
+    public static EngineHost Host => s_startup.Value?.Host ?? throw NotInitialized();
 
-    public static AndroidPlatformServices Platform => s_platform ?? throw NotInitialized();
+    public static AndroidPlatformServices Platform => s_startup.Value?.Platform ?? throw NotInitialized();
 
-    /// <summary>The engine was composed. False in the ":restart" process, or after a recorded composition failure.</summary>
-    public static bool IsInitialized => s_host is not null;
+    /// <summary>The engine was composed. False in the ":restart" process, while it is composing, or after a recorded failure.</summary>
+    public static bool IsInitialized => s_startup.Value is not null;
 
     /// <summary>
-    /// Composes the engine once per process (main process only): from <see cref="DroidApplication.OnCreate"/>, and
-    /// again from the activity, the service or the restart receiver if that first attempt was skipped or failed.
-    /// Never throws: a failure is recorded (crash report + log) and the app keeps running without an engine.
+    /// Starts composing the engine (main process only) unless it is composed or composing, and returns at once: from
+    /// <see cref="DroidApplication.OnCreate"/>, and again from the activity, the service or the restart receiver if that
+    /// first attempt was skipped or failed. Never throws and never blocks on the composition.
     /// </summary>
-    /// <returns>Whether the engine is available.</returns>
-    public static bool TryInitialize(Context context)
+    /// <returns>Completes on a background thread with whether the engine is available; never faults.</returns>
+    public static Task<bool> StartInitialization(Context context)
     {
-        if (s_host is not null)
-            return true;
-        lock (s_initLock)
+        Context application = context.ApplicationContext ?? context;
+        if (!PreparePaths(application))
+            return Task.FromResult(false);
+        Volatile.Write(ref s_application, application);
+        Task<Composition?> attempt = s_startup.EnsureStarted();
+        return attempt.IsCompleted
+            ? Task.FromResult(attempt.Result is not null)
+            : attempt.ContinueWith(t => t.Result is not null, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Runs <paramref name="action"/> on the main thread once the engine composition started by
+    /// <see cref="StartInitialization"/> completed, with whether the engine is available. Runs it right away when it already is.
+    /// </summary>
+    public static void WhenInitialized(Context context, Action<bool> action)
+    {
+        Task<bool> ready = StartInitialization(context);
+        if (ready.IsCompleted && Android.OS.Looper.MyLooper() == Android.OS.Looper.MainLooper)
         {
-            if (s_host is not null)
-                return true;
-            CrashCapture.Step(StartupStep.EngineInitStarted);
+            Run(ready.Result);
+            return;
+        }
+        ready.ContinueWith(t => new Android.OS.Handler(Android.OS.Looper.MainLooper!).Post(() => Run(t.Result)),
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+
+        void Run(bool available)
+        {
             try
             {
-                Initialize(context.ApplicationContext ?? context);
+                action(available);
             }
             catch (Exception e)
             {
-                CrashCapture.Recovered("engine composition", e);
+                CrashCapture.NonFatal("continuing after engine composition", e);
             }
-            CrashCapture.Step(StartupStep.EngineInitFinished, s_host is null ? "engine unavailable" : null);
-            return s_host is not null;
         }
     }
 
-    private static void Initialize(Context application)
+    /// <summary>
+    /// The cheap, process-global part, on the caller's thread: pins HOME and TMPDIR before any other thread could read
+    /// the environment (setenv is not safe next to concurrent getenv) and creates the folders. Once per process.
+    /// </summary>
+    private static bool PreparePaths(Context application)
     {
-        string files = application.FilesDir!.AbsolutePath;
-        string noBackup = application.NoBackupFilesDir!.AbsolutePath;
-        string cache = application.CacheDir!.AbsolutePath;
+        if (Volatile.Read(ref s_paths) is not null)
+            return true;
+        lock (s_pathsLock)
+        {
+            if (s_paths is not null)
+                return true;
+            try
+            {
+                string files = application.FilesDir!.AbsolutePath;
+                string noBackup = application.NoBackupFilesDir!.AbsolutePath;
+                string cache = application.CacheDir!.AbsolutePath;
 
-        // Deliberately pin HOME (the .NET Android host already sets it to FilesDir): on Android
-        // SpecialFolder.ApplicationData is $HOME/.config, and Skua.Core's ClientFileSources captures it once.
-        // Nothing before this point (crash capture included) asks for a SpecialFolder.
-        Environment.SetEnvironmentVariable("HOME", files);
-        Environment.SetEnvironmentVariable("TMPDIR", cache);
-        AppPaths paths = new(files, noBackup, cache);
-        string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (!string.Equals(appData.TrimEnd('/'), paths.ApplicationDataDir, StringComparison.Ordinal))
-            CrashCapture.Info($"ApplicationData resolved to {appData}, expected {paths.ApplicationDataDir}; Skua.Core files will not be where the app looks.");
-        paths.EnsureCreated();
-        s_paths = paths;
-        CrashCapture.Info("engine: paths ready");
+                // Deliberately pin HOME (the .NET Android host already sets it to FilesDir): on Android
+                // SpecialFolder.ApplicationData is $HOME/.config, and Skua.Core's ClientFileSources captures it once.
+                // Nothing before this point (crash capture included) asks for a SpecialFolder.
+                Environment.SetEnvironmentVariable("HOME", files);
+                Environment.SetEnvironmentVariable("TMPDIR", cache);
+                AppPaths paths = new(files, noBackup, cache);
+                string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                if (!string.Equals(appData.TrimEnd('/'), paths.ApplicationDataDir, StringComparison.Ordinal))
+                    CrashCapture.Info($"ApplicationData resolved to {appData}, expected {paths.ApplicationDataDir}; Skua.Core files will not be where the app looks.");
+                paths.EnsureCreated();
+                Volatile.Write(ref s_paths, paths);
+                CrashCapture.Info("engine: paths ready");
+                return true;
+            }
+            catch (Exception e)
+            {
+                CrashCapture.Recovered("engine composition (app folders)", e);
+                return false;
+            }
+        }
+    }
 
+    private static void OnStartupChanged(EngineStartupState state, Exception? error)
+    {
+        switch (state)
+        {
+            case EngineStartupState.Starting:
+                CrashCapture.Engine(EngineInitPhase.Started);
+                break;
+            case EngineStartupState.Ready:
+                CrashCapture.Engine(EngineInitPhase.Finished);
+                break;
+            case EngineStartupState.Failed:
+                CrashCapture.Recovered("engine composition", error!);
+                CrashCapture.Engine(EngineInitPhase.Finished, "engine unavailable");
+                break;
+        }
+    }
+
+    /// <summary>What a successful composition produced; published as one object once everything is in place.</summary>
+    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library);
+
+    /// <summary>The expensive part, on the background thread.</summary>
+    private static Composition Compose()
+    {
+        Context application = Volatile.Read(ref s_application) ?? throw new InvalidOperationException("No application context.");
+        AppPaths paths = Paths;
         SettingsStore settings = new(paths.SettingsFile);
         CredentialVault vault = new(CreateSecretStore(application, paths.SecretsDir));
         AndroidPlatformServices platform = new(application);
-        s_library = new ScriptLibrary(paths.ScriptsDir);
+        ScriptLibrary library = new(paths.ScriptsDir);
         CrashCapture.Info($"engine: settings, vault (available: {vault.IsAvailable}) and script library ready");
 
         ScriptReferenceSet references = LoadScriptReferences(application);
@@ -101,13 +173,13 @@ internal static class EngineRuntime
             Scrubber = DiagnosticText.Secrets,
         }, scripts);
         CrashCapture.Info("engine: engine created");
-        s_platform = platform;
-        s_host = new EngineHost(engine, settings, vault, new ResumeStore(paths.ResumeFile), platform);
-        s_host.RememberFailed += (_, e) => CrashCapture.NonFatal("remembering the password", e);
+        EngineHost host = new(engine, settings, vault, new ResumeStore(paths.ResumeFile), platform);
+        host.RememberFailed += (_, e) => CrashCapture.NonFatal("remembering the password", e);
 
         // The foreground service follows the engine: started as soon as a session or script is active.
         engine.SnapshotChanged += (_, snapshot) => EngineService.EnsureRunningFor(application, snapshot);
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
+        return new Composition(host, platform, library);
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
@@ -141,14 +213,21 @@ internal static class EngineRuntime
         }
     }
 
-    /// <summary>The ViewModels' services; called on the UI thread when the first view is created.</summary>
-    public static AppServices CreateAppServices() => new(
-        Host,
-        new AvaloniaUiDispatcher(),
-        new AvaloniaFilePicker(),
-        s_library ?? throw NotInitialized(),
-        new ScriptRepositorySync(s_library!, Paths.SkuaDir),
-        Paths);
+    /// <summary>
+    /// The ViewModels' services; called on the UI thread when the first main view is created, which the UI does only
+    /// after the composition completed (<see cref="Skua.App.Droid.UI.AppBootstrap.EngineReady"/>).
+    /// </summary>
+    public static AppServices CreateAppServices()
+    {
+        Composition composition = s_startup.Value ?? throw NotInitialized();
+        return new(
+            composition.Host,
+            new AvaloniaUiDispatcher(),
+            new AvaloniaFilePicker(),
+            composition.Library,
+            new ScriptRepositorySync(composition.Library, Paths.SkuaDir),
+            Paths);
+    }
 
     private static InvalidOperationException NotInitialized() => new("The engine is not available (its composition failed or was skipped; see the crash report).");
 }

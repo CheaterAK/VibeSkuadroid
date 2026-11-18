@@ -19,10 +19,13 @@ public enum StartupStep
     /// <summary>Application.OnCreate began.</summary>
     ApplicationCreate = 2,
 
-    /// <summary>Engine composition (paths, settings, Keystore, script references, engine) began.</summary>
+    /// <summary>
+    /// Engine composition began (markers of builds that composed it on the main thread). It now runs on a background
+    /// thread next to the other steps and is tracked separately (<see cref="StartupMarker.Engine"/>).
+    /// </summary>
     EngineInitStarted = 3,
 
-    /// <summary>Engine composition finished (or failed and was recorded).</summary>
+    /// <summary>Engine composition finished (markers of older builds; see <see cref="EngineInitStarted"/>).</summary>
     EngineInitFinished = 4,
 
     /// <summary>Application.OnCreate finished. A process started only for the service or a receiver stops here.</summary>
@@ -53,22 +56,38 @@ public enum StartupStep
     FirstFrame = 13,
 }
 
-/// <summary>What the marker file says about one process start.</summary>
-public sealed record StartupMarker(int ProcessId, DateTimeOffset StartedAt, StartupStep LastStep, DateTimeOffset LastStepAt)
+/// <summary>Where the background engine composition of a process was.</summary>
+public enum EngineInitPhase
 {
-    public bool Completed => LastStep >= StartupStep.FirstFrame;
+    /// <summary>Not started in this process (yet).</summary>
+    None = 0,
+
+    /// <summary>Running.</summary>
+    Started = 1,
+
+    /// <summary>Done, successfully or with a recorded failure.</summary>
+    Finished = 2,
+}
+
+/// <summary>What the marker file says about one process start.</summary>
+/// <param name="Engine">The engine composition, which runs on a background thread alongside the steps.</param>
+public sealed record StartupMarker(int ProcessId, DateTimeOffset StartedAt, StartupStep LastStep, DateTimeOffset LastStepAt, EngineInitPhase Engine = EngineInitPhase.None)
+{
+    public bool Completed => LastStep >= StartupStep.FirstFrame && Engine != EngineInitPhase.Started;
 
     /// <summary>
-    /// The process ended at a point where it should not have: inside Application.OnCreate, or while the UI was being
-    /// brought up. A process that reached <see cref="StartupStep.ApplicationReady"/> or
-    /// <see cref="StartupStep.LauncherActivity"/> and then went away is a normal background process (service or
-    /// receiver only) that the system later reclaimed.
+    /// The process ended at a point where it should not have: inside Application.OnCreate, while the UI was being
+    /// brought up, or while the engine was being composed. A process that reached
+    /// <see cref="StartupStep.ApplicationReady"/> or <see cref="StartupStep.LauncherActivity"/> (with its engine
+    /// composed, if it started one) and then went away is a normal background process (service or receiver only) that
+    /// the system later reclaimed.
     /// </summary>
     public bool EndedUnexpectedly => LastStep is > StartupStep.None and < StartupStep.ApplicationReady
-        || (LastStep >= StartupStep.MainActivityCreate && LastStep < StartupStep.FirstFrame);
+        || (LastStep >= StartupStep.MainActivityCreate && LastStep < StartupStep.FirstFrame)
+        || Engine == EngineInitPhase.Started;
 
     /// <summary>The previous process died while composing the engine: skip it once so the crash screen can show.</summary>
-    public bool DiedInEngineInit => LastStep == StartupStep.EngineInitStarted;
+    public bool DiedInEngineInit => Engine == EngineInitPhase.Started || LastStep == StartupStep.EngineInitStarted;
 }
 
 /// <summary>Removes secrets from any diagnostic text before it is written or shown.</summary>
@@ -296,7 +315,9 @@ public sealed class DiagnosticsStore
                 || !values.TryGetValue("step", out string? step) || !int.TryParse(step, NumberStyles.Integer, CultureInfo.InvariantCulture, out int stepNumber)
                 || !Enum.IsDefined((StartupStep)stepNumber))
                 return null;
-            return new StartupMarker(processId, ParseTime(values, "started"), (StartupStep)stepNumber, ParseTime(values, "at"));
+            EngineInitPhase engine = values.TryGetValue("engine", out string? e) && int.TryParse(e, NumberStyles.Integer, CultureInfo.InvariantCulture, out int phase)
+                && Enum.IsDefined((EngineInitPhase)phase) ? (EngineInitPhase)phase : EngineInitPhase.None;
+            return new StartupMarker(processId, ParseTime(values, "started"), (StartupStep)stepNumber, ParseTime(values, "at"), engine);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -304,13 +325,13 @@ public sealed class DiagnosticsStore
         }
     }
 
-    /// <summary>Records that process <paramref name="processId"/> reached <paramref name="step"/>.</summary>
-    public void WriteMarker(int processId, DateTimeOffset startedAt, StartupStep step)
+    /// <summary>Records that process <paramref name="processId"/> reached <paramref name="step"/>, its engine composition at <paramref name="engine"/>.</summary>
+    public void WriteMarker(int processId, DateTimeOffset startedAt, StartupStep step, EngineInitPhase engine = EngineInitPhase.None)
     {
         try
         {
             string text = string.Create(CultureInfo.InvariantCulture,
-                $"pid={processId}\nstarted={startedAt:O}\nstep={(int)step}\nname={step}\nat={_time.GetUtcNow():O}\n");
+                $"pid={processId}\nstarted={startedAt:O}\nstep={(int)step}\nname={step}\nengine={(int)engine}\nat={_time.GetUtcNow():O}\n");
             lock (_lock)
                 WriteAtomic(MarkerPath, text);
         }
@@ -321,7 +342,7 @@ public sealed class DiagnosticsStore
 
     /// <summary>Human-readable summary of a marker for the crash report.</summary>
     public static string DescribeMarker(StartupMarker marker) => FormattableString.Invariant(
-        $"The previous start (pid {marker.ProcessId}, {marker.StartedAt:u}) last reached step {(int)marker.LastStep} ({marker.LastStep}) at {marker.LastStepAt:u} and then ended without a captured exception. That points to a native crash, a runtime abort or the process being killed during startup.");
+        $"The previous start (pid {marker.ProcessId}, {marker.StartedAt:u}) last reached step {(int)marker.LastStep} ({marker.LastStep}) at {marker.LastStepAt:u}{(marker.Engine == EngineInitPhase.Started ? " while the engine was still being composed" : string.Empty)} and then ended without a captured exception. That points to a native crash, a runtime abort or the process being killed during startup.");
 
     private void AppendLogLocked(string message)
     {

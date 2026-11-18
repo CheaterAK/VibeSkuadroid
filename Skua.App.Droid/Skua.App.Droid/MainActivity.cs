@@ -37,6 +37,9 @@ public class MainActivity : AvaloniaMainActivity
 {
     private static bool s_firstFrameRecorded;
     private readonly ServiceLink _link = new();
+    private bool _engineReady;
+    private bool _started;
+    private bool _resumed;
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
@@ -47,17 +50,28 @@ public class MainActivity : AvaloniaMainActivity
         if (CrashCapture.Store?.HasPendingReport == true)
             TryRun("show the crash screen", () => StartActivity(new Intent(this, typeof(CrashActivity))));
 
-        // Composes the engine if Application.OnCreate skipped it or it failed there (no-op otherwise).
-        bool engine = EngineRuntime.TryInitialize(this);
+        // Starts composing the engine if Application.OnCreate skipped it or it failed there (no-op otherwise). Never
+        // waits: the view shows "starting" until it is done, and OnEngineReady runs the steps that need the engine.
+        _ = EngineRuntime.StartInitialization(this);
 
         ProtectScreenContent();
         ((DroidApplication)Application!).EnsureAvaloniaStarted();
         base.OnCreate(savedInstanceState); // creates the Avalonia view through MainViewFactory
         CrashCapture.Step(StartupStep.MainActivityCreated);
 
-        if (!engine)
-            return;
-        AndroidPlatformServices.CurrentActivity = this;
+        EngineRuntime.WhenInitialized(this, available =>
+        {
+            if (available && !IsFinishing && !IsDestroyed)
+                OnEngineReady();
+        });
+    }
+
+    /// <summary>On the main thread, once the engine is composed: what OnCreate/OnStart/OnResume skip without it.</summary>
+    private void OnEngineReady()
+    {
+        _engineReady = true;
+        if (_resumed)
+            AndroidPlatformServices.CurrentActivity = this;
         TryRun("notification permission request", EngineRuntime.Platform.RequestNotificationPermissionOnFirstRun);
 
         // Coming back from a planned restart: log back in (the service does it, so it continues in the background).
@@ -66,21 +80,33 @@ public class MainActivity : AvaloniaMainActivity
             if (File.Exists(EngineRuntime.Paths.ResumeFile))
                 EngineService.Start(this, EngineService.ActionResume);
         });
+        if (_started)
+            BindEngineService();
+        if (_resumed)
+            TryRun("refresh platform state", () => AppBootstrap.ShellIfCreated?.RefreshPlatformState());
+    }
+
+    private void BindEngineService()
+    {
+        // Bind without auto-create: connects whenever the engine service is running.
+        if (!_link.Bound)
+            TryRun("bind the engine service", () => _link.Bound = BindService(new Intent(this, typeof(EngineService)), _link, 0));
     }
 
     protected override void OnStart()
     {
         base.OnStart();
-        // Bind without auto-create: connects whenever the engine service is running.
-        if (EngineRuntime.IsInitialized)
-            TryRun("bind the engine service", () => _link.Bound = BindService(new Intent(this, typeof(EngineService)), _link, 0));
+        _started = true;
+        if (_engineReady)
+            BindEngineService();
     }
 
     protected override void OnResume()
     {
         base.OnResume();
+        _resumed = true;
         CrashCapture.Step(StartupStep.MainActivityResumed);
-        if (EngineRuntime.IsInitialized)
+        if (_engineReady)
         {
             AndroidPlatformServices.CurrentActivity = this;
             TryRun("refresh platform state", () => AppBootstrap.ShellIfCreated?.RefreshPlatformState());
@@ -95,6 +121,7 @@ public class MainActivity : AvaloniaMainActivity
 
     protected override void OnPause()
     {
+        _resumed = false;
         if (ReferenceEquals(AndroidPlatformServices.CurrentActivity, this))
             AndroidPlatformServices.CurrentActivity = null;
         base.OnPause();
@@ -102,6 +129,7 @@ public class MainActivity : AvaloniaMainActivity
 
     protected override void OnStop()
     {
+        _started = false;
         if (_link.Bound)
             TryRun("unbind the engine service", () => UnbindService(_link));
         _link.Bound = false;

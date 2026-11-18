@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using Skua.App.Droid.Core.Diagnostics;
 using Skua.App.Droid.UI.Views;
 
@@ -47,7 +48,34 @@ public partial class App : Application
     /// engine failed to start), the failure is reported and a plain error view is shown instead of crashing the
     /// activity: on Android the crash screen with the full report appears on the next launch.
     /// </summary>
+    /// <remarks>
+    /// While the platform is still composing the engine (<see cref="AppBootstrap.EngineReady"/>), this returns a
+    /// <see cref="StartingView"/> at once and swaps the main view (or the error view) into it on the UI thread when the
+    /// composition completes, so the first frame never waits for the engine.
+    /// </remarks>
     public static Control CreateMainView()
+    {
+        Task<bool>? ready;
+        try
+        {
+            ready = AppBootstrap.EngineReady?.Invoke();
+        }
+        catch (Exception e)
+        {
+            AppBootstrap.ReportError?.Invoke("starting the engine", e);
+            ready = null;
+        }
+        if (ready is null || ready.IsCompleted)
+            return CreateShellView();
+
+        StartingView starting = new();
+        ready.ContinueWith(_ => Dispatcher.UIThread.Post(() => starting.Content = CreateShellView()),
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return starting;
+    }
+
+    /// <summary>The main view on the root ViewModel, or the error view when it cannot be created.</summary>
+    private static Control CreateShellView()
     {
         try
         {

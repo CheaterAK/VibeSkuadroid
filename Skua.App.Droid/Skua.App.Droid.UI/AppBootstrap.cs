@@ -17,6 +17,14 @@ public static class AppBootstrap
     /// </summary>
     public static Action<string, Exception>? ReportError { get; set; }
 
+    /// <summary>
+    /// Starts (if needed) and returns the platform's engine composition, which completes with whether the engine is
+    /// available and never faults. While it runs, a new main view shows a short "starting" state and becomes the main
+    /// view (or the error view, if the engine is unavailable) when it completes. Null: the engine is composed before
+    /// the UI (desktop preview, tests).
+    /// </summary>
+    public static Func<Task<bool>>? EngineReady { get; set; }
+
     /// <summary>Called after a main view was created (startup milestone for the platform head).</summary>
     public static Action? MainViewCreated { get; set; }
 
