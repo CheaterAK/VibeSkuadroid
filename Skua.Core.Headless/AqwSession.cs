@@ -377,6 +377,12 @@ public sealed class AqwSession : IAsyncDisposable
         await old.DisposeAsync().ConfigureAwait(false);
     }
 
+    /// <summary>Raises <see cref="Log"/>: for layers built on the session whose messages belong with its own.</summary>
+    public void WriteLog(HeadlessLogLevel level, string message)
+    {
+        RaiseLog(level, message);
+    }
+
     private void RaiseLog(HeadlessLogLevel level, string message)
     {
         Log?.Invoke(this, new HeadlessLogEventArgs(level, message));

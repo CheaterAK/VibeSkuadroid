@@ -247,7 +247,7 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
         }
         if (reuse is not null)
         {
-            Log?.Invoke(this, $"[Info] Login: web login #{reuse.Generation} for this account finished {(Time.GetUtcNow() - reuse.ObtainedAt).TotalSeconds:0.0} s ago "
+            Session.WriteLog(HeadlessLogLevel.Info, $"Login: web login #{reuse.Generation} for this account finished {(Time.GetUtcNow() - reuse.ObtainedAt).TotalSeconds:0.0} s ago "
                 + "and no socket login has used its token, so its server list is shown again instead of a second web login (which would replace the token).");
             SetState(HeadlessGameState.ServerList);
             return Task.CompletedTask;
