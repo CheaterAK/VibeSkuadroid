@@ -45,7 +45,7 @@ public sealed class CrashActivity : Activity
 
         TextView title = new(this)
         {
-            Text = "VibeSkua stopped during the last start. Please share this report.",
+            Text = "VibeSkua stopped unexpectedly last time. Please share this report (Share or Copy), then Continue.",
             TextSize = 16,
         };
         title.SetTextColor(Color.ParseColor("#F5F5F5"));
@@ -172,6 +172,7 @@ public sealed class LaunchActivity : Activity
     {
         base.OnCreate(savedInstanceState);
         CrashCapture.Step(StartupStep.LauncherActivity);
+        ExitReasons.ScanOnce(this); // normally done in Application.onCreate already (then a no-op)
         bool crashPending = CrashCapture.Store?.HasPendingReport == true;
         try
         {

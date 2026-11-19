@@ -26,6 +26,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private EngineSnapshot? _pendingSnapshot;
     private int _snapshotPosted;
     private bool _wasOnline;
+    private volatile bool _uiVisible = true;
 
     public ShellViewModel(AppServices services)
     {
@@ -178,10 +179,28 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             Scripts.Refresh();
     }
 
+    /// <summary>
+    /// The platform reports whether the UI is showing (Android: activity started/stopped). While it is hidden, engine
+    /// snapshots and console lines are not pushed into the bound properties and lists (no layout work for a window
+    /// that is not there); the latest state is applied once when the UI shows again.
+    /// </summary>
+    public void SetUiVisible(bool visible)
+    {
+        _uiVisible = visible;
+        Console.SetUiVisible(visible);
+        if (visible)
+            PostSnapshot();
+    }
+
     private void OnSnapshotChanged(object? sender, EngineSnapshot snapshot)
     {
         Volatile.Write(ref _pendingSnapshot, snapshot);
-        if (Interlocked.Exchange(ref _snapshotPosted, 1) == 0)
+        PostSnapshot();
+    }
+
+    private void PostSnapshot()
+    {
+        if (_uiVisible && Interlocked.Exchange(ref _snapshotPosted, 1) == 0)
         {
             _services.Dispatcher.Post(() =>
             {

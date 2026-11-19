@@ -58,6 +58,8 @@ public class MainActivity : AvaloniaMainActivity
         ((DroidApplication)Application!).EnsureAvaloniaStarted();
         base.OnCreate(savedInstanceState); // creates the Avalonia view through MainViewFactory
         CrashCapture.Step(StartupStep.MainActivityCreated);
+        CrashCapture.Lifecycle("onCreate");
+        TryRun("watch the render surface", () => SurfaceWatch.Attach(this));
 
         EngineRuntime.WhenInitialized(this, available =>
         {
@@ -97,6 +99,8 @@ public class MainActivity : AvaloniaMainActivity
     {
         base.OnStart();
         _started = true;
+        CrashCapture.Lifecycle("onStart", UiState.Foreground);
+        TryRun("UI visible", () => AppBootstrap.SetUiVisible(true));
         if (_engineReady)
             BindEngineService();
     }
@@ -105,6 +109,7 @@ public class MainActivity : AvaloniaMainActivity
     {
         base.OnResume();
         _resumed = true;
+        CrashCapture.Lifecycle("onResume", UiState.Foreground);
         CrashCapture.Step(StartupStep.MainActivityResumed);
         if (_engineReady)
         {
@@ -122,6 +127,7 @@ public class MainActivity : AvaloniaMainActivity
     protected override void OnPause()
     {
         _resumed = false;
+        CrashCapture.Lifecycle("onPause");
         if (ReferenceEquals(AndroidPlatformServices.CurrentActivity, this))
             AndroidPlatformServices.CurrentActivity = null;
         base.OnPause();
@@ -130,10 +136,19 @@ public class MainActivity : AvaloniaMainActivity
     protected override void OnStop()
     {
         _started = false;
+        CrashCapture.Lifecycle("onStop", UiState.Background);
+        // Engine snapshots and log lines keep arriving: they wait (bounded) instead of updating views without a window.
+        TryRun("UI hidden", () => AppBootstrap.SetUiVisible(false));
         if (_link.Bound)
             TryRun("unbind the engine service", () => UnbindService(_link));
         _link.Bound = false;
         base.OnStop();
+    }
+
+    protected override void OnDestroy()
+    {
+        CrashCapture.Lifecycle(IsChangingConfigurations ? "onDestroy (recreating)" : "onDestroy", UiState.Background);
+        base.OnDestroy();
     }
 
     public override void OnRequestPermissionsResult(int requestCode, string[] permissions, [GeneratedEnum] Permission[] grantResults)

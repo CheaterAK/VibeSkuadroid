@@ -7,6 +7,7 @@ public static class AppBootstrap
 {
     private static readonly object s_lock = new();
     private static ShellViewModel? s_shell;
+    private static bool s_uiVisible = true;
 
     /// <summary>Creates the services; set by the platform head before the first view is created.</summary>
     public static Func<AppServices>? Factory { get; set; }
@@ -39,6 +40,8 @@ public static class AppBootstrap
                 {
                     AppServices services = (Factory ?? throw new InvalidOperationException("AppBootstrap.Factory was not set by the platform head."))();
                     s_shell = new ShellViewModel(services);
+                    if (!s_uiVisible)
+                        s_shell.SetUiVisible(false);
                 }
                 return s_shell;
             }
@@ -55,6 +58,21 @@ public static class AppBootstrap
         }
     }
 
+    /// <summary>
+    /// The platform head reports whether the UI is showing (Android: the activity was started or stopped); applied to
+    /// the root ViewModel now or when it is created.
+    /// </summary>
+    public static void SetUiVisible(bool visible)
+    {
+        ShellViewModel? shell;
+        lock (s_lock)
+        {
+            s_uiVisible = visible;
+            shell = s_shell;
+        }
+        shell?.SetUiVisible(visible);
+    }
+
     /// <summary>For tests: forget the root ViewModel.</summary>
     public static void Reset()
     {
@@ -62,6 +80,7 @@ public static class AppBootstrap
         {
             s_shell?.Dispose();
             s_shell = null;
+            s_uiVisible = true;
         }
     }
 }

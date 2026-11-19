@@ -83,6 +83,40 @@ died without any exception (native crash, abort) is reported from the marker ("l
 scrubbed of the password, login tokens and credential-like `key=value` pairs. If even the crash screen never
 appears, take a bug report (Developer options > Take bug report) or `adb logcat -s VibeSkua AndroidRuntime DEBUG`.
 
+**Deaths no code of the app sees** (native crash, ANR, killed for memory): on Android 11+ every start of the main
+process reads Android's own exit records (`ActivityManager.getHistoricalProcessExitReasons`, `Diagnostics/ExitReasons.cs`)
+before any activity decides what to show. Each exit since the last one handled is one line in the events log; an
+abnormal one (CRASH, CRASH_NATIVE, ANR, INITIALIZATION_FAILURE, EXCESSIVE_RESOURCE_USAGE, DEPENDENCY_DIED, an exit code;
+LOW_MEMORY, SIGNALED, FREEZER only when the app was visible, held its foreground service or ran a script; OTHER/UNKNOWN
+only by the app's own record of a running script or visible UI) becomes the crash report: reason, signal or status,
+importance and PSS/RSS at death, Android's description, what the app last recorded about itself, the other recent exits,
+and the trace Android kept: the ANR trace, or on Android 12+ the native tombstone, decoded from its protobuf form
+(signal, abort message, crashing thread's backtrace, other threads, the log tail; `Core/Diagnostics/TraceText.cs`).
+If the dying process wrote a report itself, Android's record is appended to it. The restart's own kill is recorded
+beforehand and not reported. Classification and formatting are platform neutral and tested (`ExitReasonTests`).
+
+**Heartbeat.** The main process records what it is doing every 30 s and on every lifecycle transition (activity
+start/resume/pause/stop/destroy, surface created/changed/destroyed, service start/stop, trimMemory and lowMemory): UI
+foreground or background, script state, connection, RSS. It goes to the events log, to the startup marker and (Android
+11+) to the process state summary Android returns with that process's exit record, so the report says what the app was
+doing just before it died. Below Android 11 a process that died while a script ran is reported from the marker alone.
+
+## Background and foreground
+
+The engine, its log and the ViewModels live for the whole process; each activity gets a fresh view. While the activity
+is stopped (`AppBootstrap.SetUiVisible(false)` from `MainActivity.onStop`), engine snapshots and console lines are not
+pushed into the bound properties and lists: snapshots keep only the latest, console lines wait in a bounded queue
+(`BoundedFeed`, twice the 600 visible lines). On `onStart` the latest snapshot is applied once and the queue is flushed,
+or, if it overflowed during a long run in the background, the console lists are rebuilt once from the engine's buffer.
+So a script logging for hours in the background costs no UI work and the return to the foreground at most one rebuild.
+
+**Avalonia workaround (`RenderFence`).** In Avalonia 12.1.x, `surfaceDestroyed` (app going to the background) releases
+the window and only asks the compositor to stop at its next commit; a frame already being drawn keeps using the
+destroyed surface (AvaloniaUI/Avalonia#22728; fix proposed in PR #22738, not in 12.1.6). A surface callback registered
+after Avalonia's (`Diagnostics/SurfaceWatch.cs`) waits, at most 500 ms, for the compositor's render lock (private,
+reached by reflection once; without it nothing happens), so no frame is drawing into the window when Android destroys
+it. Remove it once the Avalonia version in use has the upstream fix.
+
 ## Scripts
 
 Scripts run on unmodified Skua.Core through `Skua.Core.Headless.Host` (`HeadlessSkuaSession`: ScriptManager,

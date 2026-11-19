@@ -50,6 +50,7 @@ internal static class ProcessRestarter
             context.StartActivity(trampoline);
         }
 
+        Diagnostics.CrashCapture.PlannedExit("restart: " + reason);
         Process.KillProcess(Process.MyPid());
     }
 
