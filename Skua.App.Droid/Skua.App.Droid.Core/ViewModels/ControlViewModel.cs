@@ -343,26 +343,43 @@ public sealed partial class ControlViewModel : ObservableObject
 
     private void ReadInBackground()
     {
-        IControlBackend? backend = Backend;
-        if (!_active || !_uiVisible || backend is null)
+        try
         {
-            Volatile.Write(ref _refreshState, 0);
-            return;
+            IControlBackend? backend = Backend;
+            if (!_active || !_uiVisible || backend is null)
+            {
+                Volatile.Write(ref _refreshState, 0);
+                return;
+            }
+            _refreshAgain = false;
+            long version = Volatile.Read(ref _latestWorldVersion);
+            Reading reading = Collect(backend, _tabMirror, _questIdMirror);
+            Interlocked.Increment(ref Refreshes);
+            _services.Dispatcher.Post(() =>
+            {
+                Volatile.Write(ref _lastRefreshMs, NowMs);
+                Volatile.Write(ref _shownWorldVersion, version);
+                Volatile.Write(ref _refreshState, 0);
+                try
+                {
+                    if (_active && _uiVisible)
+                        Show(reading);
+                }
+                catch (Exception e)
+                {
+                    // A bad read must not take the UI thread down; the next refresh tries again.
+                    Message = $"Showing the game failed: {e.Message}";
+                    Log(EngineLogLevel.Error, $"Control page refresh failed: {e.GetType().Name}: {e.Message}");
+                }
+                if (_refreshAgain || Volatile.Read(ref _latestWorldVersion) != version)
+                    RequestRefresh();
+            });
         }
-        _refreshAgain = false;
-        long version = Volatile.Read(ref _latestWorldVersion);
-        Reading reading = Collect(backend, _tabMirror, _questIdMirror);
-        Interlocked.Increment(ref Refreshes);
-        _services.Dispatcher.Post(() =>
+        catch (Exception e)
         {
-            Volatile.Write(ref _lastRefreshMs, NowMs);
-            Volatile.Write(ref _shownWorldVersion, version);
             Volatile.Write(ref _refreshState, 0);
-            if (_active && _uiVisible)
-                Show(reading);
-            if (_refreshAgain || Volatile.Read(ref _latestWorldVersion) != version)
-                RequestRefresh();
-        });
+            Log(EngineLogLevel.Error, $"Control page refresh failed: {e.GetType().Name}: {e.Message}");
+        }
     }
 
     /// <summary>Reads now (tests, and after an action): same path as the throttled refresh, without the wait.</summary>
