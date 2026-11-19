@@ -285,11 +285,17 @@ public static class ProcessExitClassifier
             ExitReason.LowMemory or ExitReason.Freezer => busy ? ExitVerdict.Report : ExitVerdict.LogOnly,
             // OTHER covers "remove task" (swiped away), app updates and similar on older Android versions: only when
             // a script was running or the UI was up, and only by our own record (importance alone is not enough).
-            ExitReason.Other or ExitReason.Unknown => activity is { ScriptBusy: true } || activity is { Ui: UiState.Foreground } ? ExitVerdict.Report : ExitVerdict.LogOnly,
+            ExitReason.Other or ExitReason.Unknown => !RemovedByUser(exit) && (activity is { ScriptBusy: true } || activity is { Ui: UiState.Foreground })
+                ? ExitVerdict.Report
+                : ExitVerdict.LogOnly,
             // The user or the package manager ended it.
             _ => ExitVerdict.LogOnly,
         };
     }
+
+    /// <summary>The user swiped the app away in Recents (Android records that as OTHER, "remove task").</summary>
+    private static bool RemovedByUser(ProcessExitRecord exit) =>
+        exit.Description?.Contains("remove task", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// The records not handled yet: newer than the last one handled (by timestamp, then pid), not the current process,

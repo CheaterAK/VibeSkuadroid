@@ -46,6 +46,8 @@ public class ExitReasonTests
         Assert.Equal(ExitVerdict.LogOnly, ProcessExitClassifier.Classify(Exit(ExitReason.Other, importance: 125), Main, null));
         Assert.Equal(ExitVerdict.Report, ProcessExitClassifier.Classify(Exit(ExitReason.Other, importance: 125), Main, Busy()));
         Assert.Equal(ExitVerdict.Report, ProcessExitClassifier.Classify(Exit(ExitReason.Unknown), Main, Idle(UiState.Foreground)));
+        // Swiped away in Recents while a script ran: the user's choice.
+        Assert.Equal(ExitVerdict.LogOnly, ProcessExitClassifier.Classify(Exit(ExitReason.Other, description: "remove task"), Main, Busy()));
     }
 
     [Fact]
