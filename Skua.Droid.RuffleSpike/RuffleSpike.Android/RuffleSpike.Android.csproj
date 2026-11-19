@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Game view spike: a WebView running the Ruffle web build with the real game, for measuring on a phone.
+    Not part of Skua.sln. Build with ../build-ruffle-spike.sh (fetches and verifies the Ruffle builds first).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>RuffleSpike.Android</RootNamespace>
+    <ApplicationId>com.vibeskua.droid.ruffle</ApplicationId>
+    <ApplicationTitle>Game View Spike</ApplicationTitle>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <AndroidPackageFormat>apk</AndroidPackageFormat>
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
+    <UseMonoRuntime>true</UseMonoRuntime>
+    <!-- Same reason as Skua.App.Droid: no LLVM marshal methods (incremental Release builds lost the table). -->
+    <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
+    <!-- Ruffle's .wasm files are 14 MB each; compressed in the APK they are about 5 MB. -->
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- Nothing here is reflection-heavy, but the spike is not worth a trimming investigation either. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <AndroidLinkMode>None</AndroidLinkMode>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- Debug installs next to Release. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <ApplicationId>com.vibeskua.droid.ruffle.debug</ApplicationId>
+    <ApplicationTitle>Game View Spike Debug</ApplicationTitle>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The page, the pinned Ruffle builds (with their license files) and this repo's skua.swf, served by the app
+         at https://game.aq.com/__vibeskua__/ (see RequestPolicy). -->
+    <AndroidAsset Include="..\web\index.html;..\web\spike.js" Link="Assets\web\%(Filename)%(Extension)" />
+    <AndroidAsset Include="..\web\ruffle-0.7.1\*" Link="Assets\web\ruffle-0.7.1\%(Filename)%(Extension)" />
+    <AndroidAsset Include="..\web\ruffle-nightly\*" Link="Assets\web\ruffle-nightly\%(Filename)%(Extension)" />
+    <AndroidAsset Include="..\..\Skua.App.Avalonia\skua.swf" Link="Assets\web\skua.swf" />
+  </ItemGroup>
+
+  <!-- The Ruffle builds are not in the repository: fetch-ruffle.sh downloads and verifies them. -->
+  <Target Name="RuffleSpikeCheckAssets" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('..\web\ruffle-0.7.1\ruffle.js') Or !Exists('..\web\ruffle-nightly\ruffle.js')"
+           Text="Ruffle web builds missing: run Skua.Droid.RuffleSpike/fetch-ruffle.sh first." />
+  </Target>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>Configuration</_Parameter1><_Parameter2>$(Configuration)</_Parameter2></AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RuffleSpike.Core\RuffleSpike.Core.csproj" />
+  </ItemGroup>
+</Project>

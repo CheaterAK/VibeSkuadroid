@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Starts the real SocketBridge against a local echo server, for the probe option of check.cjs (Chromium to bridge). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\RuffleSpike.Core\RuffleSpike.Core.csproj" />
+  </ItemGroup>
+</Project>
