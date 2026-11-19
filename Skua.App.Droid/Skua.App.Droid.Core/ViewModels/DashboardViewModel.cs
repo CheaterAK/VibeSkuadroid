@@ -72,6 +72,16 @@ public sealed partial class DashboardViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StopScriptCommand))]
     private bool _scriptBusy;
 
+    /// <summary>A script runs and is not paused: Pause is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseScriptCommand))]
+    private bool _canPause;
+
+    /// <summary>The running script is paused: Resume is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResumeScriptCommand))]
+    private bool _isPaused;
+
     [ObservableProperty]
     private string _memoryText = string.Empty;
 
@@ -132,6 +142,8 @@ public sealed partial class DashboardViewModel : ObservableObject
         }
 
         ScriptBusy = s.Script.IsBusy;
+        IsPaused = s.Script.IsPaused;
+        CanPause = s.Script.State == ScriptRunState.Running && !s.Script.Paused && _host.Engine.CanPauseScript;
         ScriptName = s.Script.ScriptName ?? "No script loaded";
         ScriptState = Formatting.ScriptLine(s.Script);
         ScriptMessage = s.Script.State == ScriptRunState.Faulted ? s.Script.Message : null;
@@ -153,6 +165,12 @@ public sealed partial class DashboardViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(ScriptBusy))]
     private Task StopScriptAsync() => RunAsync(() => _host.Engine.StopScriptAsync());
+
+    [RelayCommand(CanExecute = nameof(CanPause))]
+    private Task PauseScriptAsync() => RunAsync(() => _host.Engine.PauseScriptAsync());
+
+    [RelayCommand(CanExecute = nameof(IsPaused))]
+    private Task ResumeScriptAsync() => RunAsync(() => _host.Engine.ResumeScriptAsync());
 
     [RelayCommand(CanExecute = nameof(IsOnline))]
     private Task LogoutAsync() => RunAsync(() => _host.LogoutAsync());

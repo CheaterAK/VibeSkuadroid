@@ -46,6 +46,27 @@ public interface IScriptHost : IAsyncDisposable
 
     /// <summary>Stops the running script; bounded wait.</summary>
     Task StopAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts the loaded script with <paramref name="options"/> (an option profile, unattended). Hosts without
+    /// option profiles accept only the defaults.
+    /// </summary>
+    Task StartAsync(ScriptStartOptions options, CancellationToken cancellationToken) =>
+        options.OptionStorage is null
+            ? StartAsync(cancellationToken)
+            : throw new EngineException("Option profiles are not available in this engine.");
+
+    /// <summary>Whether a running script can be paused and resumed.</summary>
+    bool CanPause => false;
+
+    /// <summary>
+    /// Pauses or resumes the running script (Skua's pause: the script thread waits in place at its next Sleep or
+    /// Wait). Completes when the change is applied; <see cref="StatusChanged"/> reports <see cref="ScriptStatus.Paused"/>.
+    /// </summary>
+    /// <returns>False when the change was superseded (the script stopped, or another pause or resume came first).</returns>
+    /// <exception cref="EngineException">No script is running, or this host cannot pause.</exception>
+    Task<bool> SetPausedAsync(bool paused, CancellationToken cancellationToken) =>
+        throw new EngineException("Pausing scripts is not available in this engine.");
 }
 
 /// <summary>
@@ -98,6 +119,15 @@ public interface ISessionScriptHost : IScriptHost
 
     /// <summary>Saves edited option values where the script reads them (Skua's options file for the script's storage).</summary>
     Task SaveOptionsAsync(ScriptOptionSet options, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The script's options read from <paramref name="optionStorage"/> instead of the storage the script names (an
+    /// option profile, e.g. a queue entry's); null reads the script's own. Saving the returned set writes that storage.
+    /// </summary>
+    Task<ScriptOptionSet> GetOptionsAsync(string scriptPath, string? optionStorage, CancellationToken cancellationToken) =>
+        optionStorage is null
+            ? GetOptionsAsync(scriptPath, cancellationToken)
+            : throw new EngineException("Option profiles are not available in this engine.");
 }
 
 /// <summary>What a script run did so far (Skua's bot stats).</summary>

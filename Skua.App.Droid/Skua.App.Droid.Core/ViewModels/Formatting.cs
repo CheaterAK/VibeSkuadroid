@@ -15,12 +15,13 @@ internal static class Formatting
 
     public static string Number(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
 
-    /// <summary>"Running DoomVault · 12 min" / "Faulted: Compile error: ..." / "Idle".</summary>
+    /// <summary>"Running DoomVault · 12 min" / "Paused DoomVault · 12 min" / "Faulted: Compile error: ..." / "Idle".</summary>
     public static string ScriptLine(ScriptStatus s)
     {
         string name = s.ScriptName is string n ? $" {n}" : string.Empty;
         string head = s.State switch
         {
+            ScriptRunState.Running when s.Paused => "Paused" + name,
             ScriptRunState.Running => "Running" + name,
             ScriptRunState.Compiling => "Compiling" + name,
             ScriptRunState.Stopping => "Stopping" + name,

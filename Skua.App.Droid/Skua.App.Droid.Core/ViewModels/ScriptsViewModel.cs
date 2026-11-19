@@ -48,6 +48,16 @@ public sealed partial class ScriptsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(EditOptionsCommand))]
     private bool _scriptBusy;
 
+    /// <summary>A script runs and is not paused: Pause is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
+    private bool _canPause;
+
+    /// <summary>The running script is paused: Resume is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
+    private bool _isPaused;
+
     /// <summary>Kills, deaths, quests and drops of the running (or last) script.</summary>
     [ObservableProperty]
     private string? _countersText;
@@ -180,6 +190,32 @@ public sealed partial class ScriptsViewModel : ObservableObject
         try
         {
             await _host.Engine.StopScriptAsync();
+        }
+        catch (EngineException e)
+        {
+            Message = e.Message;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPause))]
+    private async Task PauseAsync()
+    {
+        try
+        {
+            await _host.Engine.PauseScriptAsync();
+        }
+        catch (EngineException e)
+        {
+            Message = e.Message;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsPaused))]
+    private async Task ResumeAsync()
+    {
+        try
+        {
+            await _host.Engine.ResumeScriptAsync();
         }
         catch (EngineException e)
         {
@@ -413,6 +449,8 @@ public sealed partial class ScriptsViewModel : ObservableObject
     internal void Apply(EngineSnapshot s)
     {
         ScriptBusy = s.Script.IsBusy;
+        IsPaused = s.Script.IsPaused;
+        CanPause = s.Script.State == ScriptRunState.Running && !s.Script.Paused && _host.Engine.CanPauseScript;
         ScriptStatus = Formatting.ScriptLine(s.Script);
         CountersText = s.ScriptCounters?.Display;
         EditCoreBotsOptionsCommand.NotifyCanExecuteChanged();

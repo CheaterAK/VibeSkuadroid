@@ -50,7 +50,11 @@
           <TextBlock Classes="muted" Text="{Binding ScriptState}" TextWrapping="Wrap" />
           <TextBlock Classes="muted" Text="{Binding ScriptCounters}" IsVisible="{Binding ScriptCounters, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Classes="error" Text="{Binding ScriptMessage}" IsVisible="{Binding ScriptMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
-          <Button Classes="danger" HorizontalAlignment="Stretch" Margin="0,6,0,0" Content="Stop script" Command="{Binding StopScriptCommand}" IsVisible="{Binding ScriptBusy}" />
+          <Grid ColumnDefinitions="*,*" Margin="0,6,0,0" IsVisible="{Binding ScriptBusy}">
+            <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Pause" Command="{Binding PauseScriptCommand}" IsVisible="{Binding !IsPaused}" />
+            <Button Classes="small primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Resume" Command="{Binding ResumeScriptCommand}" IsVisible="{Binding IsPaused}" />
+            <Button Grid.Column="1" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop script" Command="{Binding StopScriptCommand}" />
+          </Grid>
         </StackPanel>
       </Border>
 

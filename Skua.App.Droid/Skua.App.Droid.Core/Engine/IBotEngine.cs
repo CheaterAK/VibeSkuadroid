@@ -99,6 +99,51 @@ public interface IBotEngine : IAsyncDisposable
         throw new EngineException("Script options are not available in this engine.");
 
     /// <summary>
+    /// Starts <paramref name="scriptPath"/> with <paramref name="options"/>: an option profile (Skua's option storage
+    /// override) and unattended configuration, as the script queue starts its entries.
+    /// </summary>
+    /// <exception cref="EngineException">As <see cref="StartScriptAsync(string?, CancellationToken)"/>, or profiles are not supported.</exception>
+    Task StartScriptAsync(string scriptPath, ScriptStartOptions options, CancellationToken cancellationToken = default) =>
+        options.OptionStorage is null
+            ? StartScriptAsync(scriptPath, cancellationToken)
+            : throw new EngineException("Option profiles are not available in this engine.");
+
+    /// <summary>Whether the running script can be paused (see <see cref="PauseScriptAsync"/>).</summary>
+    bool CanPauseScript => false;
+
+    /// <summary>
+    /// Pauses the running script in place (Skua's pause): its thread waits at its next Sleep or Wait until resumed;
+    /// the session, its keepalive and AFK clearing keep running. <see cref="ScriptStatus.Paused"/> shows it.
+    /// </summary>
+    /// <exception cref="EngineException">No script is running, or this engine cannot pause.</exception>
+    Task PauseScriptAsync(CancellationToken cancellationToken = default) =>
+        throw new EngineException("Pausing scripts is not available in this engine.");
+
+    /// <summary>Resumes a paused script.</summary>
+    /// <exception cref="EngineException">No script is running, it could not be resumed, or this engine cannot pause.</exception>
+    Task ResumeScriptAsync(CancellationToken cancellationToken = default) =>
+        throw new EngineException("Pausing scripts is not available in this engine.");
+
+    /// <summary>
+    /// Raised when someone asks the engine to stop the script or to log out (<see cref="StopScriptAsync"/>,
+    /// <see cref="LogoutAsync"/>), before it acts: the script queue stops with it. Synchronous, on the caller's thread.
+    /// </summary>
+    event EventHandler<EngineStopRequest>? StopRequested
+    {
+        add { }
+        remove { }
+    }
+
+    /// <summary>
+    /// The options of <paramref name="scriptPath"/> read from the option profile <paramref name="optionStorage"/>
+    /// (null: the script's own storage). Saving the returned set with <see cref="SaveScriptOptionsAsync"/> writes that profile.
+    /// </summary>
+    Task<ScriptOptionSet> GetScriptOptionsAsync(string scriptPath, string? optionStorage, CancellationToken cancellationToken = default) =>
+        optionStorage is null
+            ? GetScriptOptionsAsync(scriptPath, cancellationToken)
+            : throw new EngineException("Option profiles are not available in this engine.");
+
+    /// <summary>
     /// The built-in plugins' game-side halves (Daily Tracker, Butler), working on this engine's session. Null when this
     /// engine has none (no Skua host).
     /// </summary>
@@ -118,4 +163,14 @@ public interface IBotEngine : IAsyncDisposable
         {
         }
     }
+}
+
+/// <summary>What <see cref="IBotEngine.StopRequested"/> reports.</summary>
+public enum EngineStopRequest
+{
+    /// <summary><see cref="IBotEngine.StopScriptAsync"/>.</summary>
+    Script,
+
+    /// <summary><see cref="IBotEngine.LogoutAsync"/>.</summary>
+    Logout,
 }
