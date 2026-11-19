@@ -6,6 +6,7 @@
              x:DataType="vm:PluginsViewModel">
   <UserControl.DataTemplates>
     <DataTemplate DataType="vm:DailyTrackerViewModel"><v:DailyTrackerView /></DataTemplate>
+    <DataTemplate DataType="vm:ButlerViewModel"><v:ButlerView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Panel>

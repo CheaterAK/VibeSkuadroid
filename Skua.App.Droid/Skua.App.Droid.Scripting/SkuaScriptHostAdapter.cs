@@ -185,7 +185,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
                     Emit(EngineLogLevel.Warning, "scripts", m.WasKicked ? "Kicked: Skua's relogin runs." : "Disconnected: Skua's relogin runs.");
                 });
             _skua = skua;
-            _plugins = new DroidPluginBackends(() => _skua?.Bot);
+            _plugins = new DroidPluginBackends(() => _skua?.Bot, () => _skua?.Services);
             return skua.Game.Session;
         }
         catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or TypeInitializationException)

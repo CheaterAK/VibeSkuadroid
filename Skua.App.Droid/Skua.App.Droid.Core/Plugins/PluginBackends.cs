@@ -9,6 +9,8 @@ namespace Skua.App.Droid.Core.Plugins;
 public interface IPluginBackends
 {
     IDailyTrackerBackend? DailyTracker { get; }
+
+    IButlerBackend? Butler { get; }
 }
 
 /// <summary>Implemented by a script host that can provide <see cref="IPluginBackends"/> (the Skua.Core host adapter).</summary>

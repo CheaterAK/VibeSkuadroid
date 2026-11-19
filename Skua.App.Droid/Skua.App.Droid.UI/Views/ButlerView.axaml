@@ -1,0 +1,105 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.ButlerView"
+             x:DataType="vm:ButlerViewModel">
+  <UserControl.Resources>
+    <DataTemplate x:Key="NameChip" x:DataType="vm:ButlerNameRow">
+      <Button Classes="small" Margin="0,0,6,6" Content="{Binding Name}" Command="{Binding UseCommand}" CommandParameter="{Binding Name}" />
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <ScrollViewer>
+    <StackPanel Margin="12,8">
+      <!-- Status and the player -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="FOLLOW A PLAYER" />
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel>
+              <TextBlock FontWeight="SemiBold" Text="{Binding StateText}" />
+              <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding StatusText}" />
+            </StackPanel>
+          </Grid>
+          <TextBox Text="{Binding PlayerName}" PlaceholderText="Player name" TextInputOptions.AutoCapitalization="False" />
+          <Grid ColumnDefinitions="*,*,*">
+            <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Follow" Command="{Binding FollowCommand}" />
+            <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Go to" Command="{Binding GotoCommand}" />
+            <Button Grid.Column="2" Classes="small" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Jump to" Command="{Binding JumpCommand}" />
+          </Grid>
+          <Grid ColumnDefinitions="*,*" IsVisible="{Binding IsFollowing}">
+            <Button Classes="danger" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Stop" Command="{Binding StopCommand}" />
+            <Button Grid.Column="1" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop and park" Command="{Binding StopAndParkCommand}" />
+          </Grid>
+          <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !IsOnline}" Text="Log in to follow or go to a player." />
+          <TextBlock Classes="error" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+          <TextBlock Classes="caption" Text="RECENT" />
+          <ItemsControl ItemsSource="{Binding RecentTargets}" ItemTemplate="{StaticResource NameChip}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
+
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Classes="caption" VerticalAlignment="Center" Text="IN THIS ROOM" />
+            <Button Grid.Column="1" Classes="small" Content="Refresh" Command="{Binding RefreshPlayersCommand}" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding RoomPlayers}" ItemTemplate="{StaticResource NameChip}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <!-- Options -->
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="caption" Text="FOLLOW OPTIONS" />
+          <CheckBox IsChecked="{Binding PassiveAttack}" Content="Only attack while the player is in combat" />
+          <CheckBox IsChecked="{Binding LeechMode}" Content="Leech mode: wait at Enter, never fight" />
+          <CheckBox IsChecked="{Binding AlwaysGoto}" Content="Always goto the player (fixes a wrong cell after dying)" />
+          <CheckBox IsChecked="{Binding CopyWalk}" Content="Copy the player's walking in the same cell" />
+          <CheckBox IsChecked="{Binding InstantWarnings}" Content="React to 'locked' / 'full' / 'ignoring goto' warnings at once" />
+          <TextBlock Classes="muted" Text="Goto delay (ms)" />
+          <NumericUpDown Value="{Binding GotoDelayMs}" Minimum="250" Maximum="60000" Increment="250" FormatString="0" />
+          <TextBlock Classes="muted" Text="Failed gotos before a reach attempt counts as failed" />
+          <NumericUpDown Value="{Binding RescueThreshold}" Minimum="1" Maximum="10" Increment="1" FormatString="0" />
+          <TextBlock Classes="muted" Text="Park when the player cannot be reached" />
+          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding ParkChoices}" SelectedItem="{Binding Park}" />
+          <TextBlock Classes="muted" Text="CoreBots class to equip (from CoreBots options)" />
+          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding ClassChoices}" SelectedItem="{Binding ClassType}" />
+          <CheckBox IsChecked="{Binding DebugLogs}" Content="Debug lines in the log" />
+        </StackPanel>
+      </Border>
+
+      <!-- Army -->
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="YOUR OTHER ACCOUNTS (ARMY)" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="Summon, the account roster, send-all and mirroring quests need several of your accounts logged in on this device. This version runs one account, so they are not available here." />
+        </StackPanel>
+      </Border>
+
+      <!-- Log -->
+      <Border Classes="card">
+        <StackPanel Spacing="6">
+          <Grid ColumnDefinitions="*,Auto,Auto">
+            <TextBlock Classes="caption" VerticalAlignment="Center" Text="LOG" />
+            <Button Grid.Column="1" Classes="small" Margin="0,0,6,0" Content="Share" Command="{Binding ShareLogCommand}" />
+            <Button Grid.Column="2" Classes="small" Content="Clear" Command="{Binding ClearLogCommand}" />
+          </Grid>
+          <ItemsControl ItemsSource="{Binding LogLines}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="x:String">
+                <TextBlock Classes="mono" Text="{Binding}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

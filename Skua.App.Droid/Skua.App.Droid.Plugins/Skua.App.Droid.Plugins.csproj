@@ -21,6 +21,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      ButlerV5's per-account class lookup (CoreBots' CBO file) and skill-mode choice, compiled in unchanged from the
+      desktop plugin (the file is UI-free; the plugin project itself is Avalonia 11 and cannot be referenced).
+    -->
+    <Compile Include="..\..\Skua.Plugin.ButlerV5\AccountConfig.cs" Link="Butler\Linked\AccountConfig.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="Skua.App.Droid.Tests" />
   </ItemGroup>
 

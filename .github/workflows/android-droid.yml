@@ -36,6 +36,7 @@ on:
       - 'Skua.Core.*/**'
       - 'Skua.Compat.WinForms/**'
       - 'Skua.Plugins.Shared/**'
+      - 'Skua.Plugin.ButlerV5/AccountConfig.cs'
       - 'build/android/**'
       - '.github/workflows/android-droid.yml'
   pull_request:
@@ -45,6 +46,7 @@ on:
       - 'Skua.Core.*/**'
       - 'Skua.Compat.WinForms/**'
       - 'Skua.Plugins.Shared/**'
+      - 'Skua.Plugin.ButlerV5/AccountConfig.cs'
       - 'build/android/**'
       - '.github/workflows/android-droid.yml'
   workflow_dispatch:

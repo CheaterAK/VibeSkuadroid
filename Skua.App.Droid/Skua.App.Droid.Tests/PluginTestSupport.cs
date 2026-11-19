@@ -53,6 +53,75 @@ internal sealed class FakePluginBackends : IPluginBackends
     public FakeDailyTracker FakeDailyTracker { get; } = new();
 
     public IDailyTrackerBackend? DailyTracker => FakeDailyTracker;
+
+    public FakeButler FakeButler { get; } = new();
+
+    public IButlerBackend? Butler => FakeButler;
+}
+
+internal sealed class FakeButler : IButlerBackend
+{
+    private readonly List<ButlerLogLine> _log = new();
+
+    public ButlerOptions Options { get; set; } = new();
+
+    public ButlerStatus Status { get; private set; } = ButlerStatus.Idle;
+
+    public List<string> Calls { get; } = new();
+
+    public event EventHandler<ButlerStatus>? StatusChanged;
+
+    public event EventHandler? LogChanged;
+
+    public IReadOnlyList<ButlerLogLine> GetLog()
+    {
+        lock (_log)
+            return _log.ToList();
+    }
+
+    public void AddLog(string text)
+    {
+        lock (_log)
+            _log.Add(new ButlerLogLine(_log.Count + 1, DateTimeOffset.UtcNow, ButlerLogLevel.Info, "ButlerV5", text, 1));
+        LogChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void ClearLog()
+    {
+        lock (_log)
+            _log.Clear();
+        LogChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void StartFollow(string player)
+    {
+        Calls.Add($"follow {player}");
+        if (player.Trim() == "me")
+            throw new EngineException("That is this account. Enter another player's name.");
+        SetStatus(new ButlerStatus(player.Trim(), ButlerFollowState.Traveling, $"Going to {player.Trim()}.", 0));
+    }
+
+    public void StopFollow(bool park = false)
+    {
+        Calls.Add(park ? "stop park" : "stop");
+        SetStatus(ButlerStatus.Idle);
+    }
+
+    public void GotoPlayer(string player) => Calls.Add($"goto {player}");
+
+    public void JumpToPlayer(string player)
+    {
+        Calls.Add($"jump {player}");
+        throw new EngineException($"{player} is not in this room. Use Go to first.");
+    }
+
+    public IReadOnlyList<string> PlayersInRoom() => ["Alpha", "Beta"];
+
+    public void SetStatus(ButlerStatus status)
+    {
+        Status = status;
+        StatusChanged?.Invoke(this, status);
+    }
 }
 
 internal sealed class FakeDailyTracker : IDailyTrackerBackend
