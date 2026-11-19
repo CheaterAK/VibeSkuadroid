@@ -12,7 +12,8 @@ namespace Skua.App.Droid.Tests;
 /// The app engine on the real Skua host (<see cref="SkuaScriptHostAdapter"/> over HeadlessSkuaSession) against the
 /// fake AQW server: login through Skua's own code, a real script with an include started, run, stopped and started
 /// again without loading the include a second time, script options, dialogs, and a logout that keeps the session but
-/// drops every credential. One HeadlessSkuaSession per process: everything is in this one test.
+/// drops every credential. One HeadlessSkuaSession lives at a time: the tests of this class run one after the other
+/// and each disposes its engine (and with it the session) before the next starts.
 /// </summary>
 public class SessionIntegrationTests
 {
@@ -210,6 +211,69 @@ public class SessionIntegrationTests
         {
             await engine.DisposeAsync();
         }
+    }
+
+    [Fact]
+    public async Task EachProtocolLineReachesTheEngineLogOnce()
+    {
+        await using FakeAqw aqw = new();
+        SkuaScriptHostAdapter host = new(null, new ScriptAssemblyStore(), ClientFileSources.SkuaScriptsDIR, o =>
+        {
+            o.WebApi = new AqwWebApi(new AqwWebApiOptions { BaseUri = new Uri("https://example.test/game/") }, aqw.Http);
+            o.Game = new HeadlessGameOptions
+            {
+                Session = aqw.NewSession().Options,
+                Client = new GameClientOptions { MapLoadTime = TimeSpan.FromMilliseconds(200) },
+                DownloadMapCells = false,
+            };
+        });
+        List<LogEntry> log = new();
+        HeadlessBotEngine engine = new(new HeadlessEngineOptions
+        {
+            SessionFactory = () => throw new InvalidOperationException("the host owns the session"),
+            PublishInterval = TimeSpan.FromMilliseconds(20),
+            MemorySampleInterval = TimeSpan.FromMilliseconds(100),
+        }, host);
+        engine.LogAdded += (_, e) =>
+        {
+            lock (log)
+                log.Add(e);
+        };
+        try
+        {
+            Assert.True(engine.ScriptSupport.Available, engine.ScriptSupport.Reason);
+            await engine.LoginAsync(new LoginRequest("hero", FakeAqw.Password, null));
+            Assert.Equal(ConnectionPhase.Online, engine.Snapshot.Connection);
+            await Sandbox.Until(() => engine.Snapshot.Character is not null);
+            await engine.LogoutAsync();
+        }
+        finally
+        {
+            await engine.DisposeAsync();
+        }
+
+        List<LogEntry> entries;
+        lock (log)
+            entries = log.ToList();
+        string dump = string.Join("\n", entries.Select(l => l.Display));
+        // The session's own lines (web login, handshake) are there once, as "session" with their level...
+        List<LogEntry> session = entries.Where(l => l.Source == "session").ToList();
+        Assert.Contains(session, l => l.Message.Contains("Web login", StringComparison.Ordinal));
+        Assert.Contains(session, l => l.Message.Contains("[handshake]", StringComparison.Ordinal));
+        // ...and not a second time from Skua's side (formerly "game" with "[Info] " in front).
+        foreach (LogEntry line in session)
+            Assert.False(entries.Any(other => other.Source != "session" && other.Message.EndsWith(line.Message, StringComparison.Ordinal)),
+                $"Logged again: {line.Message}\n---\n{dump}");
+        // No text logged by two sources at all (a level tag in front does not make it a different line).
+        static string Text(string m)
+        {
+            foreach (HeadlessLogLevel level in Enum.GetValues<HeadlessLogLevel>())
+                if (m.StartsWith($"[{level}] ", StringComparison.Ordinal))
+                    return m[(level.ToString().Length + 3)..];
+            return m;
+        }
+        IEnumerable<string> twice = entries.GroupBy(l => Text(l.Message)).Where(g => g.Select(l => l.Source).Distinct().Count() > 1).Select(g => g.Key);
+        Assert.True(!twice.Any(), "Logged by two sources:\n" + string.Join("\n", twice) + "\n---\n" + dump);
     }
 
     private static string Dump(List<LogEntry> log)
