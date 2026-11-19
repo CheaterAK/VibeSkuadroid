@@ -243,6 +243,131 @@ public class RepositorySyncTests
         Assert.Contains(vm.Entries, e => e.Name == "Story");
     }
 
+    [Theory]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/Skua/CoreBots.cs", true)]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/refs/heads/Skua/Story/Doom Vault.cs", true)]
+    [InlineData("https://raw.githubusercontent.com/someone/Scripts/Skua/CoreBots.cs", false)]
+    [InlineData("https://raw.githubusercontent.com/auqw/ScriptsEvil/Skua/CoreBots.cs", false)]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/../../evil/repo/x.cs", false)]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/Skua/%2e%2e/%2e%2e/evil/x.cs", false)]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/Skua/a%5c..%5cx.cs", false)]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/Skua/x.cs?redirect=1", false)]
+    [InlineData("https://user@raw.githubusercontent.com/auqw/Scripts/Skua/x.cs", false)]
+    [InlineData("https://raw.githubusercontent.com:8443/auqw/Scripts/Skua/x.cs", false)]
+    [InlineData("http://raw.githubusercontent.com/auqw/Scripts/Skua/x.cs", false)]
+    [InlineData("https://raw.githubusercontent.com/auqw/Scripts/", false)]
+    public void DownloadUrlsMustBeInTheScriptsRepository(string url, bool allowed)
+    {
+        Assert.Equal(allowed, ScriptRepositorySync.IsAllowed(new Uri(url)));
+        // The fallback for an entry without a URL is allowed too.
+        Assert.True(ScriptRepositorySync.IsAllowed(new Uri(ScriptRepositorySync.BranchRoot + "CoreBots.cs")));
+    }
+
+    [Fact]
+    public async Task EntriesFromOtherRepositoriesOrWithoutAHashAreRefused()
+    {
+        (ScriptLibrary library, _, FakeRepository repo, ScriptRepositorySync sync) = Setup();
+        repo.ExtraEntries.Add(new JsonObject
+        {
+            ["path"] = "Evil/other.cs", ["size"] = 4, ["sha256"] = Hex("evil"),
+            ["downloadUrl"] = "https://raw.githubusercontent.com/someone/Scripts/Skua/other.cs",
+        });
+        repo.ExtraEntries.Add(new JsonObject { ["path"] = "Evil/nohash.cs", ["size"] = 4, ["downloadUrl"] = "https://raw.githubusercontent.com/auqw/Scripts/Skua/Evil/nohash.cs" });
+        repo.ExtraEntries.Add(new JsonObject { ["path"] = "Evil/badhash.cs", ["size"] = 4, ["sha256"] = "zz", ["downloadUrl"] = "https://raw.githubusercontent.com/auqw/Scripts/Skua/Evil/badhash.cs" });
+
+        RepositorySyncResult result = await sync.SyncAsync(null, CancellationToken.None);
+
+        Assert.True(result.Succeeded, result.Summary);
+        Assert.Equal(3, result.Refused);
+        Assert.Equal(4, result.Downloaded);
+        Assert.False(Directory.Exists(Path.Combine(library.Root, "Evil")));
+        Assert.DoesNotContain(repo.Requests, u => u.AbsolutePath.Contains("/someone/") || u.AbsolutePath.Contains("/Evil/"));
+        Assert.Contains(result.Problems, p => p.Contains("Evil/other.cs") && p.Contains(ScriptRepositorySync.AllowedDownloadPrefix));
+        Assert.Contains(result.Problems, p => p.Contains("Evil/nohash.cs") && p.Contains("SHA-256"));
+    }
+
+    [Fact]
+    public async Task DownloadsThatDoNotMatchTheIndexAreNotWritten()
+    {
+        string root = Sandbox.NewDir();
+        string skua = Path.Combine(root, "VibeSkua");
+        ScriptLibrary library = new(Path.Combine(skua, "Scripts"));
+        FakeRepository repo = new();
+        repo.Add("CoreBots.cs", "public class CoreBots {}");
+        repo.Add("CoreFarms.cs", "public class CoreFarms {}");
+        repo.Add("CoreStory.cs", "public class CoreStory {}");
+        List<string> warnings = new();
+        using ScriptRepositorySync sync = new(library, skua, repo, parallelism: 2, retryDelays: [], warn: w => { lock (warnings) warnings.Add(w); });
+        // Same length, other content; and a longer body than listed.
+        repo.Override = path => path switch
+        {
+            "CoreFarms.cs" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("public class CoreEvil0 {}") },
+            "CoreStory.cs" => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("public class CoreStory {} // and more") },
+            _ => null,
+        };
+        Assert.Equal("public class CoreFarms {}".Length, "public class CoreEvil0 {}".Length);
+
+        RepositorySyncResult result = await sync.SyncAsync(null, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(1, result.Downloaded);
+        Assert.Equal(2, result.Failed);
+        Assert.True(File.Exists(Path.Combine(library.Root, "CoreBots.cs")));
+        Assert.False(File.Exists(Path.Combine(library.Root, "CoreFarms.cs")));
+        Assert.False(File.Exists(Path.Combine(library.Root, "CoreStory.cs")));
+        Assert.Empty(Directory.EnumerateFiles(library.Root, "*.sync-tmp", SearchOption.AllDirectories));
+        Assert.Contains(result.Problems, p => p.Contains("CoreFarms.cs") && p.Contains("SHA-256"));
+        Assert.Contains(result.Problems, p => p.Contains("CoreStory.cs"));
+        Assert.Contains(warnings, w => w.Contains("CoreFarms.cs") && w.Contains("skipped"));
+
+        // A tampered local copy is not "up to date" either: the next sync replaces it.
+        repo.Override = null;
+        File.WriteAllText(Path.Combine(library.Root, "CoreBots.cs"), "public class CoreEvil {}");
+        RepositorySyncResult again = await sync.SyncAsync(null, CancellationToken.None);
+        Assert.True(again.Succeeded, again.Summary);
+        Assert.Equal("public class CoreBots {}", File.ReadAllText(Path.Combine(library.Root, "CoreBots.cs")));
+    }
+
+    [Fact]
+    public async Task AnIndexWithTooManyEntriesFailsTheSyncBeforeAnythingIsWritten()
+    {
+        (ScriptLibrary library, string skua, FakeRepository repo, ScriptRepositorySync sync) = Setup();
+        JsonArray big = new();
+        for (int i = 0; i <= ScriptRepositorySync.MaxEntries; i++)
+            big.Add(new JsonObject { ["path"] = $"Many/S{i}.cs", ["size"] = 4, ["sha256"] = Hex("x"), ["downloadUrl"] = $"https://raw.githubusercontent.com/auqw/Scripts/Skua/Many/S{i}.cs" });
+        string json = big.ToJsonString();
+        repo.Override = path => path == "scripts.json" ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) } : null;
+
+        RepositorySyncResult result = await sync.SyncAsync(null, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, result.Listed);
+        Assert.StartsWith("Sync failed:", result.Summary);
+        Assert.Contains("entries", result.Summary);
+        Assert.Single(repo.Requests); // the index only
+        Assert.False(Directory.Exists(library.Root) && Directory.EnumerateFileSystemEntries(library.Root).Any());
+        Assert.False(File.Exists(Path.Combine(skua, "scripts_cache.json")));
+    }
+
+    [Fact]
+    public async Task AnIndexListingTooManyBytesFailsTheSyncBeforeAnythingIsDownloaded()
+    {
+        (ScriptLibrary library, _, FakeRepository repo, ScriptRepositorySync sync) = Setup();
+        int count = (int)(ScriptRepositorySync.MaxTotalBytes / ScriptLibrary.MaxFileBytes) + 1;
+        for (int i = 0; i < count; i++)
+            repo.ExtraEntries.Add(new JsonObject { ["path"] = $"Big/B{i}.cs", ["size"] = ScriptLibrary.MaxFileBytes, ["sha256"] = Hex("x"), ["downloadUrl"] = $"https://raw.githubusercontent.com/auqw/Scripts/Skua/Big/B{i}.cs" });
+
+        RepositorySyncResult result = await sync.SyncAsync(null, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(0, result.Listed);
+        Assert.Contains("MB allowed", result.Summary);
+        Assert.Single(repo.Requests);
+        Assert.False(File.Exists(Path.Combine(library.Root, "CoreBots.cs")));
+    }
+
+    private static string Hex(string content) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content))).ToLowerInvariant();
+
     [Fact]
     public void CoreBotsKeysComeFromTheCoreSourcesAndSavingKeepsUnknownLines()
     {

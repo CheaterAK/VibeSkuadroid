@@ -187,8 +187,12 @@ script), then only new or changed files, six at a time; plus `Skills/AdvancedSki
 sets before the next run), `QuestData.json` (merged, quests seen in game are kept) and `JunkItems.json`.
 
 * Host: `https://raw.githubusercontent.com` only. No GitHub API calls, no token.
-* Paths are validated exactly like imports (`ScriptLibrary.ResolveDestination`); URLs must be HTTPS on that host.
-  Files the repository does not list (your own scripts) are never touched.
+* Paths are validated exactly like imports (`ScriptLibrary.ResolveDestination`); download URLs must start with
+  `https://raw.githubusercontent.com/auqw/Scripts/` (`ScriptRepositorySync.AllowedDownloadPrefix`), with no dot
+  segments, query or credentials. Files the repository does not list (your own scripts) are never touched.
+* Every entry must carry a SHA-256 (the real index has one for all); entries without are refused. A download whose
+  length or SHA-256 differs from its entry is not written: it counts as failed and is logged.
+* An index listing more than 10,000 entries or more than 256 MB in all fails the sync before anything is written.
 * A 429 (or 403 with rate limit headers) stops the sync and says when to retry; what was downloaded is kept and the
   next sync continues from there (files whose SHA-256 matches are skipped). Server errors are retried twice.
 * It runs as engine background work: the foreground service keeps the process alive while it runs in the

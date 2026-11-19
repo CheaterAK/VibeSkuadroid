@@ -85,7 +85,10 @@ public interface IScriptRepositorySync
 /// </para>
 /// <para>
 /// Every path in the index is untrusted and validated exactly like an import
-/// (<see cref="ScriptLibrary.ResolveDestination"/>); download URLs must be HTTPS on raw.githubusercontent.com.
+/// (<see cref="ScriptLibrary.ResolveDestination"/>); download URLs must start with <see cref="AllowedDownloadPrefix"/>
+/// (the auqw/Scripts repository on raw.githubusercontent.com, any branch), every entry must carry a SHA-256, and a
+/// downloaded file is written only when its length and SHA-256 match the entry. The index is capped at
+/// <see cref="MaxEntries"/> entries and <see cref="MaxTotalBytes"/> listed bytes; a larger one fails the sync.
 /// Files are written beside their target and moved in, so a script starting meanwhile never reads half a file.
 /// Local files the repository does not list (the user's own scripts) are never touched.
 /// </para>
@@ -97,6 +100,15 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
     public const string IndexUrl = BranchRoot + "scripts.json";
     public const long MaxIndexBytes = 32L * 1024 * 1024;
 
+    /// <summary>Every script download URL must start with this (the index uses <c>.../auqw/Scripts/Skua/&lt;path&gt;</c>).</summary>
+    public const string AllowedDownloadPrefix = "https://raw.githubusercontent.com/auqw/Scripts/";
+
+    /// <summary>Most entries an index may list (the real one has about 2,000).</summary>
+    public const int MaxEntries = 10_000;
+
+    /// <summary>Most bytes the scripts an index lists may add up to (the real ones are about 13 MB).</summary>
+    public const long MaxTotalBytes = 256L * 1024 * 1024;
+
     private static readonly JsonSerializerOptions s_json = new() { PropertyNameCaseInsensitive = true };
 
     private readonly ScriptLibrary _library;
@@ -104,6 +116,7 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
     private readonly HttpClient _http;
     private readonly int _parallelism;
     private readonly IReadOnlyList<TimeSpan> _retryDelays;
+    private readonly Action<string>? _warn;
     private int _running;
 
     /// <param name="library">The script folder (Skua's Scripts folder).</param>
@@ -111,8 +124,10 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
     /// <param name="handler">HTTP handler (tests use a fake one); null uses the platform's.</param>
     /// <param name="parallelism">Concurrent downloads.</param>
     /// <param name="retryDelays">Waits before retrying a file after a network or server error.</param>
-    public ScriptRepositorySync(ScriptLibrary library, string skuaDir, HttpMessageHandler? handler = null, int parallelism = 6, IReadOnlyList<TimeSpan>? retryDelays = null)
+    /// <param name="warn">Where warnings go (a refused or mismatching download), besides the result's problems.</param>
+    public ScriptRepositorySync(ScriptLibrary library, string skuaDir, HttpMessageHandler? handler = null, int parallelism = 6, IReadOnlyList<TimeSpan>? retryDelays = null, Action<string>? warn = null)
     {
+        _warn = warn;
         _library = library;
         _skuaDir = skuaDir;
         _parallelism = Math.Clamp(parallelism, 1, 16);
@@ -167,6 +182,13 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
             if (fetched.Bytes is null)
                 return new RepositorySyncResult(0, 0, 0, 0, 0, 0, [$"the script list could not be downloaded ({fetched.Problem})."], false, null, false, clock.Elapsed);
             index = JsonSerializer.Deserialize<List<IndexEntry>>(fetched.Bytes, s_json) ?? new List<IndexEntry>();
+            if (index.Count > MaxEntries)
+                return Refuse($"the script list has {index.Count} entries, more than the {MaxEntries} allowed; nothing was synced.");
+            long listed = 0;
+            foreach (IndexEntry entry in index)
+                listed += Math.Max(0, entry.Size);
+            if (listed > MaxTotalBytes)
+                return Refuse($"the script list adds up to {listed / (1024 * 1024)} MB, more than the {MaxTotalBytes / (1024 * 1024)} MB allowed; nothing was synced.");
             TryWrite(Path.Combine(_skuaDir, "scripts_cache.json"), fetched.Bytes);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -176,6 +198,12 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
         catch (JsonException e)
         {
             return new RepositorySyncResult(0, 0, 0, 0, 0, 0, [$"the script list is not valid JSON ({e.Message})."], false, null, false, clock.Elapsed);
+        }
+
+        RepositorySyncResult Refuse(string problem)
+        {
+            Warn("Script sync: " + problem);
+            return new RepositorySyncResult(0, 0, 0, 0, 0, 0, [problem], false, null, false, clock.Elapsed);
         }
 
         // Validate every entry before anything is written.
@@ -189,7 +217,14 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
             if (destination is null || !Uri.TryCreate(source, UriKind.Absolute, out Uri? url) || !IsAllowed(url))
             {
                 refused++;
-                AddProblem(problems, problem ?? $"{entry.Path}: download URL is not https://{RawHost}");
+                AddProblem(problems, problem ?? $"{entry.Path}: download URL is not under {AllowedDownloadPrefix}");
+                continue;
+            }
+            if (!IsSha256(entry.Sha256) || entry.Size < 0)
+            {
+                // Without a hash a download cannot be checked; the real index carries one for every script.
+                refused++;
+                AddProblem(problems, $"{entry.Path}: the script list gives no valid SHA-256 for it");
                 continue;
             }
             if (!seen.Add(destination))
@@ -215,6 +250,7 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
         int downloaded = 0;
         int failed = 0;
         int done = 0;
+        long received = 0;
         bool rateLimited = false;
         TimeSpan? retryAfter = null;
         using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -223,7 +259,7 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
         {
             await Parallel.ForEachAsync(toDownload, new ParallelOptions { MaxDegreeOfParallelism = _parallelism, CancellationToken = stop.Token }, async (item, ct) =>
             {
-                Fetch fetched = await FetchWithRetryAsync(item.Url, ScriptLibrary.MaxFileBytes, ct).ConfigureAwait(false);
+                Fetch fetched = await FetchWithRetryAsync(item.Url, Math.Min(ScriptLibrary.MaxFileBytes, item.Entry.Size), ct).ConfigureAwait(false);
                 if (fetched.RateLimited)
                 {
                     lock (problems)
@@ -234,7 +270,21 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
                     stop.Cancel();
                     return;
                 }
-                if (fetched.Bytes is null || !TryWrite(item.Destination, fetched.Bytes))
+                if (fetched.Bytes is not null && Interlocked.Add(ref received, fetched.Bytes.Length) > MaxTotalBytes)
+                {
+                    // Cannot happen while every file matches its listed size (checked against the cap above); a guard all the same.
+                    Interlocked.Increment(ref failed);
+                    AddProblem(problems, $"more than {MaxTotalBytes / (1024 * 1024)} MB downloaded; the sync stopped.");
+                    stop.Cancel();
+                    return;
+                }
+                if (fetched.Bytes is not null && Mismatch(fetched.Bytes, item.Entry) is string mismatch)
+                {
+                    Interlocked.Increment(ref failed);
+                    AddProblem(problems, $"{item.Entry.Path}: {mismatch}; not written");
+                    Warn($"Script sync: {item.Entry.Path} from {item.Url.AbsoluteUri}: {mismatch}; skipped.");
+                }
+                else if (fetched.Bytes is null || !TryWrite(item.Destination, fetched.Bytes))
                 {
                     Interlocked.Increment(ref failed);
                     AddProblem(problems, $"{item.Entry.Path}: {fetched.Problem ?? "could not be written"}");
@@ -294,18 +344,61 @@ public sealed class ScriptRepositorySync : IScriptRepositorySync, IDisposable
         return result;
     }
 
-    private static bool IsAllowed(Uri url) =>
-        url.Scheme == Uri.UriSchemeHttps && url.Host.Equals(RawHost, StringComparison.OrdinalIgnoreCase) && url.IsDefaultPort;
+    /// <summary>
+    /// HTTPS on raw.githubusercontent.com, default port, no query or fragment, under <see cref="AllowedDownloadPrefix"/>,
+    /// and no dot segment or backslash in the rest of the path even once unescaped (so <c>%2e%2e</c> cannot climb out).
+    /// </summary>
+    internal static bool IsAllowed(Uri url)
+    {
+        if (url.Scheme != Uri.UriSchemeHttps || !url.Host.Equals(RawHost, StringComparison.OrdinalIgnoreCase) || !url.IsDefaultPort
+            || !string.IsNullOrEmpty(url.Query) || !string.IsNullOrEmpty(url.Fragment) || !string.IsNullOrEmpty(url.UserInfo))
+            return false;
+        string absolute = url.AbsoluteUri;
+        if (!absolute.StartsWith(AllowedDownloadPrefix, StringComparison.Ordinal))
+            return false;
+        string rest = Uri.UnescapeDataString(absolute[AllowedDownloadPrefix.Length..]);
+        if (rest.Length == 0 || rest.Contains('\\') || rest.Contains('%'))
+            return false;
+        foreach (string segment in rest.Split('/'))
+        {
+            if (segment.Length == 0 || segment == "." || segment == "..")
+                return false;
+        }
+        return true;
+    }
+
+    private static bool IsSha256(string? hex) =>
+        hex is { Length: 64 } && hex.All(Uri.IsHexDigit);
+
+    /// <summary>Why the bytes are not the entry's file, or null when length and SHA-256 match.</summary>
+    private static string? Mismatch(byte[] bytes, IndexEntry entry)
+    {
+        if (bytes.LongLength != entry.Size)
+            return $"{bytes.LongLength} bytes, the script list says {entry.Size}";
+        if (!Convert.ToHexString(SHA256.HashData(bytes)).Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase))
+            return "SHA-256 does not match the script list";
+        return null;
+    }
+
+    private void Warn(string message)
+    {
+        try
+        {
+            _warn?.Invoke(message);
+        }
+        catch (Exception)
+        {
+            // A failing log must not fail the sync.
+        }
+    }
 
     private static bool IsCurrent(string path, IndexEntry entry)
     {
         try
         {
             FileInfo file = new(path);
-            if (!file.Exists || (entry.Size > 0 && file.Length != entry.Size))
+            if (!file.Exists || file.Length != entry.Size || string.IsNullOrEmpty(entry.Sha256))
                 return false;
-            if (string.IsNullOrEmpty(entry.Sha256))
-                return entry.Size > 0; // same size and no hash to compare: the desktop treats it as current too
             using FileStream stream = file.OpenRead();
             return Convert.ToHexString(SHA256.HashData(stream)).Equals(entry.Sha256, StringComparison.OrdinalIgnoreCase);
         }
