@@ -89,6 +89,17 @@ public sealed partial class ButlerViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isActive;
 
+    /// <summary>The plugin is switched on (Plugins page); switching it off stops a follow (desktop: "Enable ButlerV5").</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(FollowCommand), nameof(GotoCommand), nameof(JumpCommand))]
+    private bool _isEnabled = true;
+
+    partial void OnIsEnabledChanged(bool value)
+    {
+        if (!value && _backend is { Status.IsFollowing: true } backend)
+            _ = Task.Run(() => backend.StopFollow());
+    }
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(FollowCommand), nameof(GotoCommand), nameof(JumpCommand))]
     private bool _isOnline;
@@ -271,7 +282,7 @@ public sealed partial class ButlerViewModel : ObservableObject, IDisposable
         _store.SetOption(PluginId, KeyTargets, string.Join('\n', RecentTargets.Select(r => r.Name)));
     }
 
-    private bool CanAct() => IsAvailable && IsOnline && PlayerName.Trim().Length > 0;
+    private bool CanAct() => IsAvailable && IsEnabled && IsOnline && PlayerName.Trim().Length > 0;
 
     [RelayCommand(CanExecute = nameof(CanAct))]
     private void Follow() => Run(b =>

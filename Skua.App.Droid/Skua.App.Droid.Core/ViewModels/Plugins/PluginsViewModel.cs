@@ -5,21 +5,39 @@ using Skua.App.Droid.Core.Plugins;
 
 namespace Skua.App.Droid.Core.ViewModels;
 
-/// <summary>A built-in plugin on the Plugins page.</summary>
+/// <summary>A built-in plugin on the Plugins page: its description, on/off switch (saved) and its page.</summary>
 public sealed partial class PluginEntry : ObservableObject
 {
     private readonly Action<string> _open;
+    private readonly Action<PluginEntry> _enabledChanged;
+    private readonly bool _loading = true;
 
-    public PluginEntry(string id, string name, string author, string description, Action<string> open)
+    /// <param name="id">Stable key (saved state, navigation).</param>
+    /// <param name="name">Display name (the desktop plugin's).</param>
+    /// <param name="author">The desktop plugin's author.</param>
+    /// <param name="description">The desktop plugin's description.</param>
+    /// <param name="available">It can run here (false: <paramref name="note"/> says why; it can then not be switched on).</param>
+    /// <param name="hasPage">It has a page to open.</param>
+    /// <param name="note">What it covers here, or why it is not available.</param>
+    /// <param name="enabled">Saved on/off state.</param>
+    /// <param name="open">Opens the page.</param>
+    /// <param name="enabledChanged">Told when the user switches it.</param>
+    public PluginEntry(string id, string name, string author, string description, bool available, bool hasPage, string? note, bool enabled,
+        Action<string> open, Action<PluginEntry> enabledChanged)
     {
-        _open = open;
         Id = id;
         Name = name;
         Author = author;
         Description = description;
+        IsAvailable = available;
+        HasPage = hasPage;
+        Note = note;
+        _open = open;
+        _enabledChanged = enabledChanged;
+        IsEnabled = available && enabled;
+        _loading = false;
     }
 
-    /// <summary>Stable key (persisted state, navigation).</summary>
     public string Id { get; }
 
     public string Name { get; }
@@ -30,22 +48,44 @@ public sealed partial class PluginEntry : ObservableObject
 
     public string Byline => $"by {Author}";
 
-    /// <summary>Opens its page.</summary>
-    [RelayCommand]
+    /// <summary>It can run in this app (Cosmetics cannot: it only changes what a game view draws).</summary>
+    public bool IsAvailable { get; }
+
+    public bool HasPage { get; }
+
+    /// <summary>What it covers here, or why it is not available.</summary>
+    public string? Note { get; }
+
+    /// <summary>Switched on (saved). Off: no background work, page closed.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanOpen), nameof(StateText))]
+    [NotifyCanExecuteChangedFor(nameof(OpenCommand))]
+    private bool _isEnabled;
+
+    public bool CanOpen => IsAvailable && HasPage && IsEnabled;
+
+    public string StateText => !IsAvailable ? "Not available" : IsEnabled ? "On" : "Off";
+
+    partial void OnIsEnabledChanged(bool value)
+    {
+        // An unavailable plugin cannot be switched on (the switch is disabled; this guards the ViewModel too).
+        if (value && !IsAvailable)
+        {
+            IsEnabled = false;
+            return;
+        }
+        if (!_loading)
+            _enabledChanged(this);
+    }
+
+    [RelayCommand(CanExecute = nameof(CanOpen))]
     private void Open() => _open(Id);
-
-    /// <summary>Its page can be opened.</summary>
-    [ObservableProperty]
-    private bool _canOpen;
-
-    /// <summary>Why it cannot be used here, or what it covers here.</summary>
-    [ObservableProperty]
-    private string? _note;
 }
 
 /// <summary>
-/// The Plugins page: the built-in plugins (ports of the desktop plugins) and their pages. Third-party plugin DLLs are
-/// not loaded (see Skua.App.Droid/README.md).
+/// The Plugins page: the built-in plugins (ports of the desktop plugins), each with an on/off switch and its page, the
+/// state and options saved in app-private storage (<see cref="PluginStore"/>). Third-party plugin DLLs are not loaded
+/// (see Skua.App.Droid/README.md).
 /// </summary>
 public sealed partial class PluginsViewModel : ObservableObject, IDisposable
 {
@@ -59,21 +99,21 @@ public sealed partial class PluginsViewModel : ObservableObject, IDisposable
         Butler = new ButlerViewModel(services, Store);
         Entries =
         [
-            new PluginEntry(DailyTrackerId, "Daily & Weekly Tracker", "NinjaXz", "Tracks the status of Daily and Weekly quests.", OpenPage)
-            {
-                CanOpen = DailyTracker.IsAvailable,
-                Note = DailyTracker.IsAvailable
-                    ? "Daily and weekly quests, ultra boss lockouts, refresh and batch loading; starts the matching community script."
+            new PluginEntry(DailyTrackerId, "Daily & Weekly Tracker", "NinjaXz", "Tracks the status of Daily and Weekly quests.",
+                DailyTracker.IsAvailable, hasPage: true,
+                DailyTracker.IsAvailable
+                    ? "Daily and weekly quests and ultra boss lockouts of this character: refresh, batch loading, and Start for the matching community script."
                     : "Needs the Skua script host.",
-            },
-            new PluginEntry(ButlerId, "ButlerV5", "l0newolf12", "Follow another player by name, or send this account to them.", OpenPage)
-            {
-                CanOpen = Butler.IsAvailable,
-                Note = Butler.IsAvailable
+                Store.IsEnabled(DailyTrackerId), OpenPage, OnEnabledChanged),
+            new PluginEntry(ButlerId, "ButlerV5", "l0newolf12", "Follow another player by name, or send this account to them.",
+                Butler.IsAvailable, hasPage: true,
+                Butler.IsAvailable
                     ? "One account: follow any player (goto, then their cell, fighting beside them), go to or jump to a player, follow options and the log. Summoning and following your own other accounts (army) are not in this version."
                     : "Needs the Skua script host.",
-            },
+                Store.IsEnabled(ButlerId), OpenPage, OnEnabledChanged),
         ];
+        foreach (PluginEntry entry in Entries)
+            ApplyEnabled(entry);
     }
 
     public IReadOnlyList<PluginEntry> Entries { get; }
@@ -111,13 +151,15 @@ public sealed partial class PluginsViewModel : ObservableObject, IDisposable
         PluginEntry? entry = Entries.FirstOrDefault(e => e.Id == id);
         if (entry is not { CanOpen: true })
             return;
-        CurrentPage = id switch
-        {
-            DailyTrackerId => DailyTracker,
-            ButlerId => Butler,
-            _ => null,
-        };
+        CurrentPage = PageOf(entry.Id);
     }
+
+    private object? PageOf(string id) => id switch
+    {
+        DailyTrackerId => DailyTracker,
+        ButlerId => Butler,
+        _ => null,
+    };
 
     [RelayCommand]
     private void Close() => CurrentPage = null;
@@ -129,6 +171,28 @@ public sealed partial class PluginsViewModel : ObservableObject, IDisposable
             return false;
         CurrentPage = null;
         return true;
+    }
+
+    private void OnEnabledChanged(PluginEntry entry)
+    {
+        Store.SetEnabled(entry.Id, entry.IsEnabled);
+        ApplyEnabled(entry);
+    }
+
+    private void ApplyEnabled(PluginEntry entry)
+    {
+        switch (entry.Id)
+        {
+            case DailyTrackerId:
+                DailyTracker.IsEnabled = entry.IsEnabled;
+                break;
+            case ButlerId:
+                Butler.IsEnabled = entry.IsEnabled;
+                break;
+        }
+        if (!entry.IsEnabled && CurrentPage is not null && ReferenceEquals(CurrentPage, PageOf(entry.Id)))
+            CurrentPage = null;
+        UpdateActivePages();
     }
 
     partial void OnCurrentPageChanged(object? value) => UpdateActivePages();

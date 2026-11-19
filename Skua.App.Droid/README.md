@@ -8,6 +8,7 @@ Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .N
 |---|---|---|
 | `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog), ViewModels, settings, credential vault format, script library |
 | `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`) |
+| `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) on Skua's `IScriptInterface`; created by the script host adapter |
 | `Skua.App.Droid.UI` | net10.0 | Avalonia 12 views (compiled bindings) |
 | `Skua.App.Droid` | net10.0-android | Android head: plain launcher and crash screen, the Avalonia activity, foreground `EngineService`, `KeystoreSecretStore`, crash capture, restart, manifest |
 | `Skua.App.Droid.Desktop` | net10.0 | desktop preview of the same UI and engine (no password storage) |
@@ -163,3 +164,32 @@ Measured once from Linux: 1953 scripts (13.2 MB) in 28 s.
 
 Reference images scripts compile against are packed as APK assets under `assets/script-refs/` by
 `ScriptReferences.targets`; the tests compile real scripts through Skua.Core against exactly that set.
+
+## Plugins
+
+The desktop app's plugins are built in (Plugins tab): each has an on/off switch and, where it can run, a page.
+Their state and options live in `files/droid/plugins.json` (app-private, no secrets). The desktop plugins themselves
+cannot be loaded: their windows are Avalonia 11 and this app is Avalonia 12, so their UI-free logic is reused instead.
+
+| Plugin | Here | How |
+|---|---|---|
+| Daily & Weekly Tracker | everything: daily/weekly quests, ultra boss lockouts, refresh, batch loading, refresh after a turn-in, after a script stops and every 5 minutes while open, Start for the matching community script | the quest table and the status checks are in `Skua.Plugins.Shared` (UI-free); the desktop plugin compiles the same files in |
+| ButlerV5 | one account: follow any player by name, go to / jump to a player, follow options, recent targets, players in the room, the log | `PlayerFollower` (the desktop follower's in-room logic; it finds the player through the game instead of the master's sync file); `AccountConfig.cs` compiled in unchanged |
+
+**ButlerV5, army work.** Summon, the roster, send-all, quest sync and the order/decline handshake need several local
+accounts. Adding them means: several Skua sessions in one process (one per account), the desktop sync file format
+(`Skua.Plugin.ButlerV5/SyncFile.cs`, UI-free) under app-private storage, its `Broadcaster` and order watcher per
+session, and the desktop `Follower` for followers whose master is local. Not ported because they cannot matter
+headless: quest bypasses, quest cloning, unlock-all and the level fake (client-side gates; the headless client has
+none), AntiLag and the butler display options (nothing is drawn).
+
+**Third-party plugin DLLs are not loaded.** The desktop loads any DLL from its plugins folder with `Assembly.LoadFrom`
+and runs it with full trust. On Android that would need: a file picker or download into app-private storage (Android
+forbids executing code from shared storage), `AssemblyLoadContext.LoadFromStream` (no file paths in the APK sandbox),
+plugins built against Avalonia 12 or against a UI-free plugin contract the app renders itself (every existing plugin
+opens Avalonia 11 windows), and Mono never unloading them. The security cost is the real obstacle: a loaded plugin runs
+inside the app's process with everything the app has, the Keystore-decrypted password while logging in, the session
+token, the account's characters, network access and the foreground service, and Android has no sandbox inside a
+process. It would need at least an explicit warning, a hash or signature allowlist, and the same review as a script,
+which already runs with these rights (scripts are source compiled on the device; a DLL is opaque).
+

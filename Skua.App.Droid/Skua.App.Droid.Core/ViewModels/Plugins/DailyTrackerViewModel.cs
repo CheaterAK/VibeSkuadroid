@@ -90,6 +90,7 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
     private Timer? _timer;
     private bool _scriptWasBusy;
     private bool _loadedOnce;
+    private bool _subscribed;
     private int _disposed;
 
     public DailyTrackerViewModel(AppServices services, TimeSpan? turnInDelay = null, TimeSpan? scriptStopDelay = null)
@@ -104,6 +105,7 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
             _rows[row.Id] = row;
         if (_backend is not null)
             _backend.QuestTurnedIn += OnQuestTurnedIn;
+        _subscribed = _backend is not null;
         IsAvailable = _backend is not null;
         Message = IsAvailable ? null : "The Daily Tracker needs the Skua script host, which is not available in this engine.";
         Apply(_host.Engine.Snapshot);
@@ -112,6 +114,27 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
     public IReadOnlyList<DailyQuestGroupRow> Groups { get; }
 
     public bool IsAvailable { get; }
+
+    /// <summary>
+    /// The plugin is switched on (Plugins page). Off: no refresh at all, no turn-in listener (the desktop plugin
+    /// unloaded).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand), nameof(StartScriptCommand))]
+    private bool _isEnabled = true;
+
+    partial void OnIsEnabledChanged(bool value)
+    {
+        if (_backend is null)
+            return;
+        if (value && !_subscribed)
+            _backend.QuestTurnedIn += OnQuestTurnedIn;
+        else if (!value && _subscribed)
+            _backend.QuestTurnedIn -= OnQuestTurnedIn;
+        _subscribed = value;
+        if (!value)
+            IsActive = false;
+    }
 
     /// <summary>The page is shown: refreshes when opened and every five minutes while open.</summary>
     [ObservableProperty]
@@ -136,7 +159,7 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
 
     partial void OnIsActiveChanged(bool value)
     {
-        if (value)
+        if (value && IsEnabled)
         {
             if (IsOnline)
                 _ = RefreshCoreAsync();
@@ -149,7 +172,9 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
         }
     }
 
-    private bool CanRefresh() => IsAvailable && IsOnline && !IsRefreshing;
+    private bool CanRefresh() => IsAvailable && IsEnabled && IsOnline && !IsRefreshing;
+
+    private bool CanStart(string? script) => IsAvailable && IsEnabled;
 
     [RelayCommand(CanExecute = nameof(CanRefresh))]
     private Task RefreshAsync() => RefreshCoreAsync();
@@ -160,7 +185,7 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
     /// </summary>
     public async Task RefreshCoreAsync()
     {
-        if (_backend is null || Volatile.Read(ref _disposed) != 0 || !_host.Engine.Snapshot.IsOnline)
+        if (_backend is null || !IsEnabled || Volatile.Read(ref _disposed) != 0 || !_host.Engine.Snapshot.IsOnline)
             return;
         if (!await _refreshGate.WaitAsync(0).ConfigureAwait(false))
             return;
@@ -218,7 +243,7 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
         Message = null;
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartScriptAsync(string? script)
     {
         if (string.IsNullOrWhiteSpace(script))
@@ -296,7 +321,8 @@ public sealed partial class DailyTrackerViewModel : ObservableObject, IDisposabl
             return;
         _timer?.Dispose();
         _timer = null;
-        if (_backend is not null)
+        if (_backend is not null && _subscribed)
             _backend.QuestTurnedIn -= OnQuestTurnedIn;
+        _subscribed = false;
     }
 }

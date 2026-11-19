@@ -23,13 +23,17 @@
                       <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Name}" />
                       <TextBlock Classes="muted" Text="{Binding Byline}" />
                     </StackPanel>
-                    <Button Grid.Column="1" Classes="small primary" VerticalAlignment="Center" Content="Open"
-                            IsVisible="{Binding CanOpen}"
-                            Command="{Binding OpenCommand}" />
+                    <ToggleSwitch Grid.Column="1" VerticalAlignment="Center" OnContent="On" OffContent="Off"
+                                  IsChecked="{Binding IsEnabled}" IsEnabled="{Binding IsAvailable}" IsVisible="{Binding IsAvailable}" />
+                    <Border Grid.Column="1" Classes="status" VerticalAlignment="Center" IsVisible="{Binding !IsAvailable}">
+                      <TextBlock FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" Text="{Binding StateText}" />
+                    </Border>
                   </Grid>
                   <TextBlock TextWrapping="Wrap" Text="{Binding Description}" />
                   <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Note}"
                              IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <Button Classes="small primary" HorizontalAlignment="Left" Content="Open"
+                          IsVisible="{Binding CanOpen}" Command="{Binding OpenCommand}" />
                 </StackPanel>
               </Border>
             </DataTemplate>
