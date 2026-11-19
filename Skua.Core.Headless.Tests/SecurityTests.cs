@@ -1,3 +1,4 @@
+using Skua.Core.Headless.Maps;
 using Skua.Core.Headless.Net;
 using Skua.Core.Headless.Protocol;
 using Skua.Core.Headless.Tests.Fakes;
@@ -93,6 +94,34 @@ public class SecurityTests
         byte[] honest = file.ToArray();
         BitConverter.GetBytes((uint)(payload.Length + 8)).CopyTo(honest, 4);
         Assert.Equal("5.99", ClientVersion.FromSwf(honest));
+    }
+
+    [Fact]
+    public void MapSwfInflationIsBoundedByItsHeaderAndTheCap()
+    {
+        // A map whose body inflates past the length its header declares is refused, and the cache reports it.
+        byte[] map = SyntheticSwf.Map([("Enter", ["Spawn"])], "CWS");
+        byte[] lying = (byte[])map.Clone();
+        BitConverter.GetBytes(16u).CopyTo(lying, 4);
+        Assert.Throws<SwfFormatException>(() => SwfReader.Read(lying));
+        Assert.StartsWith("error:", MapCellCache.FromSwf("x.swf", lying).Source);
+
+        // Declared honestly it is read.
+        Assert.Equal(["Enter"], SwfReader.Read(map).Labels.Select(l => l.Name));
+
+        // A claim of 4 GB does not lift the cap: a body just over it is refused without being kept whole.
+        byte[] payload = new byte[SwfReader.MaxInflatedBytes + 1];
+        using MemoryStream file = new();
+        file.Write("CWS\u000a"u8);
+        file.Write(BitConverter.GetBytes(uint.MaxValue));
+        using (ZLibStream z = new(file, CompressionLevel.Fastest, leaveOpen: true))
+            z.Write(payload);
+        Assert.Throws<SwfFormatException>(() => SwfReader.Decompress(file.ToArray(), out _, out _));
+
+        // A header too small to count (no length) leaves the cap alone in force; a small body still reads.
+        byte[] noLength = (byte[])map.Clone();
+        BitConverter.GetBytes(0u).CopyTo(noLength, 4);
+        Assert.Equal(["Enter"], SwfReader.Read(noLength).Labels.Select(l => l.Name));
     }
 
     [Fact]

@@ -227,7 +227,7 @@ internal static class EngineRuntime
             new AvaloniaUiDispatcher(),
             new AvaloniaFilePicker(),
             composition.Library,
-            new ScriptRepositorySync(composition.Library, Paths.SkuaDir),
+            new ScriptRepositorySync(composition.Library, Paths.SkuaDir, warn: CrashCapture.Info),
             Paths);
     }
 

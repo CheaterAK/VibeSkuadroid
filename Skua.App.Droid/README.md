@@ -161,9 +161,11 @@ loads nothing. The memory line shows the count ("N script asm").
 VibeSkua marker); for any other version it requires Windows 10 and stops every script. See
 `SkuaScriptHostAdapter.ReportedSkuaVersion`.
 
-**Unattended dialogs.** Message boxes never wait: yes/no questions get *No*, button choices prefer OK / Continue /
-Close / Skip / None / No / Cancel, else the first button. Every question and its answer is logged as a `dialog`
-warning in the Console. Script option windows are skipped (saved options are used).
+**Unattended dialogs.** Message boxes never wait: yes/no questions get *No*; a choice of several buttons gets the
+declining one when offered (Cancel / No / Abort / Close), else None / Skip / OK / Continue, else the first button; a
+single button is pressed. Confirmation and input dialogs (the grabber's buy and sell quantities) are declined. Every
+question and its answer is logged as a `dialog` warning in the Console. Script option windows are skipped (saved
+options are used).
 
 **Options.** *Options* on the Scripts page compiles the selected script (later starts reuse the compile) and edits
 the options it declares (Skua's `Options` / `MultiOptions` lists: toggles, numbers, text, enum choices), saved to
@@ -187,8 +189,12 @@ script), then only new or changed files, six at a time; plus `Skills/AdvancedSki
 sets before the next run), `QuestData.json` (merged, quests seen in game are kept) and `JunkItems.json`.
 
 * Host: `https://raw.githubusercontent.com` only. No GitHub API calls, no token.
-* Paths are validated exactly like imports (`ScriptLibrary.ResolveDestination`); URLs must be HTTPS on that host.
-  Files the repository does not list (your own scripts) are never touched.
+* Paths are validated exactly like imports (`ScriptLibrary.ResolveDestination`); download URLs must start with
+  `https://raw.githubusercontent.com/auqw/Scripts/` (`ScriptRepositorySync.AllowedDownloadPrefix`), with no dot
+  segments, query or credentials. Files the repository does not list (your own scripts) are never touched.
+* Every entry must carry a SHA-256 (the real index has one for all); entries without are refused. A download whose
+  length or SHA-256 differs from its entry is not written: it counts as failed and is logged.
+* An index listing more than 10,000 entries or more than 256 MB in all fails the sync before anything is written.
 * A 429 (or 403 with rate limit headers) stops the sync and says when to retry; what was downloaded is kept and the
   next sync continues from there (files whose SHA-256 matches are skipped). Server errors are retried twice.
 * It runs as engine background work: the foreground service keeps the process alive while it runs in the

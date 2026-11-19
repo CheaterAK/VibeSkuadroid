@@ -144,14 +144,16 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
 
     /// <summary>
     /// Nobody is there to answer, so: yes/no questions get "no" (scripts ask before doing something optional, such
-    /// as CoreBots' "join our Discord?"), button choices prefer the harmless acknowledgements and the most private
-    /// choice ("None" in CoreBots' data collection consent), else the first button. Every question and its answer
-    /// is logged as a "dialog" warning in the console.
+    /// as CoreBots' "join our Discord?"); a choice of several buttons gets the declining one when offered (Cancel,
+    /// No, Abort, Close: CoreBots' "update available, download now?" is declined), else the most private choice
+    /// ("None" in CoreBots' data collection consent), else a harmless acknowledgement, else the first button; a
+    /// single button (an "OK" notice) is that button. Confirmation and input dialogs are declined. Every question and
+    /// its answer is logged as a "dialog" warning in the console.
     /// </summary>
     public static HeadlessDialogPolicy DefaultDialogPolicy()
     {
         HeadlessDialogPolicy policy = new() { YesNoAnswer = false };
-        foreach (string b in new[] { "OK", "Ok", "Continue", "Close", "Got it", "Understood", "Skip", "None", "No", "Cancel" })
+        foreach (string b in new[] { "None", "Skip", "OK", "Ok", "Got it", "Understood", "Continue" })
             policy.PreferredButtons.Add(b);
         return policy;
     }
