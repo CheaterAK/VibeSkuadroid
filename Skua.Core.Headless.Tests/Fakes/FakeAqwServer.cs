@@ -29,8 +29,9 @@ namespace Skua.Core.Headless.Tests.Fakes;
 /// </remarks>
 /// <remarks>
 /// World: map testmap (cells Enter, r2 with two Pixies, r3 with a Pixie Queen), map shopmap; quest 1000
-/// "Pixie Problem" (3x Pixie Dust, a temp drop from Pixies) and 1001; Pixie Wing as a normal drop (getDrop);
-/// one bank item.
+/// "Pixie Problem" (3x Pixie Dust, a temp drop from Pixies; rewards gold, XP and a Pixie Crown) and 1001; Pixie Wing
+/// as a normal drop (getDrop); one bank item; shop 77 "Pixie Shop" (a potion for gold, a hat the character cannot
+/// afford, a member cape, a charm merged from Pixie Wings) with buyItem and sellItem.
 /// </remarks>
 public sealed class FakeAqwServer : IAsyncDisposable
 {
@@ -54,7 +55,35 @@ public sealed class FakeAqwServer : IAsyncDisposable
         [12] = Item(12, "Pixie Crown", "Helm", "he", 1),
         [13] = Item(13, "Lost Ring", "Quest Item", "None", 1, temp: true),
         [30] = Item(30, "Old Boots", "Misc", "None", 1),
+        [40] = Item(40, "Health Potion", "Item", "None", 99),
+        [41] = Item(41, "Fancy Hat", "Helm", "he", 1),
+        [42] = Item(42, "Member Cape", "Cape", "ba", 1),
+        [43] = Item(43, "Wing Charm", "Item", "None", 10),
     };
+
+    /// <summary>Shop 77: (ItemID, ShopItemID, cost in gold, member only, merge material id and quantity or 0).</summary>
+    internal static readonly (int ItemId, int ShopItemId, int Cost, bool Member, int MaterialId, int MaterialQty)[] ShopStock =
+    {
+        (40, 9001, 10, false, 0, 0),
+        (41, 9002, 1000, false, 0, 0),
+        (42, 9003, 50, true, 0, 0),
+        (43, 9004, 0, false, 11, 2),
+    };
+
+    /// <summary>The shop the fake serves.</summary>
+    public const int ShopId = 77;
+
+    internal static JsonObject ShopItemJson((int ItemId, int ShopItemId, int Cost, bool Member, int MaterialId, int MaterialQty) s)
+    {
+        JsonObject item = Copy(s.ItemId);
+        item["ShopItemID"] = s.ShopItemId;
+        item["iCost"] = s.Cost;
+        item["iQty"] = 1;
+        item["bUpg"] = s.Member ? 1 : 0;
+        if (s.MaterialId > 0)
+            item["turnin"] = new JsonArray(new JsonObject { ["ItemID"] = s.MaterialId, ["iQty"] = s.MaterialQty, ["sName"] = (string)Items[s.MaterialId]["sName"]! });
+        return item;
+    }
 
     private readonly TcpListener _listener;
     private readonly CancellationTokenSource _cts = new();
@@ -574,6 +603,28 @@ public sealed class FakeAqwServer : IAsyncDisposable
                     MoveBetween(Inventory, Bank, int.Parse(a[0], CultureInfo.InvariantCulture), "bankFromInv");
                     return;
 
+                case "loadShop" when a.Length >= 1:
+                    if (int.Parse(a[0], CultureInfo.InvariantCulture) != ShopId)
+                        return;
+                    Json(new JsonObject
+                    {
+                        ["cmd"] = "loadShop",
+                        ["shopinfo"] = new JsonObject
+                        {
+                            ["ShopID"] = ShopId, ["sName"] = "Pixie Shop", ["bLimited"] = 0, ["sField"] = string.Empty, ["iIndex"] = -1,
+                            ["items"] = new JsonArray(ShopStock.Select(x => (JsonNode)ShopItemJson(x)).ToArray()),
+                        },
+                    });
+                    return;
+
+                case "buyItem" when a.Length >= 3:
+                    Buy(int.Parse(a[0], CultureInfo.InvariantCulture), int.Parse(a[2], CultureInfo.InvariantCulture), a.Length >= 4 ? int.Parse(a[3], CultureInfo.InvariantCulture) : 1);
+                    return;
+
+                case "sellItem" when a.Length >= 3:
+                    Sell(int.Parse(a[0], CultureInfo.InvariantCulture), int.Parse(a[1], CultureInfo.InvariantCulture), int.Parse(a[2], CultureInfo.InvariantCulture));
+                    return;
+
                 case "loadBank":
                     if (!_server.AnswerSocketLoadBank)
                         return;
@@ -583,6 +634,56 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 default:
                     return;
             }
+        }
+
+        /// <summary>Items bought (ItemID, quantity), in order.</summary>
+        public ConcurrentQueue<(int ItemId, int Quantity)> Purchases { get; } = new();
+
+        /// <summary>Items sold (ItemID, quantity), in order.</summary>
+        public ConcurrentQueue<(int ItemId, int Quantity)> Sales { get; } = new();
+
+        // buyItem: gold, membership and merge materials are checked; the item joins the backpack.
+        private void Buy(int itemId, int shopItemId, int quantity)
+        {
+            (int ItemId, int ShopItemId, int Cost, bool Member, int MaterialId, int MaterialQty) s = ShopStock.FirstOrDefault(x => x.ItemId == itemId && x.ShopItemId == shopItemId);
+            long cost = (long)s.Cost * Math.Max(1, quantity);
+            JsonObject? material = s.MaterialId > 0 ? Inventory.FirstOrDefault(x => (int)x["ItemID"]! == s.MaterialId) : null;
+            bool ok = s.ItemId != 0 && quantity > 0 && !s.Member && cost <= Gold
+                && (s.MaterialId == 0 || (material is not null && (int)material["iQty"]! >= s.MaterialQty * quantity));
+            if (!ok)
+            {
+                Json(new JsonObject { ["cmd"] = "buyItem", ["bitSuccess"] = 0, ["ItemID"] = itemId, ["strMessage"] = "Purchase refused." });
+                return;
+            }
+            Gold -= (int)cost;
+            JsonObject? held = Inventory.FirstOrDefault(x => (int)x["ItemID"]! == itemId);
+            if (held is null)
+            {
+                held = WithQty(Copy(itemId), _charItem++, 0, equip: false);
+                Inventory.Add(held);
+            }
+            held["iQty"] = (int)held["iQty"]! + quantity;
+            Purchases.Enqueue((itemId, quantity));
+            Json(new JsonObject
+            {
+                ["cmd"] = "buyItem", ["bitSuccess"] = 1, ["ItemID"] = itemId, ["CharItemID"] = (int)held["CharItemID"]!,
+                ["iQty"] = quantity, ["iQtyNow"] = (int)held["iQty"]!, ["bBank"] = false,
+            });
+        }
+
+        // sellItem: the backpack stack shrinks; the refund is a quarter of the shop price (Old Boots: 5 gold).
+        private void Sell(int itemId, int quantity, int charItemId)
+        {
+            JsonObject? held = Inventory.FirstOrDefault(x => (int)x["CharItemID"]! == charItemId && (int)x["ItemID"]! == itemId);
+            if (held is null || quantity < 1 || quantity > (int)held["iQty"]!)
+                return;
+            int now = (int)held["iQty"]! - quantity;
+            held["iQty"] = now;
+            if (now == 0)
+                Inventory.Remove(held);
+            Gold += 5 * quantity;
+            Sales.Enqueue((itemId, quantity));
+            Json(new JsonObject { ["cmd"] = "sellItem", ["CharItemID"] = charItemId, ["iQty"] = quantity, ["iQtyNow"] = now, ["intAmount"] = 5 * quantity, ["bCoins"] = 0 });
         }
 
         // bankToInv / bankFromInv: the whole stack moves; the reply names the item.
@@ -707,6 +808,8 @@ public sealed class FakeAqwServer : IAsyncDisposable
                     ["QuestID"] = 1000, ["sName"] = "Pixie Problem", ["iLvl"] = 1, ["bUpg"] = 0, ["bOnce"] = 0, ["iSlot"] = -1, ["iValue"] = 0,
                     ["iGold"] = 100, ["iExp"] = 50, ["oItems"] = new JsonObject { ["10"] = Copy(10) },
                     ["turnin"] = new JsonArray(new JsonObject { ["ItemID"] = 10, ["iQty"] = 3 }),
+                    ["oRewards"] = new JsonObject { ["itemsS"] = new JsonObject { ["12"] = Copy(12) } },
+                    ["reward"] = new JsonArray(new JsonObject { ["ItemID"] = 12, ["iQty"] = 1, ["iRate"] = 100, ["iType"] = 0 }),
                 },
                 1001 => new JsonObject
                 {
