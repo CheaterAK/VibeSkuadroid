@@ -1,4 +1,3 @@
-using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -44,7 +43,7 @@ public static partial class ClientVersion
     public const string Fallback = "5.32";
 
     /// <summary>The most a game SWF may inflate to (the live Game4000r8.swf is about 9 MB inflated).</summary>
-    public const long MaxInflatedBytes = 64L * 1024 * 1024;
+    public const long MaxInflatedBytes = Maps.SwfReader.MaxInflatedBytes;
 
     public static bool IsValid(string? version)
     {
@@ -70,20 +69,11 @@ public static partial class ClientVersion
             try
             {
                 // Bounded by the header's own length field and an absolute cap: a small CWS can claim (or inflate to) gigabytes.
-                long declared = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(swf.Slice(4, 4)) - 8L;
-                long limit = declared > 0 ? Math.Min(declared, MaxInflatedBytes) : MaxInflatedBytes;   // no length given: the cap alone
                 using MemoryStream input = new(swf[8..].ToArray());
-                using ZLibStream zlib = new(input, CompressionMode.Decompress);
-                using MemoryStream output = new();
-                byte[] buffer = new byte[81920];
-                int read;
-                while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
-                {
-                    if (output.Length + read > limit)
-                        return null;
-                    output.Write(buffer, 0, read);
-                }
-                body = output.ToArray();
+                byte[]? inflated = Maps.SwfReader.InflateBounded(input, System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(swf.Slice(4, 4)), MaxInflatedBytes);
+                if (inflated is null)
+                    return null;
+                body = inflated;
             }
             catch (InvalidDataException)
             {

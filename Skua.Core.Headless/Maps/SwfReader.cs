@@ -64,6 +64,9 @@ public static partial class SwfReader
         "Pad1", "Pad2", "Pad3", "Pad4", "Pad5", "Pad6",
     };
 
+    /// <summary>The most a SWF body may inflate to (maps are a few MB; the live game SWF is about 9 MB inflated).</summary>
+    public const long MaxInflatedBytes = 64L * 1024 * 1024;
+
     private const int TagEnd = 0;
     private const int TagShowFrame = 1;
     private const int TagPlaceObject = 4;
@@ -104,10 +107,9 @@ public static partial class SwfReader
             case SwfCompression.Zlib:
                 try
                 {
-                    using ZLibStream z = new(new MemoryStream(swf, 8, swf.Length - 8), CompressionMode.Decompress);
-                    using MemoryStream body = new(length > 8 && length < 512 * 1024 * 1024 ? (int)length - 8 : 0);
-                    z.CopyTo(body);
-                    return body.ToArray();
+                    using MemoryStream input = new(swf, 8, swf.Length - 8, writable: false);
+                    return InflateBounded(input, length, MaxInflatedBytes)
+                        ?? throw new SwfFormatException($"The zlib body inflates past its declared length or {MaxInflatedBytes / (1024 * 1024)} MB.");
                 }
                 catch (InvalidDataException e)
                 {
@@ -117,6 +119,29 @@ public static partial class SwfReader
             default:
                 throw new NotSupportedException("LZMA-compressed SWF (ZWS) is not supported by this reader.");
         }
+    }
+
+    /// <summary>
+    /// Inflates a CWS body (the zlib stream after the 8-byte header), bounded by the header's own file length field
+    /// (which counts the header) and by <paramref name="cap"/>: a small CWS can claim, or inflate to, gigabytes.
+    /// Nothing is preallocated from the header. Null when the body would exceed the bound.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The zlib stream is corrupt.</exception>
+    internal static byte[]? InflateBounded(Stream compressedBody, uint headerFileLength, long cap)
+    {
+        long declared = headerFileLength - 8L;
+        long limit = declared > 0 ? Math.Min(declared, cap) : cap; // no usable length given: the cap alone
+        using ZLibStream zlib = new(compressedBody, CompressionMode.Decompress);
+        using MemoryStream output = new();
+        byte[] buffer = new byte[81920];
+        int read;
+        while ((read = zlib.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (output.Length + read > limit)
+                return null;
+            output.Write(buffer, 0, read);
+        }
+        return output.ToArray();
     }
 
     /// <summary>Reads the root timeline's scenes, labels and pads.</summary>
