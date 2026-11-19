@@ -155,7 +155,10 @@ public sealed partial class SpikeRecorder
             string lt = _fps.Count > 0 ? _fps[^1].LongTaskPct.ToString("F0", CultureInfo.InvariantCulture) + "%" : "-";
             string pss = _nativeMem.Count > 0 ? _nativeMem[^1].M.PssMB.ToString("F0", CultureInfo.InvariantCulture) : "-";
             string wasm = _pageMem.Count > 0 && _pageMem[^1].WasmMB is double w ? w.ToString("F0", CultureInfo.InvariantCulture) : "-";
-            string stage = _marks.ContainsKey("in_game") ? "in game" : _marks.ContainsKey("login_screen") ? "login" : _marks.ContainsKey("first_frame") ? "loading" : "starting";
+            string stage = _marks.ContainsKey("in_game") ? "in game"
+                : _marks.ContainsKey("server_socket_connected") ? "connected"
+                : _marks.ContainsKey("login_screen") ? "login"
+                : _marks.ContainsKey("first_frame") ? "loading" : "starting";
             return $"{stage} | {fps} fps | main {lt} | app PSS {pss} MB | wasm {wasm} MB | crashes {_crashes.Count} | t {Now:F0}s";
         }
     }
@@ -176,10 +179,13 @@ public sealed partial class SpikeRecorder
                 sb.AppendLine($"  {m,-23} {(_marks.TryGetValue(m, out double t) ? t.ToString("F1", ci) : "-")}");
             sb.AppendLine();
 
-            double? inGame = _marks.TryGetValue("in_game", out double ig) ? ig : null;
+            // The official loader has no in-game signal: the first game server connection stands in for it.
+            (string label, double? from) = _marks.TryGetValue("in_game", out double ig) ? ("in game", ig)
+                : _marks.TryGetValue("server_socket_connected", out double sc) ? ("after server connect", sc)
+                : ("", (double?)null);
             sb.AppendLine("== Frame rate (rendered frames/s, sampled every 2 s) ==");
             AppendFps(sb, "whole run", _fps);
-            if (inGame is double g) AppendFps(sb, "in game", _fps.Where(f => f.T >= g + 5).ToList());
+            if (from is double g) AppendFps(sb, label, _fps.Where(f => f.T >= g + 5).ToList());
             sb.AppendLine();
 
             sb.AppendLine("== Memory every 10 s (app process: PSS, RSS, Java heap, native heap; page: Ruffle wasm, JS heap; system avail) ==");

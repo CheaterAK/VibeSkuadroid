@@ -386,6 +386,9 @@ public sealed class GameViewActivity : Activity
     private void OnRendererGone(WebView? view, bool crashed)
     {
         _appPort = null;
+        // The page is gone: drop its game server connections too (the view cannot be reloaded in the spike).
+        _ = _channel?.DisposeAsync().AsTask();
+        _ = _loopback?.DisposeAsync().AsTask();
         if (view is not null)
         {
             _root.RemoveView(view);
