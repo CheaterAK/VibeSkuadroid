@@ -58,6 +58,9 @@ internal sealed class FakeWorld : IAsyncDisposable
                             {"sName":"Offline","sIP":"127.0.0.2","iPort":5588,"iCount":0,"iMax":1000,"bOnline":0,"bUpg":0,"iChat":2,"iLevel":0,"sLang":"xx"}]}
                 """);
         };
+        // The bank as the game loads it (POST api/char/bank); the socket loadBank stays unanswered, as suspected live.
+        Server.AnswerSocketLoadBank = false;
+        Http.Routes["api/char/bank"] = Server.AnswerBankRequest;
         Http.Routes["gamefiles/maps/test/testmap.swf"] = _ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new ByteArrayContent(SyntheticSwf.Map(new[] { ("Enter", new[] { "Spawn", "Left" }), ("r2", new[] { "Left", "Right" }), ("r3", new[] { "Left" }) })),

@@ -130,4 +130,23 @@ public sealed class LoginTokenTests : IAsyncLifetime
         Assert.Contains("Fallback result: client version 5.32 got in where 5.33 was refused.", log);
         Assert.Contains("%xt%loginResponse%-1%0%-1%%" + FakeAqwServer.CharacterDataRefusal + "%", log);
     }
+
+    [Fact]
+    public async Task AfterForgetLoginEmptyCredentialsReuseNothing()
+    {
+        // ForgetLogin while a web login is still on the way: its token must not come back, and a login with the
+        // (now empty) remembered credentials must not show its server list.
+        await using HeadlessGame game = new(new HeadlessGameOptions { Session = _world.SessionOptions, DownloadMapCells = false }, _world.Api);
+        Task first = game.Login(FakeWorld.User, FakeWorld.Pass);
+        Assert.True(await FakeWorld.Until(() => _world.Http.Hits.GetValueOrDefault("api/login/now") == 1));
+        game.ForgetLogin();
+        await first;
+        Assert.Null(game.Session.Account);
+
+        await game.Login(string.Empty, string.Empty);
+        Assert.Equal(HeadlessGameState.LoggedOut, game.State);
+        Assert.Empty(game.Servers);
+        Assert.Contains("missing username or password", game.ModalMessage, StringComparison.Ordinal);
+        Assert.Equal(1, _world.Http.Hits["api/login/now"]);
+    }
 }

@@ -80,7 +80,7 @@ public class SessionIntegrationTests
         };
         SkuaScriptHostAdapter host = new(null, store, ClientFileSources.SkuaScriptsDIR, o =>
         {
-            o.WebApi = new AqwWebApi(new AqwWebApiOptions { BaseUri = new Uri("https://example.test/game/") }, aqw.Http);
+            o.WebApi = new AqwWebApi(new AqwWebApiOptions { BaseUri = FakeAqw.BaseUri }, aqw.Http);
             o.Game = new HeadlessGameOptions
             {
                 Session = aqw.NewSession().Options,

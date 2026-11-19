@@ -142,4 +142,63 @@ public sealed class EndToEndTests : IAsyncLifetime
         Assert.True(await FakeWorld.Until(() => !_session.Game.IsInGame));
         Assert.True(_session.Bot.Servers.IsIntentionalLogout);
     }
+
+    private const string BankScript = """
+        using System.Linq;
+        using Skua.Core.Interfaces;
+
+        public class HeadlessBank
+        {
+            public void ScriptMain(IScriptInterface bot)
+            {
+                bot.Log("before loaded=" + bot.Bank.Loaded + " count=" + bot.Bank.Items.Count);
+                bot.Bank.Load();
+                bot.Log("after loaded=" + bot.Bank.Loaded + " bank=" + string.Join(",", bot.Bank.Items.Select(i => i.Name + "x" + i.Quantity))
+                    + " slots=" + bot.Bank.UsedSlots + "/" + bot.Bank.Slots + " label=" + bot.Flash.GetGameObject<string>("ui.mcPopup.currentLabel"));
+                bool moved = bot.Bank.EnsureToInventory("Pixie Wing");
+                bot.Log("toInv=" + moved + " inv=" + bot.Inventory.GetQuantity("Pixie Wing") + " bankNow=" + bot.Bank.Items.Count);
+                bot.Flash.CallGameFunction("world.toggleBank");
+                bot.Bank.Load();
+                bot.Log("reload count=" + bot.Bank.Items.Count);
+                bot.Log("DONE");
+            }
+        }
+        """;
+
+    [Fact]
+    public async Task SkuasBankLoadGetsTheBankOverHttpLikeTheGame()
+    {
+        Assert.True(await _session.LoginAsync(FakeWorld.User, FakeWorld.Pass, "Sandbox"), string.Join("\n", _log));
+        string file = Path.Combine(s_data, "HeadlessBank.cs");
+        Directory.CreateDirectory(s_data);
+        await File.WriteAllTextAsync(file, BankScript);
+        TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? error = null;
+        _session.ScriptError += (_, e) => error = e;
+        _session.ScriptRunningChanged += (_, running) =>
+        {
+            if (!running)
+                stopped.TrySetResult();
+        };
+        Assert.Null(await _session.StartScriptAsync(file));
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(60));
+
+        string[] script = Lines("script");
+        foreach (string l in script)
+            _output.WriteLine(l);
+        Assert.True(error is null, error?.ToString() + "\n" + string.Join("\n", _log));
+        Assert.Contains(script, l => l.Contains("before loaded=False count=0", StringComparison.Ordinal));
+        Assert.Contains(script, l => l.Contains("after loaded=True bank=Pixie Wingx2 slots=1/20 label=Bank", StringComparison.Ordinal));
+        Assert.Contains(script, l => l.Contains("toInv=True inv=2 bankNow=0", StringComparison.Ordinal));
+        Assert.Contains(script, l => l.Contains("reload count=0", StringComparison.Ordinal));
+        Assert.Contains(script, l => l.EndsWith("DONE", StringComparison.Ordinal));
+
+        // One HTTP request in the game's shape; the socket was never asked.
+        Assert.Equal(new string?[] { null }, _world.Server.BankRequests.ToArray());
+        Assert.DoesNotContain("loadBank", _world.Server.LastSession!.Commands);
+        string[] game = Lines("game");
+        Assert.Contains(game, l => l.Contains("Bank: loaded over HTTPS (POST api/char/bank", StringComparison.Ordinal) && l.Contains("HTTP 200, 1 items received", StringComparison.Ordinal));
+        foreach (string token in _world.Server.IssuedTokens)
+            Assert.DoesNotContain(_log, l => l.Contains(token, StringComparison.Ordinal));
+    }
 }

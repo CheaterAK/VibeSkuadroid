@@ -1,4 +1,5 @@
 using Skua.Core.Headless.Protocol;
+using Skua.Core.Headless.Rules;
 using System.Globalization;
 using System.Text.Json.Nodes;
 
@@ -1190,24 +1191,32 @@ public sealed partial class WorldModel
         }
     }
 
+    // Game.as "loadBank": with bitSuccess the items go to BankController.addItemsToBank; without it the game shows
+    // "Error loading bank items!" and nothing is loaded.
     private void OnLoadBank(JsonObject d)
     {
+        if (d["bitSuccess"] is JsonNode ok && !JsonUtil.AsBool(ok))
+            return;
         if (d["items"] is JsonArray items)
-        {
-            foreach (JsonNode? node in items)
-            {
-                if (node is not JsonObject item)
-                    continue;
-                JsonObject copy = (JsonObject)item.DeepClone();
-                copy["iQty"] = JsonUtil.AsInt(item["iQty"]);
-                JsonObject? existing = FindById(BankItems, "ItemID", JsonUtil.AsInt(item["ItemID"]));
-                if (existing is not null)
-                    BankItems[BankItems.IndexOf(existing)] = copy;
-                else
-                    BankItems.Add(copy);
-            }
-        }
+            AddItemsToBankCore(items);
         _bankLoaded = true;
+    }
+
+    // BankController.addItemsToBank: keyed by ItemID (a known item is replaced), classes skipped. Under the lock.
+    private void AddItemsToBankCore(JsonArray items)
+    {
+        foreach (JsonNode? node in items)
+        {
+            if (node is not JsonObject item || InventoryRules.IsClass(item))
+                continue;
+            JsonObject copy = (JsonObject)item.DeepClone();
+            copy["iQty"] = JsonUtil.AsInt(item["iQty"]);
+            JsonObject? existing = FindById(BankItems, "ItemID", JsonUtil.AsInt(item["ItemID"]));
+            if (existing is not null)
+                BankItems[BankItems.IndexOf(existing)] = copy;
+            else
+                BankItems.Add(copy);
+        }
     }
 
     private void MoveInventoryToBank(int itemId)

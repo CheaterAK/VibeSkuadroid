@@ -421,6 +421,23 @@ public sealed partial class AqwConnection : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Hands a packet made by the client itself (not received) to everything a received packet goes to: the world
+    /// model, <see cref="PacketReceived"/>, <see cref="ExtensionResponse"/> and the reply waiters. It does not count
+    /// as server traffic (liveness, packet counters). Used to tell Skua's layers that the bank arrived over HTTP,
+    /// as the socket's <c>loadBank</c> reply would.
+    /// </summary>
+    public void DispatchLocal(string text)
+    {
+        InboundPacket packet = PacketCodec.Parse(text);
+        World.Apply(packet);
+        Raise(PacketReceived, packet);
+        EventHandler<ExtensionResponseEventArgs>? ext = ExtensionResponse;
+        if (ext is not null && packet.ToExtensionResponseJson() is string json)
+            Raise(ext, new ExtensionResponseEventArgs(packet, json));
+        CompleteWaiters(packet);
+    }
+
     private void HandleFrame(byte[] frame)
     {
         _liveness.OnInbound(_time.GetUtcNow());
