@@ -16,7 +16,10 @@ public sealed class DroidGameTools : IGameTools
     public DroidGameTools(Func<IScriptInterface?> bot, Func<IServiceProvider?> services, IControlBackend control)
     {
         FastTravel = new FastTravelBackend(bot, services);
+        Loader = new LoaderBackend(bot, services, control);
     }
 
     public IFastTravelBackend FastTravel { get; }
+
+    public ILoaderBackend Loader { get; }
 }

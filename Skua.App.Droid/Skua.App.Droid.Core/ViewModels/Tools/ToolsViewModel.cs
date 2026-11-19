@@ -23,10 +23,13 @@ public sealed partial class ToolsViewModel : ObservableObject
         // Tool options (no secrets) next to the plugins' file, in their format.
         Store = new PluginStore(Path.Combine(Path.GetDirectoryName(services.Paths.PluginsFile) ?? ".", "tools.json"));
         FastTravel = new FastTravelViewModel(services, Store);
+        Loader = new LoaderViewModel(services);
         Entries =
         [
             new ToolEntry("Fast Travel", "Saved map destinations (map, cell, pad) and Skua's presets: one tap to travel, in your private room if you like.",
                 new RelayCommand(() => OpenPage(FastTravel))),
+            new ToolEntry("Loader", "Load a shop or quests by ID; Skua's quest list with search, copy names and IDs, load and fake complete.",
+                new RelayCommand(() => OpenPage(Loader))),
         ];
     }
 
@@ -36,6 +39,8 @@ public sealed partial class ToolsViewModel : ObservableObject
     public ObservableCollection<ToolEntry> Entries { get; }
 
     public FastTravelViewModel FastTravel { get; }
+
+    public LoaderViewModel Loader { get; }
 
     /// <summary>The hub is shown (instead of the settings).</summary>
     [ObservableProperty]
@@ -55,6 +60,7 @@ public sealed partial class ToolsViewModel : ObservableObject
     public string Title => CurrentPage switch
     {
         FastTravelViewModel => "Fast Travel",
+        LoaderViewModel => "Loader",
         _ => "Tools",
     };
 
@@ -72,7 +78,7 @@ public sealed partial class ToolsViewModel : ObservableObject
     /// <summary>System back: closes an open question, then the tool page, then the hub. False when the hub was closed.</summary>
     public bool GoBack()
     {
-        if (CurrentPage is FastTravelViewModel ft && ft.Confirm.CancelIfOpen())
+        if (ConfirmOf(CurrentPage)?.CancelIfOpen() == true)
             return true;
         if (CurrentPage is not null)
         {
@@ -87,14 +93,25 @@ public sealed partial class ToolsViewModel : ObservableObject
         return false;
     }
 
-    partial void OnCurrentPageChanged(object? value)
+    private static ConfirmHost? ConfirmOf(object? page) => page switch
     {
-        if (value is FastTravelViewModel ft)
+        FastTravelViewModel ft => ft.Confirm,
+        LoaderViewModel l => l.Confirm,
+        _ => null,
+    };
+
+    partial void OnCurrentPageChanged(object? oldValue, object? newValue)
+    {
+        ConfirmOf(oldValue)?.CancelIfOpen();
+        if (newValue is FastTravelViewModel ft)
             ft.Refresh();
+        else if (newValue is LoaderViewModel loader)
+            loader.Refresh();
     }
 
     internal void Apply(EngineSnapshot s)
     {
         FastTravel.Apply(s);
+        Loader.Apply(s);
     }
 }

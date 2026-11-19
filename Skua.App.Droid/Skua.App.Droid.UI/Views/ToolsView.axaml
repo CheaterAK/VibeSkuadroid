@@ -6,6 +6,7 @@
              x:DataType="vm:ToolsViewModel">
   <UserControl.DataTemplates>
     <DataTemplate DataType="vm:FastTravelViewModel"><v:FastTravelView /></DataTemplate>
+    <DataTemplate DataType="vm:LoaderViewModel"><v:LoaderView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Grid RowDefinitions="Auto,*">

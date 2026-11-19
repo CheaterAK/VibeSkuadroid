@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.LoaderView"
+             x:DataType="vm:LoaderViewModel">
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+        <!-- Load by ID -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="LOAD BY ID" />
+            <Grid ColumnDefinitions="Auto,*">
+              <ComboBox Width="110" Margin="0,0,8,0" ItemsSource="{Binding Kinds}" SelectedItem="{Binding SelectedKind}" />
+              <TextBox Grid.Column="1" Text="{Binding InputIds}" PlaceholderText="ID (quests: 1,2,3)" />
+            </Grid>
+            <Grid ColumnDefinitions="*,*">
+              <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Load" Command="{Binding LoadCommand}" />
+              <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="View in Grabber"
+                      IsEnabled="{Binding LastLoaded, Converter={x:Static ObjectConverters.IsNotNull}}" Command="{Binding ViewInGrabberCommand}" />
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !IsOnline}" Text="Log in to load shops and quests." />
+            <TextBlock Classes="error" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Status}" IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Skua's quest list -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Classes="caption" VerticalAlignment="Center" Text="QUEST LIST" />
+              <Button Grid.Column="1" Classes="small" Content="Reload" Command="{Binding ReloadListCommand}" />
+            </Grid>
+            <TextBox Text="{Binding SearchText}" PlaceholderText="Search name or ID" TextInputOptions.AutoCapitalization="False" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding ListText}" />
+            <WrapPanel>
+              <Button Classes="small" Margin="0,0,6,6" Content="Load selected" Command="{Binding LoadSelectedCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Copy names" Command="{Binding CopyNamesCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Copy IDs" Command="{Binding CopyIdsCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Copy // name | id" Command="{Binding CopyNamesAndIdsCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Command="{Binding ClearSelectionCommand}"
+                      Content="{Binding SelectedCount, StringFormat='Unselect ({0})'}" />
+            </WrapPanel>
+            <ItemsControl ItemsSource="{Binding Quests}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:LoaderQuestRow">
+                  <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,2">
+                    <CheckBox VerticalAlignment="Center" IsChecked="{Binding IsSelected}" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="muted" Text="{Binding Detail}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Classes="small" Margin="4,0" Content="Load" Command="{Binding LoadCommand}" />
+                    <Button Grid.Column="3" Classes="small" Content="Fake" Command="{Binding FakeCompleteCommand}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Update the list from the game -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="UPDATE THE LIST FROM THE GAME" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Skua's updater: asks the game for quests and saves them to QuestData.json. The community script sync already brings a current list." />
+            <Button Classes="small" HorizontalAlignment="Left" Content="Update (new IDs)" Command="{Binding UpdateCommand}" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Text="{Binding RangeText}" PlaceholderText="startID, endID" />
+              <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Update range" Command="{Binding UpdateRangeCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding IsUpdating}">
+              <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding UpdateProgress}" />
+              <Button Grid.Column="1" Classes="small danger" Content="Cancel" Command="{Binding CancelUpdateCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <v:ConfirmOverlay DataContext="{Binding Confirm}" />
+  </Panel>
+</UserControl>

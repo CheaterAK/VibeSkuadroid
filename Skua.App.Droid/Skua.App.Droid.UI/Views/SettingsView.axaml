@@ -11,7 +11,7 @@
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Spacing="2">
             <TextBlock Classes="caption" Text="TOOLS" />
-            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Fast Travel and more" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Fast Travel, Loader and Grabber" />
           </StackPanel>
           <Button Grid.Column="1" Classes="small primary" VerticalAlignment="Center" Content="Open tools" Command="{Binding OpenToolsCommand}" />
         </Grid>
