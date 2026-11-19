@@ -34,6 +34,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Small synthetic samples in the real files' formats (the real community files are never committed). -->
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Reused unchanged from the headless library's tests: a real loopback AQW server. -->
     <Compile Include="..\..\Skua.Core.Headless.Tests\Fakes\FakeAqwServer.cs" Link="Fakes\FakeAqwServer.cs" />
   </ItemGroup>

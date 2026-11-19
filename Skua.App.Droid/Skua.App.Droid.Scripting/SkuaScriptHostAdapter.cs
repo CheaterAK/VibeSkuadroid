@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Skua.App.Droid.Core.Engine;
 using Skua.App.Droid.Core.Plugins;
+using Skua.App.Droid.Core.Skills;
 using Skua.App.Droid.Plugins;
 using Skua.Core.Headless;
 using Skua.Core.Headless.Flash;
@@ -32,7 +33,7 @@ namespace Skua.App.Droid.Scripting;
 /// <c>LoadContextFactory</c>), so an unchanged CoreBots is loaded once per process.
 /// </para>
 /// </remarks>
-public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource
+public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource, ISkuaServicesSource
 {
     /// <summary>
     /// The version Skua reports to scripts (bot.Version and the "ApplicationVersion" setting). CoreBots'
@@ -60,6 +61,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     private string? _runError;
     private long _reloginTriggeredTicks = long.MinValue;
     private volatile bool _autoRelogin = true;
+    private DateTime _skillSetsLoaded = DateTime.MinValue;
 
     /// <param name="references">Reference images from the APK (see <see cref="ScriptReferenceSet"/>); null uses
     /// <see cref="HeadlessReferences.Default"/> (the managed assemblies next to the app: Linux and the desktop preview).</param>
@@ -102,6 +104,9 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     /// current session's IScriptInterface, so they keep working across logouts (the session object is kept).
     /// </summary>
     public IPluginBackends? PluginBackends => _plugins;
+
+    /// <summary>Skua's services on this host's session (the Tools pages: Advanced Skills, CoreBots options).</summary>
+    public IServiceProvider? SkuaServices => _skua?.Services;
 
     /// <summary>Unattended answers to scripts' message boxes (logged as "dialog" lines).</summary>
     public HeadlessDialogPolicy Dialogs { get; } = DefaultDialogPolicy();
@@ -461,19 +466,26 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
             Emit(EngineLogLevel.Debug, "scripts", string.Join(Environment.NewLine, trace.Split('\n').Take(12)));
     }
 
-    // The repository sync refreshes AdvancedSkills.json (Skua's default skill sets). Skua loaded its copy
-    // (UserAdvancedSkills.json) at start; like the desktop's SyncSkills after an update, copy and reload before a run.
+    // The repository sync refreshes AdvancedSkills.json (the community skill sets). Before a run, bring Skua's file
+    // (UserAdvancedSkills.json) up to date with it, keeping the user's edits (SkillSetStore.UpdateFromCommunity), and
+    // reload Skua's container when that file changed since it was last loaded (also after an edit in Advanced Skills).
     private void ReloadSkillSetsIfUpdated(HeadlessSkuaSession s)
     {
         try
         {
-            string defaults = ClientFileSources.SkuaAdvancedSkillsFile;
-            string user = Path.Combine(ClientFileSources.SkuaDIR, "UserAdvancedSkills.json");
-            if (!File.Exists(defaults) || (File.Exists(user) && File.GetLastWriteTimeUtc(user) >= File.GetLastWriteTimeUtc(defaults)))
+            SkillSetStore store = new(ClientFileSources.SkuaDIR);
+            bool merged = store.UpdateFromCommunity();
+            DateTime stamp = File.Exists(store.UserFile) ? File.GetLastWriteTimeUtc(store.UserFile) : DateTime.MinValue;
+            if (!merged && stamp == _skillSetsLoaded)
                 return;
-            File.Copy(defaults, user, overwrite: true);
             s.Services.GetRequiredService<IAdvancedSkillContainer>().LoadSkills();
-            Emit(EngineLogLevel.Info, "scripts", "Skill sets reloaded from the synced AdvancedSkills.json.");
+            _skillSetsLoaded = stamp;
+            if (merged)
+                Emit(EngineLogLevel.Info, "scripts", "Skill sets updated from the synced AdvancedSkills.json (your edits are kept).");
+        }
+        catch (EngineException e)
+        {
+            Emit(EngineLogLevel.Warning, "scripts", $"Could not update the skill sets: {e.Message}");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or Newtonsoft.Json.JsonException)
         {

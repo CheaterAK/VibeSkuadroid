@@ -18,6 +18,20 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Skua.Core.Headless\Skua.Core.Headless.csproj" />
+    <!--
+      Skua.Core for the Tools pages (Advanced Skills, CoreBots options): its skill-set models and parser, and the
+      script interfaces the desktop's CoreBots option ViewModels read the character from. No UI types.
+    -->
+    <ProjectReference Include="..\..\Skua.Core\Skua.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The desktop's UI-free ViewModels, compiled in unchanged (see that project). Behind an extern alias and not passed
+      on to projects referencing this one: their namespace, Skua.App.Avalonia, would otherwise hide the Avalonia
+      namespace from code in Skua.App.* namespaces that writes Avalonia.Xyz.
+    -->
+    <ProjectReference Include="..\Skua.App.Droid.Linked\Skua.App.Droid.Linked.csproj" Aliases="desktop" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

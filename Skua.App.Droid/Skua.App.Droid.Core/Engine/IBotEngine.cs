@@ -105,6 +105,12 @@ public interface IBotEngine : IAsyncDisposable
     Plugins.IPluginBackends? Plugins => null;
 
     /// <summary>
+    /// Skua's services on this engine's session (script interfaces, the advanced skill container), for the Tools pages
+    /// that reuse the desktop's ViewModels. Null when this engine has no Skua host.
+    /// </summary>
+    IServiceProvider? SkuaServices => null;
+
+    /// <summary>
     /// Registers long work done for the user outside the game (a script repository sync): it shows in
     /// <see cref="EngineSnapshot.BackgroundWork"/> and keeps the process (the foreground service) alive until disposed.
     /// </summary>

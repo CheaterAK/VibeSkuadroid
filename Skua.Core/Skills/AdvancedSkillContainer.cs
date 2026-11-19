@@ -220,7 +220,7 @@ public class AdvancedSkillContainer : ObservableRecipient, IAdvancedSkillContain
                 {
                     string classUseMode = modeEntry.Key;
                     SkillModeJson skillMode = modeEntry.Value;
-                    string skillsStr = ConvertSkillsToString(skillMode.Skills);
+                    string skillsStr = AdvancedSkillsParser.ToSkillString(skillMode.Skills);
 
                     loadedSkills.Add(new AdvancedSkill(
                         className,
@@ -241,102 +241,6 @@ public class AdvancedSkillContainer : ObservableRecipient, IAdvancedSkillContain
         }
 
         return loadedSkills;
-    }
-
-    private string ConvertSkillsToString(List<AdvancedSkillJson> skills)
-    {
-        List<string> parts = new();
-        foreach (AdvancedSkillJson skill in skills)
-        {
-            string skillStr = skill.SkillId.ToString();
-            if (skill.Rules?.Count > 0)
-            {
-                skillStr += " " + ConvertRulesToString(skill.Rules, skill.MultiAura, skill.MultiAuraOperator);
-            }
-            if (skill.SkipOnMatch)
-            {
-                skillStr += "S";
-            }
-            parts.Add(skillStr);
-        }
-        return string.Join(" | ", parts);
-    }
-
-    private string ConvertRulesToString(List<SkillRuleJson> rules, bool isMultiAura, string? multiAuraOperator)
-    {
-        List<string> ruleParts = new();
-        List<SkillRuleJson> multiAuraRules = new();
-        List<SkillRuleJson> singleAuraRules = new();
-        List<SkillRuleJson> otherRules = new();
-
-        foreach (SkillRuleJson rule in rules)
-        {
-            if (isMultiAura && rule.Type == "MultiAura")
-                multiAuraRules.Add(rule);
-            else if (!isMultiAura && rule.Type == "Aura")
-                singleAuraRules.Add(rule);
-            else if (rule.Type is not "MultiAura" and not "Aura" and not "Skip")
-                otherRules.Add(rule);
-        }
-
-        foreach (SkillRuleJson? rule in otherRules)
-        {
-            string percentIndicator = (rule.IsPercentage ?? true) ? "%" : "#";
-            switch (rule.Type)
-            {
-                case "Health":
-                    ruleParts.Add($"H{(rule.Comparison == "greater" ? ">" : "<")}{rule.Value}{percentIndicator}");
-                    break;
-
-                case "Mana":
-                    ruleParts.Add($"M{(rule.Comparison == "greater" ? ">" : "<")}{rule.Value}{percentIndicator}");
-                    break;
-
-                case "PartyHealth":
-                    ruleParts.Add($"PH{(rule.Comparison == "greater" ? ">" : "<")}{rule.Value}{percentIndicator}");
-                    break;
-
-                case "Wait":
-                    ruleParts.Add($"WW{rule.Timeout}");
-                    break;
-            }
-        }
-
-        if (isMultiAura && multiAuraRules.Count > 0)
-        {
-            string opChar = "&";
-            if (!string.IsNullOrEmpty(multiAuraOperator))
-            {
-                opChar = multiAuraOperator switch
-                {
-                    "OR" => ":",
-                    _ => "&"
-                };
-            }
-
-            for (int i = 0; i < multiAuraRules.Count; i++)
-            {
-                SkillRuleJson rule = multiAuraRules[i];
-                string suffix = i < multiAuraRules.Count - 1 ? opChar : "";
-                ruleParts.Add($"MA{(rule.Comparison == "greater" ? ">" : "<")}\"{rule.AuraName}\" {rule.Value}{(rule.AuraTarget == "target" ? " TARGET" : "")}{suffix}");
-            }
-        }
-        else if (singleAuraRules.Count > 1)
-        {
-            for (int i = 0; i < singleAuraRules.Count; i++)
-            {
-                SkillRuleJson rule = singleAuraRules[i];
-                string suffix = i < singleAuraRules.Count - 1 ? "&" : "";
-                ruleParts.Add($"MA{(rule.Comparison == "greater" ? ">" : "<")}\"{rule.AuraName}\" {rule.Value}{(rule.AuraTarget == "target" ? " TARGET" : "")}{suffix}");
-            }
-        }
-        else if (singleAuraRules.Count == 1)
-        {
-            SkillRuleJson rule = singleAuraRules[0];
-            ruleParts.Add($"A{(rule.Comparison == "greater" ? ">" : "<")}\"{rule.AuraName}\" {rule.Value}{(rule.AuraTarget == "target" ? " TARGET" : "")}");
-        }
-
-        return string.Join(" ", ruleParts);
     }
 
     public Dictionary<string, List<string>> GetAvailableClassModes()

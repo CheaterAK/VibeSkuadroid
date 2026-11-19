@@ -149,6 +149,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             return true;
         if (CurrentPage == AppPage.Plugins && Plugins.CloseSubPage())
             return true;
+        if (CurrentPage == AppPage.Settings && Settings.GoBack())
+            return true;
         if (CurrentPage != AppPage.Home)
         {
             CurrentPage = AppPage.Home;

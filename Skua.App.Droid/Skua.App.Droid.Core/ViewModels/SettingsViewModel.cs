@@ -18,6 +18,29 @@ public sealed partial class SettingsViewModel : ObservableObject
         _services = services;
         _host = services.Host;
         Load(_host.Settings.Current);
+        Tools = new ToolsViewModel(services);
+    }
+
+    /// <summary>The Tools hub (Advanced Skills, CoreBots options), opened from this page.</summary>
+    public ToolsViewModel Tools { get; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSettingsVisible))]
+    private bool _isToolsOpen;
+
+    public bool IsSettingsVisible => !IsToolsOpen;
+
+    [RelayCommand]
+    private void OpenTools() => IsToolsOpen = true;
+
+    /// <summary>System back on this tab: inside Tools first, then back to the settings; false when they are shown.</summary>
+    public bool GoBack()
+    {
+        if (!IsToolsOpen)
+            return false;
+        if (!Tools.GoBack())
+            IsToolsOpen = false;
+        return true;
     }
 
     [ObservableProperty]
@@ -140,6 +163,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     internal void Apply(EngineSnapshot s)
     {
+        Tools.Apply(s);
         MemoryText = $"{Formatting.Memory(s.Memory)}, peak {(s.Memory.PeakRssBytes < 0 ? "n/a" : $"{s.Memory.PeakRssBytes / 1048576.0:0} MB")}";
     }
 }

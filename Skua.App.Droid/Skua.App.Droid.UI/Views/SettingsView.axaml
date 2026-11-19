@@ -1,10 +1,20 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
              x:Class="Skua.App.Droid.UI.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
-  <ScrollViewer>
+  <Panel>
+  <ScrollViewer IsVisible="{Binding IsSettingsVisible}">
     <StackPanel Margin="12">
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="TOOLS" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Advanced skills (class rotations) and more." />
+          <Button Classes="small primary" HorizontalAlignment="Left" Content="Open tools" Command="{Binding OpenToolsCommand}" />
+        </StackPanel>
+      </Border>
+
       <Border Classes="card">
         <StackPanel Spacing="8">
           <TextBlock Classes="caption" Text="CONNECTION" />
@@ -66,4 +76,8 @@
       <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
     </StackPanel>
   </ScrollViewer>
+  <Panel IsVisible="{Binding IsToolsOpen}">
+    <v:ToolsView DataContext="{Binding Tools}" />
+  </Panel>
+  </Panel>
 </UserControl>

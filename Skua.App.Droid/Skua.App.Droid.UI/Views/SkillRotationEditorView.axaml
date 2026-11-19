@@ -1,0 +1,199 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.SkillRotationEditorView"
+             x:DataType="vm:SkillRotationEditorViewModel">
+  <Panel>
+    <!-- The rotation -->
+    <ScrollViewer IsVisible="{Binding IsFormVisible}">
+      <StackPanel Margin="12,8">
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="CLASS" />
+            <TextBox Text="{Binding ClassName}" PlaceholderText="Class name, as the game shows it (e.g. Void Highlord)" />
+            <TextBlock Classes="caption" Text="MODE" />
+            <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="USE MODE" />
+            <RadioButton GroupName="usemode" Content="Use if available" IsChecked="{Binding UseIfAvailable}" />
+            <RadioButton GroupName="usemode" Content="Wait for cooldown" IsChecked="{Binding WaitForCooldown}" />
+            <TextBlock Classes="muted" Text="Skill timeout (ms)" />
+            <NumericUpDown Value="{Binding Timeout}" Minimum="0" Maximum="100000" Increment="50" FormatString="0" />
+            <CheckBox Content="Reset the combo when the target changes" IsChecked="{Binding ResetComboOnTargetChange}" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="SKILLS, IN ORDER" />
+            <TextBlock Classes="muted" IsVisible="{Binding !Skills.Count}" Text="No skills yet: add them below." />
+            <ItemsControl ItemsSource="{Binding Skills}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:SkillRow">
+                  <Border BorderBrush="{StaticResource BorderBrushMain}" BorderThickness="0,0,0,1" Padding="0,6">
+                    <Grid ColumnDefinitions="*,Auto">
+                      <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding DisplayString}" />
+                      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="6,0,0,0">
+                        <Button Classes="small" Content="▲" Padding="8,4"
+                                Command="{Binding Owner.MoveUpCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="small" Content="▼" Padding="8,4"
+                                Command="{Binding Owner.MoveDownCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="small" Content="Rules"
+                                Command="{Binding Owner.EditRulesCommand}" CommandParameter="{Binding}" />
+                        <Button Classes="small danger" Content="✕" Padding="8,4"
+                                Command="{Binding Owner.RemoveCommand}" CommandParameter="{Binding}" />
+                      </StackPanel>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="muted" Text="Add skill (0 = auto attack, 5 = potion slot)" />
+            <UniformGrid Columns="6">
+              <Button Classes="small" Margin="0,0,4,0" HorizontalAlignment="Stretch" Content="0" Command="{Binding AddSkillCommand}" CommandParameter="0" />
+              <Button Classes="small" Margin="0,0,4,0" HorizontalAlignment="Stretch" Content="1" Command="{Binding AddSkillCommand}" CommandParameter="1" />
+              <Button Classes="small" Margin="0,0,4,0" HorizontalAlignment="Stretch" Content="2" Command="{Binding AddSkillCommand}" CommandParameter="2" />
+              <Button Classes="small" Margin="0,0,4,0" HorizontalAlignment="Stretch" Content="3" Command="{Binding AddSkillCommand}" CommandParameter="3" />
+              <Button Classes="small" Margin="0,0,4,0" HorizontalAlignment="Stretch" Content="4" Command="{Binding AddSkillCommand}" CommandParameter="4" />
+              <Button Classes="small" HorizontalAlignment="Stretch" Content="5" Command="{Binding AddSkillCommand}" CommandParameter="5" />
+            </UniformGrid>
+            <Button Classes="small" HorizontalAlignment="Left" Content="Clear skills" Command="{Binding ClearSkillsCommand}" />
+            <TextBlock Classes="caption" Text="SAVED AS" />
+            <TextBlock Classes="mono" FontSize="12" Text="{Binding Preview}" />
+          </StackPanel>
+        </Border>
+
+        <TextBlock Classes="error" Margin="2,0,0,8" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <Button Classes="primary" HorizontalAlignment="Stretch" Content="Save" Command="{Binding SaveCommand}" Margin="0,0,0,12" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- The rules of one skill -->
+    <ContentControl IsVisible="{Binding IsRulesOpen}" Content="{Binding RulesEditor}">
+      <ContentControl.ContentTemplate>
+        <DataTemplate x:DataType="vm:SkillRulesEditorViewModel">
+          <ScrollViewer>
+            <StackPanel Margin="12,8">
+              <TextBlock Classes="title" FontSize="17" Margin="2,0,0,8" Text="{Binding Title}" />
+              <Border Classes="card">
+                <StackPanel Spacing="8">
+                  <CheckBox Content="Use these rules" IsChecked="{Binding UseRule}" />
+                  <CheckBox Content="Skip if not available" IsChecked="{Binding Skip}" />
+                  <TextBlock Classes="muted" Text="Wait before use (ms, 0 = no wait)" />
+                  <TextBox Text="{Binding Wait}" TextInputOptions.ContentType="Number" />
+                </StackPanel>
+              </Border>
+
+              <Border Classes="card">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="caption" Text="YOUR HP (0 = any)" />
+                  <Grid ColumnDefinitions="*,8,*,8,*">
+                    <ComboBox HorizontalAlignment="Stretch" SelectedIndex="{Binding HealthComparison}">
+                      <ComboBoxItem Content="below" />
+                      <ComboBoxItem Content="above" />
+                    </ComboBox>
+                    <TextBox Grid.Column="2" Text="{Binding Health}" TextInputOptions.ContentType="Number" />
+                    <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" SelectedIndex="{Binding HealthUnit}">
+                      <ComboBoxItem Content="%" />
+                      <ComboBoxItem Content="HP" />
+                    </ComboBox>
+                  </Grid>
+                  <TextBlock Classes="caption" Text="YOUR MP (0 = any)" />
+                  <Grid ColumnDefinitions="*,8,*,8,*">
+                    <ComboBox HorizontalAlignment="Stretch" SelectedIndex="{Binding ManaComparison}">
+                      <ComboBoxItem Content="below" />
+                      <ComboBoxItem Content="above" />
+                    </ComboBox>
+                    <TextBox Grid.Column="2" Text="{Binding Mana}" TextInputOptions.ContentType="Number" />
+                    <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" SelectedIndex="{Binding ManaUnit}">
+                      <ComboBoxItem Content="%" />
+                      <ComboBoxItem Content="MP" />
+                    </ComboBox>
+                  </Grid>
+                  <TextBlock Classes="caption" Text="A PARTY MEMBER'S HP (0 = any)" />
+                  <Grid ColumnDefinitions="*,8,*,8,*">
+                    <ComboBox HorizontalAlignment="Stretch" SelectedIndex="{Binding PartyHealthComparison}">
+                      <ComboBoxItem Content="below" />
+                      <ComboBoxItem Content="above" />
+                    </ComboBox>
+                    <TextBox Grid.Column="2" Text="{Binding PartyHealth}" TextInputOptions.ContentType="Number" />
+                    <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" SelectedIndex="{Binding PartyHealthUnit}">
+                      <ComboBoxItem Content="%" />
+                      <ComboBoxItem Content="HP" />
+                    </ComboBox>
+                  </Grid>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="card">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="caption" Text="AURA" />
+                  <CheckBox Content="Several auras" IsChecked="{Binding MultiAura}" />
+                  <!-- One aura -->
+                  <StackPanel Spacing="8" IsVisible="{Binding !MultiAura}">
+                    <TextBox Text="{Binding AuraName}" PlaceholderText="Aura name (empty = no aura rule)" />
+                    <Grid ColumnDefinitions="*,8,*,8,*">
+                      <ComboBox HorizontalAlignment="Stretch" SelectedIndex="{Binding AuraComparison}">
+                        <ComboBoxItem Content="fewer than" />
+                        <ComboBoxItem Content="more than" />
+                      </ComboBox>
+                      <TextBox Grid.Column="2" Text="{Binding AuraStacks}" PlaceholderText="stacks" />
+                      <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" SelectedIndex="{Binding AuraTarget}">
+                        <ComboBoxItem Content="on you" />
+                        <ComboBoxItem Content="on target" />
+                      </ComboBox>
+                    </Grid>
+                  </StackPanel>
+                  <!-- Several auras -->
+                  <StackPanel Spacing="8" IsVisible="{Binding MultiAura}">
+                    <Grid ColumnDefinitions="Auto,*">
+                      <TextBlock VerticalAlignment="Center" Classes="muted" Text="Match" Margin="0,0,8,0" />
+                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="{Binding MultiAuraOperator}">
+                        <ComboBoxItem Content="all of them (AND)" />
+                        <ComboBoxItem Content="any of them (OR)" />
+                      </ComboBox>
+                    </Grid>
+                    <ItemsControl ItemsSource="{Binding AuraChecks}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:AuraCheckRow">
+                          <Border BorderBrush="{StaticResource BorderBrushMain}" BorderThickness="0,0,0,1" Padding="0,6">
+                            <StackPanel Spacing="6">
+                              <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Text="{Binding AuraName}" PlaceholderText="Aura name" />
+                                <Button Grid.Column="1" Classes="small danger" Content="✕" Margin="6,0,0,0"
+                                        Command="{Binding Owner.RemoveAuraCheckCommand}" CommandParameter="{Binding}" />
+                              </Grid>
+                              <Grid ColumnDefinitions="*,8,*,8,*">
+                                <ToggleSwitch IsChecked="{Binding IsGreater}" OnContent="more than" OffContent="fewer than" />
+                                <TextBox Grid.Column="2" Text="{Binding StackCount}" PlaceholderText="stacks" />
+                                <ComboBox Grid.Column="4" HorizontalAlignment="Stretch" SelectedIndex="{Binding TargetIndex}">
+                                  <ComboBoxItem Content="on you" />
+                                  <ComboBoxItem Content="on target" />
+                                </ComboBox>
+                              </Grid>
+                            </StackPanel>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Button Classes="small" HorizontalAlignment="Left" Content="Add aura" Command="{Binding AddAuraCheckCommand}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+
+              <Grid ColumnDefinitions="*,*,*" Margin="0,0,0,12">
+                <Button Classes="small danger" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Clear" Command="{Binding ClearCommand}" />
+                <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Cancel" Command="{Binding CancelCommand}" />
+                <Button Grid.Column="2" Classes="primary" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Done" Command="{Binding DoneCommand}" />
+              </Grid>
+            </StackPanel>
+          </ScrollViewer>
+        </DataTemplate>
+      </ContentControl.ContentTemplate>
+    </ContentControl>
+  </Panel>
+</UserControl>

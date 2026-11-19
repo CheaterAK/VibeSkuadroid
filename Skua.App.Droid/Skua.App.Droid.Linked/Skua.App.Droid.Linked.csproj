@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI-free ViewModels of the desktop app (Skua.App.Avalonia is Avalonia 11 and net10.0-windows, so it cannot be
+    referenced here), compiled in unchanged so the phone pages parse, edit and write exactly what the desktop does:
+    the advanced skill editor's skill items and rules, and CoreBots' loadout (class selection and class equipment).
+    DesktopShims.cs is the only file of this project: the one internal interface those files implement, declared
+    in the desktop's CoreBotsViewModel.cs (which needs Avalonia and is not compiled here).
+    The types keep their desktop namespace (Skua.App.Avalonia...); Skua.App.Droid.Core references this project
+    behind an extern alias (see there).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Skua.App.Avalonia</RootNamespace>
+    <!-- The desktop files build with the repository's NoWarn list (nullable and unused-variable warnings). -->
+    <NoWarn>$(NoWarn);CS0168;CS0219;CS0105;CS8618;CS8602;CS8604;CS8600</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Skua.Core\Skua.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Skua.App.Avalonia\ViewModels\AdvancedSkills\SkillItemViewModel.cs" Link="AdvancedSkills\SkillItemViewModel.cs" />
+    <Compile Include="..\..\Skua.App.Avalonia\ViewModels\AdvancedSkills\SkillRulesViewModel.cs" Link="AdvancedSkills\SkillRulesViewModel.cs" />
+    <Compile Include="..\..\Skua.App.Avalonia\ViewModels\AdvancedSkills\AuraCheckViewModel.cs" Link="AdvancedSkills\AuraCheckViewModel.cs" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,267 @@
+{
+  "Sample Mage": {
+    "Base": {
+      "skillUseMode": "WaitForCooldown",
+      "skillTimeout": 100,
+      "skills": [
+        {
+          "skillId": 1,
+          "rules": [
+            {
+              "type": "Aura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "sample burn",
+              "auraTarget": "target"
+            }
+          ]
+        },
+        {
+          "skillId": 4,
+          "rules": [
+            {
+              "type": "Health",
+              "value": 70,
+              "comparison": "greater",
+              "isPercentage": true
+            },
+            {
+              "type": "Mana",
+              "value": 70,
+              "comparison": "less",
+              "isPercentage": true
+            },
+            {
+              "type": "Aura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "Sample Ascension",
+              "auraTarget": "self"
+            }
+          ]
+        },
+        {
+          "skillId": 2,
+          "rules": [
+            {
+              "type": "Mana",
+              "value": 30,
+              "comparison": "less",
+              "isPercentage": true
+            }
+          ]
+        },
+        {
+          "skillId": 3
+        }
+      ]
+    },
+    "Farm": {
+      "skillUseMode": "UseIfAvailable",
+      "skillTimeout": 100,
+      "skills": [
+        {
+          "skillId": 4
+        },
+        {
+          "skillId": 2
+        },
+        {
+          "skillId": 3
+        },
+        {
+          "skillId": 1,
+          "rules": [
+            {
+              "type": "Aura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "Sample Blood Boil",
+              "auraTarget": "self"
+            }
+          ],
+          "skipOnMatch": true
+        }
+      ]
+    }
+  },
+  "Sample Tarot Caster": {
+    "Solo": {
+      "skillUseMode": "WaitForCooldown",
+      "skillTimeout": 150,
+      "resetComboOnTargetChange": true,
+      "skills": [
+        {
+          "skillId": 1,
+          "rules": [
+            {
+              "type": "MultiAura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "XXI - The Sample",
+              "auraTarget": "self"
+            },
+            {
+              "type": "MultiAura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "0 - The Test",
+              "auraTarget": "self"
+            }
+          ],
+          "isMultiAura": true,
+          "multiAuraOperator": "AND"
+        },
+        {
+          "skillId": 4,
+          "rules": [
+            {
+              "type": "Health",
+              "value": 70,
+              "comparison": "greater",
+              "isPercentage": true
+            },
+            {
+              "type": "MultiAura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "Mirrored Sample",
+              "auraTarget": "self"
+            },
+            {
+              "type": "MultiAura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "Arcane Sample",
+              "auraTarget": "target"
+            }
+          ],
+          "isMultiAura": true,
+          "multiAuraOperator": "OR"
+        },
+        {
+          "skillId": 2
+        },
+        {
+          "skillId": 3,
+          "rules": [
+            {
+              "type": "None"
+            }
+          ],
+          "skipOnMatch": true
+        }
+      ]
+    }
+  },
+  "Sample Gunner": {
+    "Farm": {
+      "skillUseMode": "WaitForCooldown",
+      "skillTimeout": 250,
+      "skills": [
+        {
+          "skillId": 2,
+          "rules": [
+            {
+              "type": "Health",
+              "value": 75,
+              "comparison": "less",
+              "isPercentage": true
+            },
+            {
+              "type": "Mana",
+              "value": 5,
+              "comparison": "greater",
+              "isPercentage": false
+            }
+          ]
+        },
+        {
+          "skillId": 4,
+          "rules": [
+            {
+              "type": "Mana",
+              "value": 4,
+              "comparison": "less",
+              "isPercentage": false
+            },
+            {
+              "type": "MultiAura",
+              "value": 0,
+              "comparison": "less",
+              "auraName": "Rounds Sample",
+              "auraTarget": "self"
+            },
+            {
+              "type": "MultiAura",
+              "value": 4,
+              "comparison": "greater",
+              "auraName": "Temporal Sample",
+              "auraTarget": "self"
+            }
+          ],
+          "skipOnMatch": true,
+          "isMultiAura": true,
+          "multiAuraOperator": "AND"
+        },
+        {
+          "skillId": 1
+        },
+        {
+          "skillId": 3,
+          "rules": [
+            {
+              "type": "Wait",
+              "timeout": 100
+            },
+            {
+              "type": "PartyHealth",
+              "value": 50,
+              "comparison": "less",
+              "isPercentage": true
+            }
+          ]
+        }
+      ]
+    },
+    "Base": {
+      "skillUseMode": "UseIfAvailable",
+      "skillTimeout": 100,
+      "skills": [
+        {
+          "skillId": 4,
+          "rules": [
+            {
+              "type": "Wait",
+              "timeout": 5000
+            }
+          ]
+        },
+        {
+          "skillId": 2,
+          "rules": [
+            {
+              "type": "Mana",
+              "value": 25,
+              "comparison": "greater",
+              "isPercentage": false
+            },
+            {
+              "type": "Aura",
+              "value": 23,
+              "comparison": "less",
+              "auraName": "Residual Sample",
+              "auraTarget": "self"
+            }
+          ]
+        },
+        {
+          "skillId": 1
+        },
+        {
+          "skillId": 3
+        }
+      ]
+    }
+  }
+}
