@@ -161,9 +161,11 @@ loads nothing. The memory line shows the count ("N script asm").
 VibeSkua marker); for any other version it requires Windows 10 and stops every script. See
 `SkuaScriptHostAdapter.ReportedSkuaVersion`.
 
-**Unattended dialogs.** Message boxes never wait: yes/no questions get *No*, button choices prefer OK / Continue /
-Close / Skip / None / No / Cancel, else the first button. Every question and its answer is logged as a `dialog`
-warning in the Console. Script option windows are skipped (saved options are used).
+**Unattended dialogs.** Message boxes never wait: yes/no questions get *No*; a choice of several buttons gets the
+declining one when offered (Cancel / No / Abort / Close), else None / Skip / OK / Continue, else the first button; a
+single button is pressed. Confirmation and input dialogs (the grabber's buy and sell quantities) are declined. Every
+question and its answer is logged as a `dialog` warning in the Console. Script option windows are skipped (saved
+options are used).
 
 **Options.** *Options* on the Scripts page compiles the selected script (later starts reuse the compile) and edits
 the options it declares (Skua's `Options` / `MultiOptions` lists: toggles, numbers, text, enum choices), saved to

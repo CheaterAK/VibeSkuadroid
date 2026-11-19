@@ -188,7 +188,12 @@ public class ScriptAssemblyStoreTests
         Assert.Equal("None", dialogs.ShowMessageBox("Data collection consent", "Data Collection", "Full", "Partial", "None").Text);
         Assert.Equal("OK", dialogs.ShowMessageBox("Done", "Info", "Retry", "OK").Text);
         Assert.Equal("Alpha", dialogs.ShowMessageBox("Pick", "Q", "Alpha", "Beta").Text);
-        Assert.Equal(4, log.Count(l => l.Source == "dialog"));
+        // CoreBots' update prompt is declined; its single-button notices are acknowledged.
+        Assert.Equal("Cancel", dialogs.ShowMessageBox("New version detected. Download now?", "Update Available", "OK", "Cancel").Text);
+        Assert.Equal("OK", dialogs.ShowMessageBox("Click OK to open the ReadMe.txt", "READ ME", "OK").Text);
+        Assert.Equal("No", dialogs.ShowMessageBox("Non-optional data", "Non-Optional Data", "Yes", "No").Text);
+        Assert.False(dialogs.ShowDialog(dialogs.CreateInputDialog("Buying Sword", "Buy quantity")));
+        Assert.Equal(8, log.Count(l => l.Source == "dialog"));
         Assert.Contains(log, l => l.Message.EndsWith("-> None", StringComparison.Ordinal));
     }
 

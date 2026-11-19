@@ -11,16 +11,24 @@ namespace Skua.Core.Headless.Host;
 public sealed record HeadlessLogEntry(string Source, string Message, DateTimeOffset At);
 
 /// <summary>
-/// How unattended dialogs are answered. Message boxes never block: yes/no questions get <see cref="YesNoAnswer"/>,
-/// button choices the button named in <see cref="PreferredButtons"/> (first match) or the first button, and script
-/// option windows are accepted as they are (their saved values are used).
+/// How unattended dialogs are answered. Message boxes never block: yes/no questions get <see cref="YesNoAnswer"/>;
+/// a choice of several buttons gets a declining one (<see cref="DecliningButtons"/>) when offered, else the button
+/// named in <see cref="PreferredButtons"/> (first match), else the first button; a single button is that button.
+/// Dialogs that ask for confirmation or input (<c>ShowDialog</c>, such
+/// as the grabber's buy and sell quantities) are declined, and script option windows are skipped (saved values are used).
 /// </summary>
 public sealed class HeadlessDialogPolicy
 {
     /// <summary>Answer to yes/no questions. Default no: scripts ask before doing something optional.</summary>
     public bool YesNoAnswer { get; set; }
 
-    /// <summary>Buttons to choose when offered, in order of preference (case-insensitive).</summary>
+    /// <summary>
+    /// Buttons that decline (case-insensitive, in order of preference): chosen before anything else when a message box
+    /// offers more than one button, so nobody confirms a purchase, download or other action by default.
+    /// </summary>
+    public IList<string> DecliningButtons { get; } = new List<string> { "Cancel", "No", "Abort", "Close", "Cancelar", "Não" };
+
+    /// <summary>Buttons to choose when no declining one is offered, in order of preference (case-insensitive).</summary>
     public IList<string> PreferredButtons { get; } = new List<string>();
 
     /// <summary>
@@ -42,14 +50,19 @@ public sealed class HeadlessDialogService : IDialogService
         _log = log;
     }
 
-    public bool? ShowDialog<TViewModel>(TViewModel viewModel) where TViewModel : class => true;
+    // Nobody is there to confirm or type anything: declined (the grabber's "buy/sell how many?" is cancelled).
+    public bool? ShowDialog<TViewModel>(TViewModel viewModel) where TViewModel : class => Decline(viewModel, null);
 
-    public bool? ShowDialog<TViewModel>(TViewModel viewModel, string Title) where TViewModel : class => true;
+    public bool? ShowDialog<TViewModel>(TViewModel viewModel, string Title) where TViewModel : class => Decline(viewModel, Title);
 
-    public bool? ShowDialog<TViewModel>(TViewModel viewModel, Action<TViewModel> callback) where TViewModel : class
+    // The callback is what a confirmed dialog runs; a declined one does not run it.
+    public bool? ShowDialog<TViewModel>(TViewModel viewModel, Action<TViewModel> callback) where TViewModel : class => Decline(viewModel, null);
+
+    private bool? Decline(object viewModel, string? title)
     {
-        callback(viewModel);
-        return true;
+        string what = viewModel is IInputDialogViewModel input ? input.DialogHint : title ?? viewModel.GetType().Name;
+        _log(new HeadlessLogEntry("dialog", $"{what} -> declined (no one to answer)", DateTimeOffset.UtcNow));
+        return false;
     }
 
     // Script options: kept as saved (no window to change them in).
@@ -81,7 +94,9 @@ public sealed class HeadlessDialogService : IDialogService
         int index = _policy.Answer?.Invoke(message, caption, buttons) ?? -1;
         if (index < 0 || index >= buttons.Length)
         {
-            index = _policy.PreferredButtons.Select(p => Array.FindIndex(buttons, b => b.Equals(p, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(i => i >= 0, -1);
+            index = buttons.Length > 1 ? FirstOf(_policy.DecliningButtons, buttons) : -1;
+            if (index < 0)
+                index = FirstOf(_policy.PreferredButtons, buttons);
             if (index < 0)
                 index = buttons.Length > 0 ? 0 : -1;
         }
@@ -89,6 +104,9 @@ public sealed class HeadlessDialogService : IDialogService
         _log(new HeadlessLogEntry("dialog", $"{caption}: {message} -> {(index >= 0 ? chosen : "(no buttons)")}", DateTimeOffset.UtcNow));
         return index < 0 ? DialogResult.Cancelled : new DialogResult(chosen, index);
     }
+
+    private static int FirstOf(IEnumerable<string> wanted, string[] buttons) =>
+        wanted.Select(p => Array.FindIndex(buttons, b => b.Trim().Equals(p, StringComparison.OrdinalIgnoreCase))).FirstOrDefault(i => i >= 0, -1);
 
     public IInputDialogViewModel CreateInputDialog(string title, string dialogHint) => new InputDialog(title, dialogHint);
 
