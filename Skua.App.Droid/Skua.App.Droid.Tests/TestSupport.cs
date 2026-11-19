@@ -233,7 +233,7 @@ internal sealed class FakeAqw : IAsyncDisposable
 /// <summary>Everything a ViewModel needs, on a fake AQW world.</summary>
 internal sealed class TestApp : IAsyncDisposable
 {
-    public TestApp(bool vaultAvailable = true, IScriptHost? scripts = null)
+    public TestApp(bool vaultAvailable = true, IScriptHost? scripts = null, bool withQueue = false)
     {
         Paths = AppPaths.UnderRoot(Sandbox.NewDir());
         Paths.EnsureCreated();
@@ -242,6 +242,11 @@ internal sealed class TestApp : IAsyncDisposable
         Engine = Aqw.NewEngine(scripts);
         Host = new EngineHost(Engine, Settings, new CredentialVault(Store), new ResumeStore(Paths.ResumeFile), Platform);
         ScriptLibrary library = new(Paths.ScriptsDir);
+        if (withQueue)
+        {
+            Host.AttachScheduler(new Skua.App.Droid.Core.Scheduler.ScriptScheduler(Engine,
+                new Skua.App.Droid.Core.Scheduler.QueueStore(Paths.QueueFile, Paths.PlaylistsDir), Paths.ScriptsDir, Paths.SkuaOptionsDir, QueueTesting.Fast));
+        }
         Services = new AppServices(Host, new InlineDispatcher(), Picker, library, new ScriptRepositorySync(library, Paths.SkuaDir, Aqw.Http), Paths);
     }
 

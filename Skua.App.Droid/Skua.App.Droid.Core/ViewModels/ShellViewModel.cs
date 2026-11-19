@@ -229,6 +229,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _uiVisible = visible;
         Console.SetUiVisible(visible);
         Control.SetUiVisible(visible);
+        Scripts.Queue?.SetUiVisible(visible);
         if (visible)
             PostSnapshot();
     }
@@ -309,5 +310,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Console.Dispose();
         Plugins.Dispose();
         Settings.Dispose();
+        Scripts.Queue?.Dispose();
     }
 }

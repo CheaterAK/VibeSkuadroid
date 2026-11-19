@@ -98,6 +98,29 @@ public sealed class MemoryWatchdog
         return LastVerdict;
     }
 
+    /// <summary>
+    /// Between two runs of the script queue (no script runs): whether a restart is wanted and allowed now. The same rules
+    /// as an automatic restart (over the threshold, auto restart on, threshold not too low, minimum uptime and interval)
+    /// except the idle grace, which only exists to wait for the user's next start. Records the restart when true.
+    /// </summary>
+    public bool TryClaimRestartBetweenRuns(long rssBytes)
+    {
+        DateTimeOffset now = _time.GetUtcNow();
+        if (rssBytes > 0)
+            _baseline ??= rssBytes;
+        if (rssBytes <= 0 || rssBytes < Options.ThresholdBytes || !Options.AutoRestart || _fired)
+            return false;
+        if (_baseline is long baseline && baseline >= Options.ThresholdBytes * 9 / 10)
+            return false;
+        if (now - _processStart < Options.MinimumUptime)
+            return false;
+        if (LastAutoRestartAt is DateTimeOffset last && now - last < Options.MinimumInterval)
+            return false;
+        _fired = true;
+        LastAutoRestartAt = now;
+        return true;
+    }
+
     private MemoryVerdict Decide(long rssBytes, bool scriptBusy, DateTimeOffset now)
     {
         if (rssBytes <= 0 || rssBytes < Options.ThresholdBytes)

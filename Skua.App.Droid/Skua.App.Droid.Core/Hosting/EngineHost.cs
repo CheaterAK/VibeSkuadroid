@@ -1,6 +1,7 @@
 using Skua.App.Droid.Core.Engine;
 using Skua.App.Droid.Core.Memory;
 using Skua.App.Droid.Core.Platform;
+using Skua.App.Droid.Core.Scheduler;
 using Skua.App.Droid.Core.Security;
 using Skua.App.Droid.Core.Settings;
 
@@ -40,6 +41,41 @@ public sealed class EngineHost : IAsyncDisposable
     public CredentialVault Vault { get; }
 
     public IPlatformServices Platform { get; }
+
+    /// <summary>The script queue (null until <see cref="AttachScheduler"/>; the platform head creates it with the engine).</summary>
+    public ScriptScheduler? Scheduler { get; private set; }
+
+    /// <summary>
+    /// Gives the host its script queue: the host restarts the engine between queue runs when memory is over the
+    /// threshold, tells the queue about every restart (so it saves where to resume) and resumes it after the restart's
+    /// login. Once.
+    /// </summary>
+    public void AttachScheduler(ScriptScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(scheduler);
+        if (Scheduler is not null)
+            throw new InvalidOperationException("The host already has a script queue.");
+        Scheduler = scheduler;
+        scheduler.RestartBetweenRuns = TryRestartBetweenQueueRuns;
+        RestartStarting += (_, _) => scheduler.OnRestarting();
+    }
+
+    /// <summary>
+    /// Between two queue runs (no script runs): restarts the process when memory is over the watchdog threshold and an
+    /// automatic restart is allowed now (the same limits as the watchdog's, without its idle grace) and the session can
+    /// be restored afterwards. Script assemblies are never unloaded on Android, so a long queue of different scripts
+    /// grows memory; this gives it back between runs instead of never (the watchdog alone waits for an idle engine).
+    /// </summary>
+    public bool TryRestartBetweenQueueRuns(string reason)
+    {
+        EngineSnapshot s = Engine.Snapshot;
+        if (!Platform.CanRestartProcess || s.Script.IsBusy || !CanResumeAfterRestart())
+            return false;
+        if (!_watchdog.TryClaimRestartBetweenRuns(s.Memory.RssBytes))
+            return false;
+        Settings.Update(x => x with { LastAutoRestartAt = _watchdog.LastAutoRestartAt });
+        return RequestRestart($"{reason}: {s.Memory.RssMb:0} MB over {Settings.Current.MemoryThresholdMb} MB");
+    }
 
     public MemoryVerdict MemoryVerdict => _watchdog.LastVerdict;
 
@@ -111,6 +147,7 @@ public sealed class EngineHost : IAsyncDisposable
         });
     }
 
+    /// <summary>Logs out (the engine's logout also stops the script queue).</summary>
     public Task LogoutAsync(CancellationToken cancellationToken = default) => Engine.LogoutAsync(cancellationToken);
 
     public void ForgetPassword()
@@ -132,6 +169,15 @@ public sealed class EngineHost : IAsyncDisposable
         ResumeRequest? request = _resume.Take();
         if (request is null)
             return null;
+        ResumeResult result = await ResumeLoginAsync(request, cancellationToken).ConfigureAwait(false);
+        // A queue the restart interrupted goes on (it waits for the connection if the login could not be resumed).
+        if (Scheduler?.ResumeAfterRestart() == true)
+            result = result with { Message = result.Message + " The script queue resumes." };
+        return result;
+    }
+
+    private async Task<ResumeResult> ResumeLoginAsync(ResumeRequest request, CancellationToken cancellationToken)
+    {
         if (!request.ResumeLogin || string.IsNullOrWhiteSpace(request.Account))
             return new ResumeResult($"Engine restarted ({request.Reason}).", LoggedIn: false, NeedsUser: false);
         VaultStatus status = VaultStatus.None;
@@ -212,6 +258,7 @@ public sealed class EngineHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        Scheduler?.Dispose();
         Settings.Changed -= OnSettingsChanged;
         Engine.SnapshotChanged -= OnSnapshot;
         await Engine.DisposeAsync().ConfigureAwait(false);
