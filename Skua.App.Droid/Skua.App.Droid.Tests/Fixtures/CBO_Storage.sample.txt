@@ -1,0 +1,64 @@
+SoloClassSelect: Void Highlord
+SoloEquipCheck: True
+SoloModeSelect: Solo
+FarmClassSelect: Legacy Class
+FarmEquipCheck: False
+FarmModeSelect: Base
+DodgeClassSelect: [Current]
+DodgeEquipCheck: False
+DodgeModeSelect: Base
+BossClassSelect:
+BossEquipCheck: False
+BossModeSelect:
+Helm1Select: Sample Helm
+Armor1Select:
+Cape1Select: Sample Old Cape
+Weapon1Select:
+Pet1Select:
+GroundItem1Select:
+Helm2Select:
+Armor2Select:
+Cape2Select:
+Weapon2Select:
+Pet2Select:
+GroundItem2Select:
+Helm3Select:
+Armor3Select:
+Cape3Select:
+Weapon3Select:
+Pet3Select:
+GroundItem3Select:
+Helm4Select:
+Armor4Select:
+Cape4Select:
+Weapon4Select:
+Pet4Select:
+GroundItem4Select:
+PrivateRooms: True
+PublicDifficult: False
+BankMiscAC: False
+LoggerInChat: True
+MessageBoxCheck: True
+RestCheck: False
+DisableAutoEnhance: False
+DisableBestGear: True
+AntiLag: True
+IncognitoMode: True
+PrivateRoomNr: 4242
+ExitCombatNr: 1600
+HuntDelayNr: 100
+QuestTriesNr: 20
+QuestMaxNr: 150
+StopLocationSelect: Whitemap
+doGoldBoost: True
+doClassBoost: False
+doRepBoost: False
+doExpBoost: False
+Nation_SellMemVoucher: True
+Nation_ReturnPolicyDuringSupplies: False
+UltraAlteonForSupplies: False
+PvP_SoloPvPBoss: False
+BCO_Story_TestBot: False
+ActionDelay: 500
+BankUnenhancedACGear: True
+SampleOtherCoreSetting: kept as it is

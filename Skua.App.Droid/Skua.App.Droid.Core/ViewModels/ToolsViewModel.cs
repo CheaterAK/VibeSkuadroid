@@ -30,17 +30,23 @@ public sealed partial class ToolsViewModel : ObservableObject
     public ToolsViewModel(AppServices services)
     {
         AdvancedSkills = new AdvancedSkillsViewModel(services);
+        CoreBots = new CoreBotsOptionsViewModel(services);
         Entries =
         [
             new ToolEntry("Advanced Skills",
                 "Class skill rotations scripts use: browse, edit, create and delete them (skill order, HP/MP/aura rules, wait or skip).",
                 () => Show(AdvancedSkills)),
+            new ToolEntry("CoreBots options",
+                "CoreBots' settings for this account: solo, farm, dodge and boss class with their rotation and gear, private rooms, delays and the other options.",
+                () => Show(CoreBots)),
         ];
     }
 
     public ObservableCollection<ToolEntry> Entries { get; }
 
     public AdvancedSkillsViewModel AdvancedSkills { get; }
+
+    public CoreBotsOptionsViewModel CoreBots { get; }
 
     /// <summary>The open tool page, or null for the list.</summary>
     [ObservableProperty]
@@ -93,7 +99,5 @@ public sealed partial class ToolsViewModel : ObservableObject
         return true;
     }
 
-    internal void Apply(EngineSnapshot s)
-    {
-    }
+    internal void Apply(EngineSnapshot s) => CoreBots.Apply(s);
 }

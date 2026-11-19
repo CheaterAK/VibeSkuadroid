@@ -36,6 +36,73 @@ public class ToolsUiTests
     }
 
     [AvaloniaFact]
+    public async Task CoreBotsOptionsPagesRenderOfflineAndOnline()
+    {
+        CollectingSink sink = new();
+        Logger.Sink = sink;
+        await using TestApp app = new(scripts: new ToolsScriptHost(FakeCharacter.Services(out _)));
+        File.Copy(AdvancedSkillsTests.Fixture("CoreBots.sample.cs.txt"), Path.Combine(app.Paths.ScriptsDir, "CoreBots.cs"));
+        using ShellViewModel shell = new(new AppServices(app.Host, new ImmediateUiDispatcher(), app.Picker, app.Services.Library, app.Services.RepositorySync, app.Paths));
+        Window window = new() { Width = 412, Height = 915, Content = new MainView { DataContext = shell } };
+        window.Show();
+        shell.NavigateCommand.Execute("Settings");
+        shell.Settings.OpenToolsCommand.Execute(null);
+        ToolsViewModel tools = shell.Settings.Tools;
+        CoreBotsOptionsViewModel page = tools.CoreBots;
+
+        // Logged out: the page says why.
+        tools.OpenCommand.Execute(tools.Entries.Single(e => e.Title == "CoreBots options"));
+        Render(window);
+        Assert.NotNull(window.GetVisualDescendantOfType(nameof(CoreBotsOptionsView)));
+        Assert.False(page.IsReady);
+        Assert.True(shell.GoBack());
+
+        await app.Host.LoginAsync("hero", FakeAqw.Password, null, remember: false);
+        await Until(window, () => page.IsReady);
+        tools.OpenCommand.Execute(tools.Entries.Single(e => e.Title == "CoreBots options"));
+        await Until(window, () => page.Slots.Count == 4);
+        Control view = window.GetVisualDescendantOfType(nameof(CoreBotsOptionsView))!;
+
+        // The class of the solo slot chosen in its combo box; its modes follow.
+        Render(window);
+        view = window.GetVisualDescendantOfType(nameof(CoreBotsOptionsView))!;
+        Assert.True(view.GetVisualDescendants().OfType<ComboBox>().Any(), $"no combo boxes; tab {page.Tab}, slots {page.Slots.Count}, {view.GetVisualDescendants().Count()} visuals, {page.Message}");
+        ComboBox soloClass = view.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsVisible);
+        soloClass.SelectedItem = "Void Highlord";
+        Render(window);
+        Assert.Equal("Void Highlord", page.Slots[0].ClassName);
+        Assert.Equal(["Base", "Solo"], page.Slots[0].ModeChoices);
+
+        foreach (string tab in new[] { "Equipment", "Options", "Other", "Classes" })
+        {
+            page.SelectTabCommand.Execute(tab);
+            Render(window);
+            Assert.Equal(tab, page.Tab);
+        }
+        page.SelectTabCommand.Execute("Equipment");
+        Render(window);
+        ComboBox helm = view.GetVisualDescendants().OfType<ComboBox>().First(c => c.IsEffectivelyVisible && c.ItemsSource is IReadOnlyList<string> l && l.Contains("Sample Helm"));
+        helm.SelectedItem = "Sample Helm";
+        Render(window);
+        Assert.Equal("Sample Helm", page.Slots[0].Helm);
+
+        page.General.Single(o => o.Key == "PrivateRooms").BoolValue = false;
+        page.SaveCommand.Execute(null);
+        Render(window);
+        Assert.True(page.ConfirmPublicRooms);
+        Assert.True(shell.GoBack()); // back answers the warning first
+        Assert.False(page.ConfirmPublicRooms);
+        page.SaveCommand.Execute(null);
+        page.KeepPrivateRoomsCommand.Execute(null);
+        Render(window);
+        Assert.Contains("Saved", page.Message);
+
+        window.Close();
+        List<string> problems = Problems(sink);
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
+    [AvaloniaFact]
     public async Task AdvancedSkillsPagesRenderAndEditThroughTheControls()
     {
         CollectingSink sink = new();

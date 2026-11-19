@@ -164,6 +164,44 @@ public static partial class CoreBotsOptions
         File.Move(temp, file, overwrite: true);
     }
 
+    /// <summary>The lines of <paramref name="account"/>'s settings file (none when it does not exist).</summary>
+    /// <exception cref="EngineException">The account name is not one a settings file can be named after.</exception>
+    public static IReadOnlyList<string> ReadLines(string optionsDir, string account)
+    {
+        string file = FileFor(optionsDir, account);
+        return File.Exists(file) ? File.ReadAllLines(file) : [];
+    }
+
+    /// <summary>
+    /// Key and value of each line as CoreBots reads them (<c>Key: Value</c>; the first line of a key wins), values
+    /// trimmed as the desktop window reads them.
+    /// </summary>
+    public static Dictionary<string, string> Values(IEnumerable<string> lines)
+    {
+        Dictionary<string, string> values = new(StringComparer.Ordinal);
+        foreach (string line in lines)
+        {
+            int colon = line.IndexOf(": ", StringComparison.Ordinal);
+            if (colon > 0)
+                values.TryAdd(line[..colon].Trim(), line[(colon + 2)..].Trim());
+        }
+        return values;
+    }
+
+    /// <summary>The key of a settings line.</summary>
+    public static string KeyOfLine(string line) => KeyOf(line);
+
+    /// <summary>Replaces <paramref name="account"/>'s settings file with <paramref name="lines"/> (atomically).</summary>
+    /// <exception cref="EngineException">The account name is not one a settings file can be named after.</exception>
+    public static void WriteLines(string optionsDir, string account, IEnumerable<string> lines)
+    {
+        string file = FileFor(optionsDir, account);
+        Directory.CreateDirectory(optionsDir);
+        string temp = file + ".tmp";
+        File.WriteAllLines(temp, lines);
+        File.Move(temp, file, overwrite: true);
+    }
+
     private static bool Keep(ScriptOptionItem item, Dictionary<string, string> previous) =>
         item.Kind == ScriptOptionKind.Toggle
             ? item.Value == "True" || previous.ContainsKey(item.Name)

@@ -6,6 +6,7 @@
              x:DataType="vm:ToolsViewModel">
   <UserControl.DataTemplates>
     <DataTemplate DataType="vm:AdvancedSkillsViewModel"><v:AdvancedSkillsView /></DataTemplate>
+    <DataTemplate DataType="vm:CoreBotsOptionsViewModel"><v:CoreBotsOptionsView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Panel>

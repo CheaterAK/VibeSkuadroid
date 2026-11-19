@@ -8,6 +8,7 @@ Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .N
 |---|---|---|
 | `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog), ViewModels, settings, credential vault format, script library |
 | `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`) |
+| `Skua.App.Droid.Linked` | net10.0 | the desktop's UI-free ViewModels compiled in unchanged (advanced skill items and rules, CoreBots loadout); referenced by `.Core` only, behind an extern alias (see Tools) |
 | `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) on Skua's `IScriptInterface`; created by the script host adapter |
 | `Skua.App.Droid.UI` | net10.0 | Avalonia 12 views (compiled bindings) |
 | `Skua.App.Droid` | net10.0-android | Android head: plain launcher and crash screen, the Avalonia activity, foreground `EngineService`, `KeystoreSecretStore`, crash capture, restart, manifest |
@@ -172,6 +173,7 @@ the options it declares (Skua's `Options` / `MultiOptions` lists: toggles, numbe
 `options/<storage>.cfg` where Skua reads them. Transient options are shown read-only (reset every run).
 *CoreBots options* edits CoreBots' own settings (`options/CBO_Storage(<user>).txt`: class and gear sets, private
 rooms, delays...); the keys are read from the synced Core*.cs sources. Without that file CoreBots uses its defaults.
+The same file has proper pages under Settings > Tools > *CoreBots options* (see Tools).
 
 **Status.** The Scripts page and the Dashboard show the running script, its run time and Skua's counters (kills,
 deaths, quests, drops, relogins); the script log (`script` lines), Skua's debug output (`skua`, debug level) and
@@ -204,6 +206,48 @@ Measured once from Linux: 1953 scripts (13.2 MB) in 28 s.
 
 Reference images scripts compile against are packed as APK assets under `assets/script-refs/` by
 `ScriptReferences.targets`; the tests compile real scripts through Skua.Core against exactly that set.
+
+## Tools
+
+Settings > *Open tools* lists pages ported from the desktop's tool windows (`ToolsViewModel`, a `ToolEntry` per page).
+
+**Advanced Skills** (desktop: AdvancedSkillsView). Classes and their rotations from `UserAdvancedSkills.json` (what
+Skua's `AdvancedSkillContainer` loads and scripts use), searchable; per rotation: edit, delete, back to the community
+version; new rotations and modes; reset everything to the community file. The editor has the desktop's options (mode,
+use if available / wait for cooldown, timeout, reset on target change, skills 0-5 in order) and per skill its rules
+(wait, own HP, MP, a party member's HP above/below in % or points, one aura or several with AND/OR on you or the target,
+skip if not available). Files are read and written by `Skills/SkillSetStore.cs` in Skua's JSON; a saved rotation is
+built by the desktop's own `SkillItemViewModel.Convert` and Skua's `AdvancedSkillsParser`, other rotations are left as
+they are in the file, and Skua's container is reloaded (the next `LoadAdvanced` of a script uses it; a running script
+keeps the rotation it already loaded, as on the desktop). Two slips of the desktop parser are corrected on the way in
+so that open + save changes nothing (checked over every rotation of the community file): the skip flag after an aura
+rule, and "<" multi-aura checks after a ">" one (the desktop editor loses both on save).
+
+*Community updates and edits.* The sync refreshes `AdvancedSkills.json`; before each run (and when the page opens)
+`SkillSetStore.UpdateFromCommunity` merges it into the user file against `UserAdvancedSkills.base.json` (the community
+file it was last merged with): untouched rotations take the new version, edited ones stay, deleted ones stay deleted,
+the user's own stay, new ones are added. The desktop instead only adds classes and modes the user file lacks (so
+untouched rotations stop updating and deleted ones come back); before this version the app overwrote the user file.
+Skua's container would also download the file from GitHub itself and merge in the background: the host turns that off
+(`HeadlessSkuaOptions.ConfigureSettings`), so there is one writer.
+
+**CoreBots options** (desktop: CBOptionsView, CBOClassSelectView, CBOClassEquipmentView, CBOLoadoutView,
+CBOOtherOptionsView), for the logged-in account. Classes: solo, farm, dodge and boss class (the character's enhanced
+classes and "[Current]") with the rotation mode (modes the class has in Advanced Skills) and gear switching;
+Equipment: helm, armor, cape, weapon, pet and ground item per slot from the inventory; Options and Other: the desktop's
+lists (private rooms with the desktop's public-room warning, room number, delays, quest limits, stop map, boosters,
+nation, PvP, bot creator); plus "More settings CoreBots reads" (keys from the synced Core*.cs no tab writes). Reload
+reads the file, Load character re-reads classes and gear keeping the selections. The class and equipment logic is the
+desktop's `CBOClassSelectViewModel`, `CBOClassEquipmentViewModel` and `CBOLoadoutViewModel` (compiled in) on Skua's
+services of the engine's session (`IBotEngine.SkuaServices`). The file is written in the desktop's order and format;
+unlike the desktop, lines no page knows are kept after them unless CoreBots would read a written line for them anyway
+(it matches keys by prefix: the old editor's "ActionDelay" is read from "ActionDelayNr"). Names and paths go through
+`CoreBotsOptions.FileFor` (account-name characters only, inside the options folder).
+
+**Why `Skua.App.Droid.Linked`.** The desktop ViewModels keep their namespace `Skua.App.Avalonia...`. Visible to the
+other projects, that namespace would hide the `Avalonia` namespace from code in `Skua.App.*` namespaces that writes
+`Avalonia.Xyz` (several files do). So `.Core` references it with `Aliases="desktop"` and `PrivateAssets="all"`, and the
+views bind to `.Core` wrappers (`SkillRow`, `AuraCheckRow`, `CoreBotsSlot`, ...), never to desktop types.
 
 ## Plugins
 

@@ -10,7 +10,7 @@
       <Border Classes="card">
         <StackPanel Spacing="8">
           <TextBlock Classes="caption" Text="TOOLS" />
-          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Advanced skills (class rotations) and more." />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Advanced skills (class rotations) and CoreBots options." />
           <Button Classes="small primary" HorizontalAlignment="Left" Content="Open tools" Command="{Binding OpenToolsCommand}" />
         </StackPanel>
       </Border>

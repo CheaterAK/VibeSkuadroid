@@ -1,0 +1,19 @@
+// Synthetic stand-in for CoreBots.cs in the shape of its ReadCBO (not the real file).
+public class CoreBots
+{
+    public void ReadCBO()
+    {
+        if (CBOBool("PrivateRooms", out bool _PrivateRooms)) { }
+        if (CBOInt("PrivateRoomNr", out int _PrivateRoomNumber)) { }
+        if (CBOBool("BankUnenhancedACGear", out bool _BankUnenhGear)) { }
+        if (CBOString("SoloClassSelect", out string _SoloClassSelect)) { }
+        if (CBOString("SoloModeSelect", out string _SoloModeSelect)) { }
+        if (CBOInt("ActionDelay", out int _ActionDelay)) { }
+        if (CBOString("Helm1Select", out string _Helm1)) { }
+        if (CBOInt("SampleExtraNr", out int _extra)) { }
+    }
+
+    private bool CBOString(string name, out string output) { output = ""; return false; }
+    private bool CBOBool(string name, out bool output) { output = false; return false; }
+    private bool CBOInt(string name, out int output) { output = 0; return false; }
+}

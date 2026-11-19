@@ -1,0 +1,132 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.CoreBotsOptionsView"
+             x:DataType="vm:CoreBotsOptionsViewModel">
+  <UserControl.Resources>
+    <!-- One setting of the Options and Other tabs -->
+    <DataTemplate x:Key="OptionTemplate" x:DataType="vm:CoreBotsOption">
+      <StackPanel Spacing="4" Margin="0,4">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock Text="{Binding Title}" TextWrapping="Wrap" VerticalAlignment="Center" />
+          <ToggleSwitch Grid.Column="1" IsVisible="{Binding IsToggle}" IsChecked="{Binding BoolValue}" OnContent="" OffContent="" />
+        </Grid>
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Description}" IsVisible="{Binding HasDescription}" />
+        <TextBox IsVisible="{Binding IsTextual}" Text="{Binding TextValue}" TextInputOptions.AutoCapitalization="False" />
+      </StackPanel>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="12,8">
+    <!-- Account and actions -->
+    <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,6">
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding AccountText}" />
+      <Grid ColumnDefinitions="*,*,*">
+        <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Save" Command="{Binding SaveCommand}" />
+        <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Reload" Command="{Binding ReloadCommand}" />
+        <Button Grid.Column="2" Classes="small" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Load character" Command="{Binding LoadCharacterCommand}" />
+      </Grid>
+      <Border Classes="banner" Margin="0" IsVisible="{Binding ConfirmPublicRooms}">
+        <StackPanel Spacing="6">
+          <TextBlock TextWrapping="Wrap" FontSize="13"
+                     Text="Whilst we do offer the option, we highly recommend staying in private rooms while botting. Bot in public at your own risk. Use public rooms?" />
+          <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Classes="small" Content="Keep private rooms" Command="{Binding KeepPrivateRoomsCommand}" />
+            <Button Classes="small danger" Content="Use public rooms" Command="{Binding UsePublicRoomsCommand}" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+
+    <!-- Tabs -->
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Margin="0,0,0,6">
+      <StackPanel Orientation="Horizontal">
+        <ToggleButton Classes="tab" Content="Classes" IsChecked="{Binding IsClassesTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Classes" />
+        <ToggleButton Classes="tab" Content="Equipment" IsChecked="{Binding IsEquipmentTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Equipment" />
+        <ToggleButton Classes="tab" Content="Options" IsChecked="{Binding IsOptionsTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Options" />
+        <ToggleButton Classes="tab" Content="Other" IsChecked="{Binding IsOtherTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Other" />
+      </StackPanel>
+    </ScrollViewer>
+
+    <ScrollViewer Grid.Row="2">
+      <Panel>
+        <!-- Classes: class and rotation per slot -->
+        <StackPanel IsVisible="{Binding IsClassesTab}">
+          <ItemsControl ItemsSource="{Binding Slots}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CoreBotsSlot">
+                <Border Classes="card">
+                  <StackPanel Spacing="6">
+                    <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Name}" />
+                    <TextBlock Classes="muted" Text="{Binding Description}" />
+                    <TextBlock Classes="caption" Text="CLASS" />
+                    <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding ClassChoices}" SelectedItem="{Binding ClassName}" PlaceholderText="No class (CoreBots: generic)" />
+                    <TextBlock Classes="caption" Text="ROTATION (ADVANCED SKILLS MODE)" />
+                    <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding ModeChoices}" SelectedItem="{Binding Mode}" />
+                    <CheckBox Content="Equip this slot's gear (Equipment tab)" IsChecked="{Binding UseEquipment}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,0,0,8"
+                     Text="Classes are the enhanced classes of the character (Load character reads them again). Edit the rotations in Advanced Skills." />
+        </StackPanel>
+
+        <!-- Equipment per slot -->
+        <ItemsControl IsVisible="{Binding IsEquipmentTab}" ItemsSource="{Binding Slots}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:CoreBotsSlot">
+              <Border Classes="card">
+                <StackPanel Spacing="6">
+                  <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Name}" />
+                  <CheckBox Content="Equip this gear" IsChecked="{Binding UseEquipment}" />
+                  <TextBlock Classes="caption" Text="HELM" />
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Helms}" SelectedItem="{Binding Helm}" />
+                  <TextBlock Classes="caption" Text="ARMOR" />
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Armors}" SelectedItem="{Binding Armor}" />
+                  <TextBlock Classes="caption" Text="CAPE" />
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Capes}" SelectedItem="{Binding Cape}" />
+                  <TextBlock Classes="caption" Text="WEAPON" />
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Weapons}" SelectedItem="{Binding Weapon}" />
+                  <TextBlock Classes="caption" Text="PET" />
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Pets}" SelectedItem="{Binding Pet}" />
+                  <TextBlock Classes="caption" Text="GROUND ITEM" />
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding GroundItems}" SelectedItem="{Binding GroundItem}" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Options -->
+        <Border Classes="card" IsVisible="{Binding IsOptionsTab}" VerticalAlignment="Top">
+          <ItemsControl ItemsSource="{Binding General}" ItemTemplate="{StaticResource OptionTemplate}" />
+        </Border>
+
+        <!-- Other -->
+        <StackPanel IsVisible="{Binding IsOtherTab}">
+          <ItemsControl ItemsSource="{Binding Other}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:CoreBotsOptionGroup">
+                <Border Classes="card">
+                  <StackPanel>
+                    <TextBlock Classes="caption" Text="{Binding Title}" />
+                    <ItemsControl ItemsSource="{Binding Options}" ItemTemplate="{StaticResource OptionTemplate}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Border Classes="card" IsVisible="{Binding HasMore}">
+            <StackPanel>
+              <TextBlock Classes="caption" Text="MORE SETTINGS COREBOTS READS" />
+              <ItemsControl ItemsSource="{Binding More}" ItemTemplate="{StaticResource OptionTemplate}" />
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Panel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>
