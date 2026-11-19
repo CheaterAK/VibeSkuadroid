@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Game view spike</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #game { position: fixed; inset: 0; }
+  #game > ruffle-player, #game > ruffle-object, #game > * { width: 100%; height: 100%; display: block; }
+  #status { position: fixed; left: 8px; bottom: 6px; color: #9a9a9a; font: 12px sans-serif; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="status">Loading...</div>
+<!-- spike.js installs the measurement hooks, then loads ruffle/ruffle.js itself. -->
+<script src="spike.js"></script>
+</body>
+</html>
