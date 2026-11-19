@@ -8,7 +8,7 @@ Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .N
 |---|---|---|
 | `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog), ViewModels, settings, credential vault format, script library |
 | `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`) |
-| `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) on Skua's `IScriptInterface`; created by the script host adapter |
+| `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) and the Control page's, on Skua's `IScriptInterface`; created by the script host adapter |
 | `Skua.App.Droid.UI` | net10.0 | Avalonia 12 views (compiled bindings) |
 | `Skua.App.Droid` | net10.0-android | Android head: plain launcher and crash screen, the Avalonia activity, foreground `EngineService`, `KeystoreSecretStore`, crash capture, restart, manifest |
 | `Skua.App.Droid.Desktop` | net10.0 | desktop preview of the same UI and engine (no password storage) |
@@ -204,6 +204,44 @@ Measured once from Linux: 1953 scripts (13.2 MB) in 28 s.
 
 Reference images scripts compile against are packed as APK assets under `assets/script-refs/` by
 `ScriptReferences.targets`; the tests compile real scripts through Skua.Core against exactly that set.
+
+## Control page
+
+There is no game rendering, so the Control tab (bottom bar: Home, Scripts, **Control**, Console, Plugins, Settings)
+shows the game schematically and lets you act by hand. It took World's place in the bar: the World lists (inventory,
+temp, bank, quests, drops, monsters) open from Control's *Lists* button, and Back returns to Control.
+
+* **Map**: map and room, server, and the map's cells as tiles in map order: the frame labels of the map file
+  (`Skua.Core.Headless/Maps`, downloaded once and cached); when the file cannot be read (LZMA) the cells seen in the
+  room data (monsters' and players' cells, Enter). Each tile shows live/total monsters and other players; yours is lit,
+  cells with live monsters have an orange edge. Tap a tile to move there (the cell's default pad: Spawn, else Left,
+  else its first pad, as skua.swf's jumpCorrectRoom); the pad row moves within your cell.
+* **Cell**: your HP and target; monsters (name, level, HP bar, state) with *Attack* (the client's attackMonsterID:
+  target plus auto attack); players (level, state, afk) with *Go to*; skill bar slots 1-5 (the client's readiness
+  rules: cooldown, global cooldown, mana, target); Cancel target, Rest, Resurrect (when dead); drops with Pick up /
+  Reject.
+* **Actions**: *Travel* (join a map, with the last 8 joined maps; /goto a player by name; everyone in the room),
+  *Shop* (load by ID; each item with price and the client's checks: unmet materials or quest, gold/AC, membership,
+  reputation, how many can be bought; Buy), *Quest* (load by ID; requirements, progress, rewards; Accept, Turn in),
+  *Bank* (load; bank to backpack and back; Sell from the backpack while a shop is loaded).
+
+How it works: `IControlBackend` (Core) is implemented by `Skua.App.Droid.Plugins/Control/ControlBackend.cs` on the
+engine's one Skua session, created next to the plugins (`IPluginBackends.Control`, so the script host adapter is
+unchanged). Reads come from the headless world model and client rules (`HeadlessGame`); actions go through Skua's
+script API (`Map.Jump`, `Combat.Attack`, `Skills.UseSkill`, `Shops`, `Quests`, `Bank`, `Inventory`, `Drops`,
+`Player.Rest/Goto`), the client rules (`GameClient.Resurrect`, `ShowQuests`) and `GameCommands.JoinMapAsync` (for the
+server's refusal text). The page never builds a packet; raw packets stay in the Console's packet logger.
+
+Safety: one action at a time; while a script runs, every action first asks "A script is running; do it anyway?";
+buying (quantity and price, AC purchases in red), selling, bank moves, quest turn-ins and rejecting a drop ask for
+confirmation. Actions wait for the game's own throttles (`world.lock`: shop, buy, sell, quest, rest, map transfer);
+moves within the map are spaced 0.5 s and /goto 3 s apart by the page, skills by the client's cooldowns. Names typed
+for maps and players are checked (letters, digits, `-`, `_`, spaces for players) before anything is sent. Failures
+show on the page and go to the Console (source `control`); nothing there throws into the UI.
+
+Cost: the page reads the game only while it is open and the app is in the foreground, at most every 400 ms (2.5 UI
+updates per second), on a worker thread; a list is replaced only when its content changed. In the background it does
+nothing; returning reads the latest state once.
 
 ## Plugins
 

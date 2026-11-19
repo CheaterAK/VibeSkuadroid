@@ -1,4 +1,5 @@
 using System.Reflection;
+using Skua.App.Droid.Core.Control;
 using Skua.App.Droid.Core.Engine;
 using Skua.App.Droid.Core.Plugins;
 using Skua.Core.Headless;
@@ -57,6 +58,10 @@ internal sealed class FakePluginBackends : IPluginBackends
     public FakeButler FakeButler { get; } = new();
 
     public IButlerBackend? Butler => FakeButler;
+
+    public FakeControlBackend FakeControl { get; } = new();
+
+    public IControlBackend? Control => FakeControl;
 }
 
 internal sealed class FakeButler : IButlerBackend
@@ -199,4 +204,111 @@ public class ScriptFake : DispatchProxy
         }
         return type.IsValueType ? Activator.CreateInstance(type) : null;
     }
+}
+
+/// <summary>A Control page backend with a fixed little world; records every action and can fail or block on demand.</summary>
+internal sealed class FakeControlBackend : IControlBackend
+{
+    private int _reads;
+
+    public int Reads => Volatile.Read(ref _reads);
+
+    public List<string> Calls { get; } = new();
+
+    /// <summary>Thrown by the next action (then cleared).</summary>
+    public Exception? Fail { get; set; }
+
+    /// <summary>When set, actions wait for it.</summary>
+    public ManualResetEventSlim? Gate { get; set; }
+
+    public ControlState State { get; set; } = new(
+        true, "testmap", "testmap-901", "Enter", "Spawn",
+        [new("Enter", 0, 0, 1, true), new("r2", 2, 2, 0, false), new("r3", 0, 1, 0, false)],
+        CellSource.RoomData,
+        ["Spawn", "Left", "Right"],
+        [new(1, "Pixie", 3, 50, 100, 2, true), new(2, "Pixie", 3, 0, 100, 0, false)],
+        [new("OtherPlayer", 12, "Enter", "Spawn", 800, 800, 1, true)],
+        [new("OtherPlayer", 12, "Enter", "Spawn", 800, 800, 1, true)],
+        [new(11, "Pixie Wing", 1)],
+        [new(1, "Heal"), new(2, "Smite"), new(5, "Potion")],
+        "Pixie (#1)",
+        true, true, 900, 1000, true, true, 1);
+
+    public ControlShop? Shop { get; set; } = new(77, "Pixie Shop",
+    [
+        new(40, 9001, "Health Potion", 10, false, false, 1, 99, 50, [], null),
+        new(41, 9002, "Fancy Hat", 1000, false, false, 1, 1, 0, [], "Not enough gold."),
+        new(43, 9004, "Wing Charm", 0, false, false, 1, 10, 0, ["Missing 2 x Pixie Wing in inventory."], null),
+    ]);
+
+    public ControlQuest? Quest { get; set; } = new(1000, "Pixie Problem", "Bring dust.", true, false, false,
+        ["Level 1"], null, [new(10, "Pixie Dust", 1, 3)], ["100 gold", "50 XP", "1 x Pixie Crown"], 0);
+
+    public ControlBank Bank { get; set; } = new(true,
+        [new(11, "Pixie Wing", 2, 99, "Item", "None", false, false, false)],
+        [new(1, "Default Sword", 1, 1, "Sword", "Weapon", true, false, false), new(30, "Old Boots", 3, 5, "Misc", "None", false, false, false)],
+        20, 40);
+
+    public ControlState Read()
+    {
+        Interlocked.Increment(ref _reads);
+        return State;
+    }
+
+    public ControlShop? ReadShop() => Shop;
+
+    public ControlQuest? ReadQuest(int questId) => Quest?.QuestId == questId ? Quest : null;
+
+    public ControlBank ReadBank() => Bank;
+
+    private string Do(string call)
+    {
+        lock (Calls)
+            Calls.Add(call);
+        Gate?.Wait(TimeSpan.FromSeconds(10));
+        if (Fail is Exception e)
+        {
+            Fail = null;
+            throw e;
+        }
+        return $"done: {call}";
+    }
+
+    public string JoinMap(string map) => Do($"join {map}");
+
+    public string Jump(string cell, string? pad) => Do($"jump {cell} {pad ?? "-"}");
+
+    public string GotoPlayer(string name) => Do($"goto {name}");
+
+    public string Attack(int monMapId) => Do($"attack {monMapId}");
+
+    public string UseSkill(int index) => Do($"skill {index}");
+
+    public string CancelTarget() => Do("cancel");
+
+    public string Rest() => Do("rest");
+
+    public string Resurrect() => Do("resurrect");
+
+    public string PickupDrop(int itemId) => Do($"pickup {itemId}");
+
+    public string RejectDrop(int itemId) => Do($"reject {itemId}");
+
+    public string LoadShop(int shopId) => Do($"shop {shopId}");
+
+    public string Buy(int itemId, int shopItemId, int quantity) => Do($"buy {itemId} {shopItemId} {quantity}");
+
+    public string Sell(int itemId, int quantity) => Do($"sell {itemId} {quantity}");
+
+    public string LoadQuest(int questId) => Do($"quest {questId}");
+
+    public string AcceptQuest(int questId) => Do($"accept {questId}");
+
+    public string TurnInQuest(int questId) => Do($"turnin {questId}");
+
+    public string LoadBank() => Do("bank");
+
+    public string BankToInventory(int itemId) => Do($"toinv {itemId}");
+
+    public string InventoryToBank(int itemId) => Do($"tobank {itemId}");
 }

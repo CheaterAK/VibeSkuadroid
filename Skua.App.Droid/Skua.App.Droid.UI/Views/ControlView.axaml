@@ -1,0 +1,340 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.ControlView"
+             x:DataType="vm:ControlViewModel">
+  <UserControl.Styles>
+    <!-- Map tiles: one per cell; the character's cell is lit, cells with live monsters get an orange edge. -->
+    <Style Selector="Button.tile">
+      <Setter Property="Width" Value="92" />
+      <Setter Property="MinHeight" Value="52" />
+      <Setter Property="Margin" Value="0,0,6,6" />
+      <Setter Property="Padding" Value="6,4" />
+      <Setter Property="Background" Value="{StaticResource SurfaceElevatedBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.tile.monsters">
+      <Setter Property="BorderBrush" Value="{StaticResource OrangeBrush}" />
+    </Style>
+    <Style Selector="Button.tile.current">
+      <Setter Property="Background" Value="{StaticResource BtnGreenBg}" />
+      <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="Button.chip">
+      <Setter Property="MinHeight" Value="34" />
+      <Setter Property="Padding" Value="10,2" />
+      <Setter Property="Margin" Value="0,0,6,6" />
+      <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="Button.chip.current">
+      <Setter Property="Background" Value="{StaticResource BtnGreenBg}" />
+      <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+      <Setter Property="BorderThickness" Value="1.5" />
+    </Style>
+    <Style Selector="TextBlock.warn">
+      <Setter Property="Foreground" Value="{StaticResource OrangeBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </UserControl.Styles>
+
+  <UserControl.Resources>
+    <DataTemplate x:Key="NameChipTemplate" x:DataType="vm:NameChip">
+      <Button Classes="chip" Classes.current="{Binding IsCurrent}" Content="{Binding Name}" Command="{Binding UseCommand}" CommandParameter="{Binding Name}" />
+    </DataTemplate>
+    <DataTemplate x:Key="PlayerTemplate" x:DataType="vm:PlayerLine">
+      <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+          <TextBlock Classes="muted" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <Button Grid.Column="1" Classes="small" Content="Go to" Command="{Binding GotoCommand}" CommandParameter="{Binding Name}" />
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+
+        <!-- Inline state of the page: a running script, the action in progress, errors and results -->
+        <Border Classes="banner" Margin="0,0,0,8" IsVisible="{Binding ScriptBusy}">
+          <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding ScriptText}" />
+        </Border>
+        <TextBlock Classes="muted" Margin="2,0,0,6" IsVisible="{Binding !IsAvailable}" TextWrapping="Wrap" Text="Not available in this engine." />
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="2,0,0,6" IsVisible="{Binding IsWorking}">
+          <ProgressBar IsIndeterminate="True" Width="60" VerticalAlignment="Center" />
+          <TextBlock Classes="muted" Text="{Binding WorkingText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+        </StackPanel>
+        <TextBlock Classes="error" Margin="2,0,0,6" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <TextBlock Classes="muted" Margin="2,0,0,6" TextWrapping="Wrap" Text="{Binding Status}" IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+        <!-- Schematic map -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel>
+                <TextBlock Classes="caption" Text="MAP" />
+                <TextBlock FontSize="18" FontWeight="Bold" Text="{Binding MapTitle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="muted" Text="{Binding MapDetail}" />
+              </StackPanel>
+              <Button Grid.Column="1" Classes="small" VerticalAlignment="Top" Content="Lists" Command="{Binding OpenListsCommand}" />
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding CellSourceText}" />
+            <TextBlock Classes="muted" IsVisible="{Binding !IsOnline}" Text="Log in to see the map." />
+            <ItemsControl ItemsSource="{Binding Tiles}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:CellTile">
+                  <Button Classes="tile" Classes.current="{Binding IsCurrent}" Classes.monsters="{Binding HasMonsters}"
+                          Command="{Binding JumpCommand}" CommandParameter="{Binding Name}">
+                    <StackPanel>
+                      <TextBlock FontWeight="SemiBold" FontSize="13" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="muted" FontSize="11" Text="{Binding Counts}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Classes="caption" Text="PADS IN THIS CELL" IsVisible="{Binding IsOnline}" />
+            <ItemsControl ItemsSource="{Binding Pads}" ItemTemplate="{StaticResource NameChipTemplate}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Current cell -->
+        <Border Classes="card" IsVisible="{Binding IsOnline}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="CELL" />
+            <TextBlock FontWeight="SemiBold" Text="{Binding CellTitle}" />
+            <TextBlock Classes="muted" Text="{Binding SelfText}" />
+            <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasTarget}">
+              <TextBlock Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding TargetText, StringFormat='Target: {0}'}" />
+              <Button Grid.Column="1" Classes="small" Content="Cancel target" Command="{Binding CancelTargetCommand}" />
+            </Grid>
+            <ItemsControl ItemsSource="{Binding Skills}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:SkillButton">
+                  <Button Classes="chip" Content="{Binding Label}" Command="{Binding UseCommand}" CommandParameter="{Binding Index}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Classes="small" Content="Rest" Command="{Binding RestCommand}" />
+              <Button Classes="small danger" Content="Resurrect" Command="{Binding ResurrectCommand}" IsVisible="{Binding IsDead}" />
+            </StackPanel>
+
+            <TextBlock Classes="caption" Margin="0,6,0,0" Text="MONSTERS" />
+            <TextBlock Classes="muted" Text="No monsters in this cell." IsVisible="{Binding NoMonsters}" />
+            <ItemsControl ItemsSource="{Binding Monsters}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:MonsterLine">
+                  <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                    <StackPanel Spacing="2">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                      <TextBlock Classes="muted" Text="{Binding Detail}" />
+                      <Grid ColumnDefinitions="*,Auto">
+                        <ProgressBar Classes="hp" Minimum="0" Maximum="100" Value="{Binding HpPercent}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Classes="muted" FontSize="11" Margin="6,0,0,0" Text="{Binding HpText}" />
+                      </Grid>
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="small primary" Margin="8,0,0,0" VerticalAlignment="Center" Content="Attack"
+                            IsEnabled="{Binding Alive}" Command="{Binding AttackCommand}" CommandParameter="{Binding MonMapId}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Classes="caption" Margin="0,6,0,0" Text="PLAYERS IN THIS CELL" />
+            <TextBlock Classes="muted" Text="Nobody else here." IsVisible="{Binding NoPlayers}" />
+            <ItemsControl ItemsSource="{Binding Players}" ItemTemplate="{StaticResource PlayerTemplate}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Drops -->
+        <Border Classes="card" IsVisible="{Binding HasDrops}">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="DROPS" />
+            <ItemsControl ItemsSource="{Binding Drops}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:DropLine">
+                  <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,6">
+                    <StackPanel VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="muted" Text="{Binding QuantityText}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="small primary" Margin="6,0,0,0" Content="Pick up" Command="{Binding PickupCommand}" CommandParameter="{Binding ItemId}" />
+                    <Button Grid.Column="2" Classes="small" Margin="6,0,0,0" Content="Reject" Command="{Binding RejectCommand}" CommandParameter="{Binding ItemId}" />
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Actions -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="ACTIONS" />
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+              <StackPanel Orientation="Horizontal">
+                <ToggleButton Classes="tab" Content="Travel" IsChecked="{Binding IsTravelTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Travel" />
+                <ToggleButton Classes="tab" Content="Shop" IsChecked="{Binding IsShopTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Shop" />
+                <ToggleButton Classes="tab" Content="Quest" IsChecked="{Binding IsQuestTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Quest" />
+                <ToggleButton Classes="tab" Content="Bank" IsChecked="{Binding IsBankTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Bank" />
+              </StackPanel>
+            </ScrollViewer>
+
+            <!-- Travel: join a map, go to a player -->
+            <StackPanel Spacing="6" IsVisible="{Binding IsTravelTab}">
+              <TextBlock Classes="muted" Text="Join a map (map or map-room)" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding MapInput}" PlaceholderText="battleon" TextInputOptions.AutoCapitalization="False" />
+                <Button Grid.Column="1" Classes="primary" Margin="6,0,0,0" Content="Join" Command="{Binding JoinMapCommand}" />
+              </Grid>
+              <TextBlock Classes="caption" Text="RECENT MAPS" IsVisible="{Binding HasRecentMaps}" />
+              <ItemsControl ItemsSource="{Binding RecentMaps}" ItemTemplate="{StaticResource NameChipTemplate}">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+              </ItemsControl>
+              <TextBlock Classes="muted" Margin="0,4,0,0" Text="Go to a player (/goto)" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding PlayerInput}" PlaceholderText="Player name" TextInputOptions.AutoCapitalization="False" />
+                <Button Grid.Column="1" Classes="primary" Margin="6,0,0,0" Content="Go to" Command="{Binding GotoPlayerCommand}" />
+              </Grid>
+              <TextBlock Classes="caption" Text="PLAYERS IN THIS ROOM" IsVisible="{Binding HasRoomPlayers}" />
+              <ItemsControl ItemsSource="{Binding RoomPlayers}" ItemTemplate="{StaticResource PlayerTemplate}" />
+            </StackPanel>
+
+            <!-- Shop -->
+            <StackPanel Spacing="6" IsVisible="{Binding IsShopTab}">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding ShopIdInput}" PlaceholderText="Shop ID" TextInputOptions.ContentType="Number" />
+                <Button Grid.Column="1" Classes="primary" Margin="6,0,0,0" Content="Load" Command="{Binding LoadShopCommand}" />
+              </Grid>
+              <TextBlock FontWeight="SemiBold" Text="{Binding ShopTitle}" />
+              <ItemsControl ItemsSource="{Binding ShopItems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ShopLine">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8">
+                      <StackPanel>
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="muted" Text="{Binding Price}" />
+                        <TextBlock Classes="warn" Text="{Binding Requirement}" IsVisible="{Binding HasRequirement}" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="small primary" Margin="8,0,0,0" VerticalAlignment="Center" Content="Buy"
+                              IsEnabled="{Binding CanBuy}" Command="{Binding BuyCommand}" CommandParameter="{Binding Item}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+
+            <!-- Quest -->
+            <StackPanel Spacing="6" IsVisible="{Binding IsQuestTab}">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding QuestIdInput}" PlaceholderText="Quest ID" TextInputOptions.ContentType="Number" />
+                <Button Grid.Column="1" Classes="primary" Margin="6,0,0,0" Content="Load" Command="{Binding LoadQuestCommand}" />
+              </Grid>
+              <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding QuestTitle}" />
+              <StackPanel Spacing="4" IsVisible="{Binding HasQuest}">
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding QuestStatus}" />
+                <TextBlock Classes="caption" Text="REQUIREMENTS" />
+                <ItemsControl ItemsSource="{Binding QuestRequirements}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String"><TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding}" /></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="caption" Text="PROGRESS" />
+                <ItemsControl ItemsSource="{Binding QuestProgress}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String"><TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding}" /></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="caption" Text="REWARDS" />
+                <ItemsControl ItemsSource="{Binding QuestRewards}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="x:String"><TextBlock FontSize="13" TextWrapping="Wrap" Text="{Binding}" /></DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Grid ColumnDefinitions="*,*" Margin="0,4,0,0">
+                  <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Accept" IsEnabled="{Binding CanAcceptQuest}" Command="{Binding AcceptQuestCommand}" />
+                  <Button Grid.Column="1" Classes="primary" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Turn in" IsEnabled="{Binding CanTurnInQuest}" Command="{Binding TurnInQuestCommand}" />
+                </Grid>
+              </StackPanel>
+            </StackPanel>
+
+            <!-- Bank -->
+            <StackPanel Spacing="6" IsVisible="{Binding IsBankTab}">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding BankSummary}" />
+                <Button Grid.Column="1" Classes="small primary" Content="Load bank" Command="{Binding LoadBankCommand}" />
+              </Grid>
+              <TextBlock Classes="caption" Text="BANK" IsVisible="{Binding BankLoaded}" />
+              <ItemsControl ItemsSource="{Binding BankItems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ItemLine">
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,6">
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="muted" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="{Binding MoveText}" Command="{Binding MoveCommand}" CommandParameter="{Binding ItemId}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="caption" Text="BACKPACK" />
+              <ItemsControl ItemsSource="{Binding InventoryItems}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:ItemLine">
+                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,6">
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Classes="muted" Text="{Binding Detail}" TextTrimming="CharacterEllipsis" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Sell" IsVisible="{Binding CanSell}" Command="{Binding SellCommand}" CommandParameter="{Binding ItemId}" />
+                      <Button Grid.Column="2" Classes="small" Margin="6,0,0,0" Content="{Binding MoveText}" IsEnabled="{Binding CanMove}" Command="{Binding MoveCommand}" CommandParameter="{Binding ItemId}" />
+                    </Grid>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Classes="muted" TextWrapping="Wrap" Text="Selling needs a loaded shop (Shop tab)." />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- Confirmation: anything that spends or moves, and any action while a script runs -->
+    <Border IsVisible="{Binding IsConfirming}" Background="#CC000000">
+      <Border Classes="card" VerticalAlignment="Center" Margin="20" BorderBrush="{StaticResource BorderStrongBrush}">
+        <StackPanel Spacing="10">
+          <TextBlock Classes="title" Text="{Binding ConfirmTitle}" />
+          <TextBlock TextWrapping="Wrap" Text="{Binding ConfirmText}" />
+          <StackPanel Spacing="4" IsVisible="{Binding ConfirmHasQuantity}">
+            <TextBlock Classes="muted" Text="Quantity" />
+            <NumericUpDown Value="{Binding ConfirmQuantity}" Minimum="1" Maximum="{Binding ConfirmQuantityMax}" Increment="1" FormatString="0" />
+          </StackPanel>
+          <Grid ColumnDefinitions="*,*">
+            <Button HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Cancel" Command="{Binding CancelConfirmCommand}" />
+            <Button Grid.Column="1" HorizontalAlignment="Stretch" Margin="4,0,0,0" Classes="primary" Classes.danger="{Binding ConfirmDanger}"
+                    Content="{Binding ConfirmButton}" Command="{Binding ConfirmCommand}" />
+          </Grid>
+        </StackPanel>
+      </Border>
+    </Border>
+  </Panel>
+</UserControl>

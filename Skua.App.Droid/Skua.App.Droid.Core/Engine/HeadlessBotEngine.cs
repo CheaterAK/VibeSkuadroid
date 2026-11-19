@@ -119,6 +119,12 @@ public sealed class HeadlessBotEngine : IBotEngine
 
     public void ClearLog() => _log.Clear();
 
+    public void WriteLog(EngineLogLevel level, string source, string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        AddLog(level, source, message ?? string.Empty);
+    }
+
     public IReadOnlyList<PacketEntry> GetRecentPackets() => _packets.Snapshot();
 
     public void ClearPackets() => _packets.Clear();
