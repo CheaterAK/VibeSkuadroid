@@ -22,6 +22,23 @@ public static partial class CoreBotsOptions
     [GeneratedRegex("""CBO(Bool|Int|String)\("([A-Za-z0-9_]+)"\s*,""")]
     private static partial Regex KeyPattern();
 
+    // AQW account names: letters, digits, spaces, underscores and hyphens. CoreBots names the file after
+    // Username() (sfc.myUserName, the lower-case account name), so every real name is still matched.
+    private const string AccountChars = "[A-Za-z0-9 _-]{1,64}";
+
+    [GeneratedRegex("^" + AccountChars + @"\z")]
+    private static partial Regex AccountPattern();
+
+    [GeneratedRegex(@"^CBO_Storage\((.*)\)\z", RegexOptions.Singleline)]
+    private static partial Regex StoragePattern();
+
+    /// <summary>
+    /// Whether <paramref name="account"/> may name a settings file. It comes from the game server (the character
+    /// name), so anything outside the account name characters (a path separator, a parenthesis, "..") is refused.
+    /// </summary>
+    public static bool IsSafeAccountName(string? account) =>
+        account is not null && AccountPattern().IsMatch(account) && account.Trim().Length > 0;
+
     /// <summary>The CoreBots sources the keys are read from (the Core*.cs files at the library root).</summary>
     public static IEnumerable<string> Sources(string libraryRoot) =>
         Directory.Exists(libraryRoot)
@@ -57,17 +74,30 @@ public static partial class CoreBotsOptions
     /// The settings file of <paramref name="account"/>: an existing one whose name matches ignoring case (the game
     /// reports the name in its own casing), else <c>CBO_Storage(&lt;account in lower case&gt;).txt</c> as AQW reports it.
     /// </summary>
+    /// <exception cref="EngineException">The account name is not one a settings file can be named after.</exception>
     public static string FileFor(string optionsDir, string account)
     {
+        if (!IsSafeAccountName(account))
+            throw new EngineException("CoreBots options are not available for this account name.");
         string expected = $"CBO_Storage({account}).txt";
         if (Directory.Exists(optionsDir))
         {
             string? existing = Directory.EnumerateFiles(optionsDir, "CBO_Storage(*).txt")
                 .FirstOrDefault(f => string.Equals(Path.GetFileName(f), expected, StringComparison.OrdinalIgnoreCase));
             if (existing is not null)
-                return existing;
+                return Inside(optionsDir, Path.GetFileName(existing));
         }
-        return Path.Combine(optionsDir, $"CBO_Storage({account.ToLowerInvariant()}).txt");
+        return Inside(optionsDir, $"CBO_Storage({account.ToLowerInvariant()}).txt");
+    }
+
+    /// <summary>The full path of <paramref name="fileName"/> directly in <paramref name="optionsDir"/>, or an error.</summary>
+    private static string Inside(string optionsDir, string fileName)
+    {
+        string dir = Path.GetFullPath(optionsDir);
+        string full = Path.GetFullPath(Path.Combine(dir, fileName));
+        if (!string.Equals(Path.GetDirectoryName(full), Path.TrimEndingDirectorySeparator(dir), StringComparison.Ordinal))
+            throw new EngineException("CoreBots options are not available for this account name.");
+        return full;
     }
 
     public static ScriptOptionSet Load(string libraryRoot, string optionsDir, string account)
@@ -92,7 +122,9 @@ public static partial class CoreBotsOptions
     /// <exception cref="EngineException">A number is not a whole number.</exception>
     public static void Save(ScriptOptionSet set, string optionsDir)
     {
-        string file = Path.Combine(optionsDir, set.Storage + ".txt");
+        if (StoragePattern().Match(set.Storage) is not { Success: true } storage || !IsSafeAccountName(storage.Groups[1].Value))
+            throw new EngineException("Not saved: the CoreBots options file name is not valid.");
+        string file = Inside(optionsDir, set.Storage + ".txt");
         List<string> problems = new();
         foreach (ScriptOptionItem i in set.Items)
         {

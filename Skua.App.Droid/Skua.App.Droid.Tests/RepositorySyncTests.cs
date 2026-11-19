@@ -406,6 +406,52 @@ public class RepositorySyncTests
         Assert.Equal(Path.Combine(options, "CBO_Storage(newbie).txt"), CoreBotsOptions.FileFor(options, "Newbie"));
     }
 
+    [Theory]
+    [InlineData("x)/../../../diagnostics/planted")]
+    [InlineData("../planted")]
+    [InlineData("..")]
+    [InlineData("a/b")]
+    [InlineData("a\\b")]
+    [InlineData("x).txt")]
+    [InlineData("name\0")]
+    [InlineData("   ")]
+    [InlineData("")]
+    public void CoreBotsOptionsRefuseAccountNamesThatCouldLeaveTheOptionsFolder(string account)
+    {
+        string root = Sandbox.NewDir();
+        string scripts = Path.Combine(root, "Scripts");
+        string options = Path.Combine(root, "skua", "options");
+        Directory.CreateDirectory(scripts);
+        Directory.CreateDirectory(options);
+        File.WriteAllText(Path.Combine(scripts, "CoreBots.cs"), "CBOBool(\"PrivateRooms\", out bool a);");
+
+        Assert.False(CoreBotsOptions.IsSafeAccountName(account));
+        Assert.Throws<EngineException>(() => CoreBotsOptions.FileFor(options, account));
+        Assert.Throws<EngineException>(() => CoreBotsOptions.Load(scripts, options, account));
+
+        // A set naming its own storage (not from Load) is checked too.
+        ScriptOptionSet forged = new(Path.Combine(scripts, "CoreBots.cs"), $"CBO_Storage({account})",
+            [new ScriptOptionItem("General", "PrivateRooms", "Private Rooms", string.Empty, ScriptOptionKind.Toggle, "True", [], false)]);
+        Assert.Throws<EngineException>(() => CoreBotsOptions.Save(forged, options));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(options));
+        Assert.Empty(Directory.EnumerateFiles(root, "*planted*", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData("hero", "CBO_Storage(hero).txt")]
+    [InlineData("My Hero_2", "CBO_Storage(my hero_2).txt")]
+    [InlineData("dash-name", "CBO_Storage(dash-name).txt")]
+    public void CoreBotsOptionsKeepWorkingForRealAccountNames(string account, string file)
+    {
+        string options = Path.Combine(Sandbox.NewDir(), "options");
+        Assert.True(CoreBotsOptions.IsSafeAccountName(account));
+        Assert.Equal(Path.Combine(options, file), CoreBotsOptions.FileFor(options, account));
+        ScriptOptionSet set = new("CoreBots.cs", Path.GetFileNameWithoutExtension(file),
+            [new ScriptOptionItem("General", "PrivateRooms", "Private Rooms", string.Empty, ScriptOptionKind.Toggle, "True", [], false)]);
+        CoreBotsOptions.Save(set, options);
+        Assert.Equal(["PrivateRooms: True"], File.ReadAllLines(Path.Combine(options, file)));
+    }
+
     private sealed class SyncProgressList : IProgress<RepositorySyncProgress>
     {
         private readonly List<RepositorySyncProgress> _list;

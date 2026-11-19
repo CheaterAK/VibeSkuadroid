@@ -363,6 +363,10 @@ public sealed partial class ScriptsViewModel : ObservableObject
             OptionsEditor = new ScriptOptionsViewModel(set, "CoreBots", isCoreBots: true);
             Message = null;
         }
+        catch (EngineException e)
+        {
+            Message = e.Message;
+        }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             Message = e.Message;
