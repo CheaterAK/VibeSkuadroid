@@ -221,9 +221,10 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
         {
             await Session.LoadBankAsync().ConfigureAwait(false);
         }
-        catch (Exception e) when (e is InvalidOperationException or OperationCanceledException or ConnectionClosedException)
+        catch (Exception e)
         {
-            Log?.Invoke(this, $"Bank load stopped: {e.Message}");
+            // Fire and forget: nothing may escape (the messages carry no token, see AqwWebApi.GetBankAsync).
+            Log?.Invoke(this, $"Bank load stopped: {e.GetType().Name}: {e.Message}");
         }
     }
 
