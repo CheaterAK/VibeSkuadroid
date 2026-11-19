@@ -48,6 +48,8 @@ public sealed partial class ControlViewModel : ObservableObject
     private long _lastRefreshMs = long.MinValue / 2;
     private ControlState _state = ControlState.Offline;
     private Ask? _ask;
+    private string? _inFlight;
+    private object? _inFlightToken;
     private TaskCompletionSource<int?>? _answer;
 
     public ControlViewModel(AppServices services, TimeProvider? time = null)
@@ -494,6 +496,7 @@ public sealed partial class ControlViewModel : ObservableObject
 
     private async Task RunAsync(string what, Func<IControlBackend, int, string> action, Ask? ask, Action<string>? done)
     {
+        object token = new();
         try
         {
             Message = null;
@@ -502,13 +505,15 @@ public sealed partial class ControlViewModel : ObservableObject
                 Message = "The Control page needs the Skua script host, which is not available in this engine.";
                 return;
             }
-            if (IsWorking)
+            // One action at a time, from the first question to the end (a second tap is refused, not queued).
+            if (_inFlight is string running)
             {
-                Message = $"Wait: \"{WorkingText}\" is still running.";
+                if (!IsConfirming)
+                    Message = $"Wait: \"{running}\" is still running.";
                 return;
             }
-            if (IsConfirming)
-                return;
+            _inFlight = what;
+            _inFlightToken = token;
             if (ScriptBusy || _host.Engine.Snapshot.Script.IsBusy)
             {
                 int? anyway = await AskAsync(new Ask("A script is running", $"A script is running; do it anyway?\n\n{what}", "Do it anyway", Danger: true)).ConfigureAwait(true);
@@ -563,6 +568,14 @@ public sealed partial class ControlViewModel : ObservableObject
             Message = $"{what} failed: {e.Message}";
             Log(EngineLogLevel.Error, $"{what} failed: {e.GetType().Name}: {e.Message}");
             IsWorking = false;
+        }
+        finally
+        {
+            if (ReferenceEquals(_inFlightToken, token))
+            {
+                _inFlight = null;
+                _inFlightToken = null;
+            }
         }
     }
 

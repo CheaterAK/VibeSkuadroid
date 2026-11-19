@@ -247,9 +247,30 @@ public class ControlTests
         page.ResurrectCommand.Execute(null);
         await page.LastAction;
         Assert.Equal("Wait: \"Rest\" is still running.", page.Message);
+        page.RestCommand.Execute(null); // the same action tapped again is refused too, and does not free the first
+        await page.LastAction;
+        page.ResurrectCommand.Execute(null);
+        await page.LastAction;
+        Assert.Equal("Wait: \"Rest\" is still running.", page.Message);
         gate.Set();
         await first;
         Assert.DoesNotContain("resurrect", backend.Calls);
+        Assert.Equal(2, backend.Calls.Count(c => c == "rest"));
+
+        // A tap while a confirmation is open is ignored; after it the next action runs.
+        backend.Gate = null;
+        page.Drops[0].RejectCommand.Execute(11);
+        await Sandbox.Until(() => page.IsConfirming);
+        page.RestCommand.Execute(null);
+        await page.LastAction;
+        Assert.True(page.IsConfirming);
+        Assert.Equal(2, backend.Calls.Count(c => c == "rest"));
+        page.CancelConfirmCommand.Execute(null);
+        await Sandbox.Until(() => !page.IsConfirming);
+        await Task.Delay(50);
+        page.RestCommand.Execute(null);
+        await page.LastAction;
+        Assert.Equal(3, backend.Calls.Count(c => c == "rest"));
 
         // Input checks stay on the page.
         page.ShopIdInput = "abc";
