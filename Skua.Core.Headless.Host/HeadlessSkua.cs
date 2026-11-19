@@ -62,6 +62,12 @@ public sealed class HeadlessSkuaOptions
     /// VibeSkua) or "1.4.4.4" (Skua), in which case it skips the Windows and update checks.
     /// </summary>
     public string? ApplicationVersionOverride { get; set; }
+
+    /// <summary>
+    /// Changes Skua's settings right after they are loaded, before any other Skua service exists (for example to turn
+    /// off what a host does itself, such as the skill-set download of AdvancedSkillContainer).
+    /// </summary>
+    public Action<ISettingsService>? ConfigureSettings { get; set; }
 }
 
 /// <summary>DI registration of Skua.Core on the headless client.</summary>
@@ -310,6 +316,7 @@ public sealed class HeadlessSkuaSession : IAsyncDisposable
             settings.SetApplicationVersion();
             if (options.ApplicationVersionOverride is not null)
                 settings.Set("ApplicationVersion", options.ApplicationVersionOverride);
+            options.ConfigureSettings?.Invoke(settings);
             IClientFilesService files = provider.GetRequiredService<IClientFilesService>();
             files.CreateDirectories();
             SeedFile(Models.ClientFileSources.SkuaAdvancedSkillsFile);

@@ -177,6 +177,14 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
             // The engine subscribes to the returned session's Log (source "session", with its level): do not
             // forward those lines a second time as "game".
             LogSessionLines = false,
+            // Skua's AdvancedSkillContainer would download AdvancedSkills.json from GitHub when it is created and
+            // merge it into UserAdvancedSkills.json in the background. The app's script sync refreshes that file and
+            // SkillSetStore merges it before each run (keeping the user's edits): one writer only.
+            ConfigureSettings = settings =>
+            {
+                settings.Set("CheckAdvanceSkillSetsUpdates", false);
+                settings.Set("AutoUpdateAdvanceSkillSetsUpdates", false);
+            },
         };
         _configure?.Invoke(options);
         try

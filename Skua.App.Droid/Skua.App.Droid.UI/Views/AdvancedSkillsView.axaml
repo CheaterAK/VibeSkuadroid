@@ -69,7 +69,7 @@
             </StackPanel>
           </StackPanel>
         </Border>
-        <ItemsControl ItemsSource="{Binding SelectedClass.Sets, FallbackValue={x:Null}}">
+        <ItemsControl ItemsSource="{Binding SelectedSets}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:SkillSetRow">
               <Border Classes="card">

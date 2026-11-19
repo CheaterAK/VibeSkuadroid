@@ -91,7 +91,7 @@ public sealed partial class AdvancedSkillsViewModel : ObservableObject, IToolPag
 
     /// <summary>The class whose rotations are shown, or null for the list.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Title), nameof(IsListVisible), nameof(IsClassVisible))]
+    [NotifyPropertyChangedFor(nameof(Title), nameof(IsListVisible), nameof(IsClassVisible), nameof(SelectedSets))]
     private SkillClassItem? _selectedClass;
 
     /// <summary>The rotation editor while it is open.</summary>
@@ -117,6 +117,9 @@ public sealed partial class AdvancedSkillsViewModel : ObservableObject, IToolPag
     private string _summary = string.Empty;
 
     public string Title => Editor is not null ? Editor.Title : SelectedClass?.ClassName ?? "Advanced Skills";
+
+    /// <summary>The rotations of the open class (empty for none).</summary>
+    public IReadOnlyList<SkillSetRow> SelectedSets => SelectedClass?.Sets ?? [];
 
     public bool IsListVisible => Editor is null && SelectedClass is null;
 
