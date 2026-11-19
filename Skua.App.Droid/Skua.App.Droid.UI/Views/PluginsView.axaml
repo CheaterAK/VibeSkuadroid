@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.PluginsView"
+             x:DataType="vm:PluginsViewModel">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:DailyTrackerViewModel"><v:DailyTrackerView /></DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Panel>
+    <!-- The list of built-in plugins -->
+    <ScrollViewer IsVisible="{Binding IsListVisible}">
+      <StackPanel Margin="12">
+        <ItemsControl ItemsSource="{Binding Entries}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:PluginEntry">
+              <Border Classes="card">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel>
+                      <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Name}" />
+                      <TextBlock Classes="muted" Text="{Binding Byline}" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Classes="small primary" VerticalAlignment="Center" Content="Open"
+                            IsVisible="{Binding CanOpen}"
+                            Command="{Binding OpenCommand}" />
+                  </Grid>
+                  <TextBlock TextWrapping="Wrap" Text="{Binding Description}" />
+                  <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Note}"
+                             IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,4"
+                   Text="These are the desktop plugins, built in. Plugin DLLs from other sources are not loaded on Android." />
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- An open plugin page -->
+    <Grid RowDefinitions="Auto,*" IsVisible="{Binding !IsListVisible}">
+      <Button Grid.Row="0" Classes="small" HorizontalAlignment="Left" Margin="12,8,12,0" Content="‹ Plugins" Command="{Binding CloseCommand}" />
+      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
+    </Grid>
+  </Panel>
+</UserControl>

@@ -92,6 +92,9 @@ public sealed class HeadlessBotEngine : IBotEngine
 
     public ScriptSupport ScriptSupport => _scripts.Support;
 
+    /// <summary>The built-in plugins' game-side halves, from the script host (null without a Skua host).</summary>
+    public Plugins.IPluginBackends? Plugins => (_scripts as Plugins.IPluginBackendSource)?.PluginBackends;
+
     public bool AutoReconnect
     {
         get => _options.AutoReconnect;

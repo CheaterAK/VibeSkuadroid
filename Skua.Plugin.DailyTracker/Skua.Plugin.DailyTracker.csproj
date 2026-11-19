@@ -17,6 +17,11 @@
     <ProjectReference Include="..\Skua.Shared.Avalonia\Skua.Shared.Avalonia.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The tracker's UI-free logic, shared with the Android app; compiled in so the plugin stays a single DLL. -->
+    <Compile Include="..\Skua.Plugins.Shared\DailyTracker\*.cs" Link="Shared\%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <MakeDir Directories="..\Build\plugins" Condition="'$(Configuration)' == 'Release'" />
     <Copy SourceFiles="$(TargetDir)Skua.Plugin.DailyTracker.dll" DestinationFolder="..\Build\plugins" Condition="'$(Configuration)' == 'Release'" ContinueOnError="true" />

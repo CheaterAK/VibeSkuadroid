@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI-free logic of the built-in plugins, extracted from their windows so it runs without a game view.
+
+    Used two ways:
+      * Skua.App.Droid.Plugins (the Android app) references this project.
+      * The desktop plugins compile the same source files in (Compile Include ... Link), so they keep shipping as a
+        single plugin DLL with no new dependency next to it. Every type is internal for that reason: linking adds
+        nothing to a desktop plugin's public surface.
+
+    No Avalonia, no Android: only Skua's script interfaces and models.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.Core.Interfaces\Skua.Core.Interfaces.csproj" />
+    <ProjectReference Include="..\Skua.Core.Models\Skua.Core.Models.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Skua.App.Droid.Plugins" />
+    <InternalsVisibleTo Include="Skua.App.Droid.Tests" />
+  </ItemGroup>
+
+</Project>

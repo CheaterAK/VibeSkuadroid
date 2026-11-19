@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.DailyTrackerView"
+             x:DataType="vm:DailyTrackerViewModel">
+  <Grid RowDefinitions="Auto,*" Margin="12,8">
+    <StackPanel Grid.Row="0" Spacing="6" Margin="0,0,0,8">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding Summary}" />
+        <Button Grid.Column="1" Classes="small primary" MinWidth="104" Content="{Binding RefreshText}" Command="{Binding RefreshCommand}" />
+      </Grid>
+      <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !IsOnline}" Text="Log in to see today's quests." />
+      <TextBlock Classes="error" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+
+    <ScrollViewer Grid.Row="1">
+      <ItemsControl ItemsSource="{Binding Groups}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:DailyQuestGroupRow">
+            <Border Classes="card">
+              <StackPanel Spacing="6">
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBlock VerticalAlignment="Center" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" Text="{Binding Name}" />
+                  <Button Grid.Column="1" Classes="small primary" Content="Start" IsVisible="{Binding HasScript}"
+                          Command="{Binding StartCommand}" CommandParameter="{Binding Script}" />
+                </Grid>
+                <ItemsControl ItemsSource="{Binding Quests}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:DailyQuestRow">
+                      <Grid ColumnDefinitions="48,*,Auto,Auto" Margin="0,3">
+                        <TextBlock Classes="muted" VerticalAlignment="Center" Text="{Binding Id}" />
+                        <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="4,0" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                        <Border Grid.Column="2" Classes="status" Classes.done="{Binding IsCompleted}" Classes.todo="{Binding IsIncomplete}" VerticalAlignment="Center">
+                          <TextBlock FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" Text="{Binding StatusText}" />
+                        </Border>
+                        <Button Grid.Column="3" Classes="small" Margin="6,0,0,0" Content="Start" IsVisible="{Binding ShowStart}"
+                                Command="{Binding StartCommand}" CommandParameter="{Binding Script}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

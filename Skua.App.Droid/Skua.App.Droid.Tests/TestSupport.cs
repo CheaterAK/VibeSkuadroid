@@ -227,13 +227,13 @@ internal sealed class FakeAqw : IAsyncDisposable
 /// <summary>Everything a ViewModel needs, on a fake AQW world.</summary>
 internal sealed class TestApp : IAsyncDisposable
 {
-    public TestApp(bool vaultAvailable = true)
+    public TestApp(bool vaultAvailable = true, IScriptHost? scripts = null)
     {
         Paths = AppPaths.UnderRoot(Sandbox.NewDir());
         Paths.EnsureCreated();
         Store = new MemorySecretStore { IsAvailable = vaultAvailable };
         Settings = new SettingsStore(Paths.SettingsFile);
-        Engine = Aqw.NewEngine();
+        Engine = Aqw.NewEngine(scripts);
         Host = new EngineHost(Engine, Settings, new CredentialVault(Store), new ResumeStore(Paths.ResumeFile), Platform);
         ScriptLibrary library = new(Paths.ScriptsDir);
         Services = new AppServices(Host, new InlineDispatcher(), Picker, library, new ScriptRepositorySync(library, Paths.SkuaDir, Aqw.Http), Paths);

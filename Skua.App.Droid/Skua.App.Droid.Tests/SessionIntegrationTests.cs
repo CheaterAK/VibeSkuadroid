@@ -15,7 +15,7 @@ namespace Skua.App.Droid.Tests;
 /// drops every credential. One HeadlessSkuaSession lives at a time: the tests of this class run one after the other
 /// and each disposes its engine (and with it the session) before the next starts.
 /// </summary>
-public class SessionIntegrationTests
+public partial class SessionIntegrationTests
 {
     private const string Include = """
         using Skua.Core.Interfaces;

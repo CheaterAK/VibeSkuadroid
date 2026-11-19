@@ -46,7 +46,7 @@ public class HeadlessUiTests
     {
         CollectingSink sink = new();
         Logger.Sink = sink;
-        await using TestApp app = new();
+        await using TestApp app = new(scripts: new PluginOnlyScriptHost(new FakePluginBackends()));
         using ShellViewModel shell = new(new AppServices(app.Host, new ImmediateUiDispatcher(), app.Picker, app.Services.Library, app.Services.RepositorySync, app.Paths));
         Window window = new() { Width = 412, Height = 915, Content = new MainView { DataContext = shell } };
         window.Show();
@@ -58,7 +58,7 @@ public class HeadlessUiTests
             Dispatcher.UIThread.RunJobs();
         }
 
-        foreach (string page in new[] { "Home", "Scripts", "World", "Console", "Settings" })
+        foreach (string page in new[] { "Home", "Scripts", "World", "Console", "Plugins", "Settings" })
         {
             shell.NavigateCommand.Execute(page);
             Render();
@@ -76,11 +76,28 @@ public class HeadlessUiTests
         Assert.True(shell.ShowDashboard);
         Render();
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(DashboardView)));
-        foreach (string page in new[] { "World", "Console", "Scripts", "Settings", "Home" })
+        foreach (string page in new[] { "World", "Console", "Scripts", "Plugins", "Settings", "Home" })
         {
             shell.NavigateCommand.Execute(page);
             Render();
         }
+        // Each plugin page, online; back returns to the plugin list, then home.
+        shell.NavigateCommand.Execute("Plugins");
+        foreach (PluginEntry entry in shell.Plugins.Entries.Where(e => e.CanOpen))
+        {
+            shell.Plugins.OpenCommand.Execute(entry.Id);
+            Render();
+            Assert.NotNull(shell.Plugins.CurrentPage);
+            Assert.NotNull(window.GetVisualDescendantOfType(shell.Plugins.CurrentPage!.GetType().Name.Replace("ViewModel", "View")));
+            Assert.Equal(shell.Plugins.Title, shell.Title);
+            await shell.Plugins.DailyTracker.RefreshCoreAsync();
+            Render();
+            Assert.True(shell.GoBack());
+            Assert.True(shell.Plugins.IsListVisible);
+            Render();
+        }
+        Assert.True(shell.GoBack());
+        Assert.Equal(AppPage.Home, shell.CurrentPage);
         // The options editor with every kind of option, and the CoreBots settings editor.
         File.WriteAllText(Path.Combine(app.Paths.ScriptsDir, "CoreBots.cs"), "class CoreBots { void R() { CBOBool(\"PrivateRooms\", out bool a); CBOInt(\"ActionDelay\", out int b); CBOString(\"SoloClassSelect\", out string c); } }");
         shell.NavigateCommand.Execute("Scripts");

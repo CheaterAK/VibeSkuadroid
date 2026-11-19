@@ -99,6 +99,12 @@ public interface IBotEngine : IAsyncDisposable
         throw new EngineException("Script options are not available in this engine.");
 
     /// <summary>
+    /// The built-in plugins' game-side halves (Daily Tracker, Butler), working on this engine's session. Null when this
+    /// engine has none (no Skua host).
+    /// </summary>
+    Plugins.IPluginBackends? Plugins => null;
+
+    /// <summary>
     /// Registers long work done for the user outside the game (a script repository sync): it shows in
     /// <see cref="EngineSnapshot.BackgroundWork"/> and keeps the process (the foreground service) alive until disposed.
     /// </summary>
