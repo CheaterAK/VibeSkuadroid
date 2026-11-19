@@ -262,7 +262,7 @@ internal sealed class PlayerFollower
                         (DateTime.UtcNow - _lastJumpTime).TotalMilliseconds >= JumpMinIntervalMs)
                     {
                         _log.Debug("Follower", $"leech: jump {_bot.Player.Cell} -> Enter/Spawn");
-                        _bot.Map.Jump("Enter", "Spawn", autoCorrect: false);
+                        _bot.Map!.Jump("Enter", "Spawn", autoCorrect: false);
                         _lastJumpTime = DateTime.UtcNow;
                     }
                     Report(ButlerFollowState.WithPlayer, $"With {player} (leech: waiting at Enter).");
@@ -280,7 +280,7 @@ internal sealed class PlayerFollower
                     {
                         // autoCorrect off, as the desktop follower: the target is the player's own cell.
                         _log.Debug("Follower", $"jump {_bot.Player.Cell}/{_bot.Player.Pad} -> {targetCell}/{targetPad}");
-                        _bot.Map.Jump(targetCell, targetPad, autoCorrect: false);
+                        _bot.Map!.Jump(targetCell, targetPad, autoCorrect: false);
                         _lastJumpTime = DateTime.UtcNow;
                     }
 
@@ -290,7 +290,7 @@ internal sealed class PlayerFollower
                         _hasWalkTarget = false;
 
                     bool fighting = HandleCombat(info, options);
-                    Report(ButlerFollowState.WithPlayer, $"With {player} in {_bot.Map.Name}, cell {targetCell}{(fighting ? ", fighting" : string.Empty)}.");
+                    Report(ButlerFollowState.WithPlayer, $"With {player} in {_bot.Map!.Name}, cell {targetCell}{(fighting ? ", fighting" : string.Empty)}.");
                 }
 
                 Wait(token, LoopDelayMs);
