@@ -48,6 +48,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(Title));
         };
         Settings = new SettingsViewModel(services);
+        Settings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.Title))
+                OnPropertyChanged(nameof(Title));
+        };
 
         _host.Engine.SnapshotChanged += OnSnapshotChanged;
         _host.MemoryVerdictChanged += OnMemoryVerdictChanged;
@@ -129,7 +134,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         AppPage.World => "World",
         AppPage.Console => "Console",
         AppPage.Plugins => Plugins.Title,
-        _ => "Settings",
+        _ => Settings.Title,
     };
 
     public bool IsHomePage => CurrentPage == AppPage.Home;
@@ -160,6 +165,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         if (CurrentPage == AppPage.Scripts && (Scripts.CloseOverlay() || Scripts.GoUp()))
             return true;
         if (CurrentPage == AppPage.Plugins && Plugins.CloseSubPage())
+            return true;
+        if (CurrentPage == AppPage.Settings && Settings.GoBack())
             return true;
         if (CurrentPage == AppPage.Control && Control.CloseOverlay())
             return true;

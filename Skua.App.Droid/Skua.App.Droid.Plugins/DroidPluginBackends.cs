@@ -3,6 +3,8 @@ using Skua.App.Droid.Core.Control;
 using Skua.App.Droid.Plugins.Butler;
 using Skua.App.Droid.Plugins.Control;
 using Skua.App.Droid.Plugins.DailyTracker;
+using Skua.App.Droid.Plugins.Tools;
+using Skua.App.Droid.Core.Tools;
 using Skua.Core.Interfaces;
 
 namespace Skua.App.Droid.Plugins;
@@ -23,6 +25,7 @@ public sealed class DroidPluginBackends : IPluginBackends, IDisposable
         _dailyTracker = new DailyTrackerBackend(bot);
         _butler = new ButlerBackend(bot, services);
         Control = new ControlBackend(bot, services);
+        GameTools = new DroidGameTools(bot, services, Control);
     }
 
     public IDailyTrackerBackend DailyTracker => _dailyTracker;
@@ -31,6 +34,9 @@ public sealed class DroidPluginBackends : IPluginBackends, IDisposable
 
     /// <summary>The Control page's game side (same session, same API).</summary>
     public IControlBackend Control { get; }
+
+    /// <summary>The Tools pages' game side (same session; shop, quest and bank actions through <see cref="Control"/>).</summary>
+    public IGameTools GameTools { get; }
 
     public void Dispose()
     {

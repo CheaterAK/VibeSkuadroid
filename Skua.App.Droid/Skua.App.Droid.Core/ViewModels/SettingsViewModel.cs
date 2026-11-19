@@ -18,7 +18,25 @@ public sealed partial class SettingsViewModel : ObservableObject
         _services = services;
         _host = services.Host;
         Load(_host.Settings.Current);
+        Tools = new ToolsViewModel(services);
+        Tools.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ToolsViewModel.Title) || e.PropertyName == nameof(ToolsViewModel.IsOpen))
+                OnPropertyChanged(nameof(Title));
+        };
     }
+
+    /// <summary>The Tools hub (opened from here).</summary>
+    public ToolsViewModel Tools { get; }
+
+    /// <summary>"Settings", or the Tools hub's title while it is open.</summary>
+    public string Title => Tools.IsOpen ? Tools.Title : "Settings";
+
+    [RelayCommand]
+    private void OpenTools() => Tools.IsOpen = true;
+
+    /// <summary>System back on this tab: closes the Tools hub's question, page or the hub. False when the settings show.</summary>
+    public bool GoBack() => Tools.GoBack();
 
     [ObservableProperty]
     private bool _autoReconnect;
@@ -140,6 +158,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     internal void Apply(EngineSnapshot s)
     {
+        Tools.Apply(s);
         MemoryText = $"{Formatting.Memory(s.Memory)}, peak {(s.Memory.PeakRssBytes < 0 ? "n/a" : $"{s.Memory.PeakRssBytes / 1048576.0:0} MB")}";
     }
 }

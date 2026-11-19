@@ -17,6 +17,12 @@ public interface IPluginBackends
     /// the engine has none.
     /// </summary>
     Control.IControlBackend? Control => null;
+
+    /// <summary>
+    /// The Tools pages' game side (Fast Travel, Loader, Grabber; not plugins, made the same way). Null when the engine
+    /// has none.
+    /// </summary>
+    Tools.IGameTools? GameTools => null;
 }
 
 /// <summary>Implemented by a script host that can provide <see cref="IPluginBackends"/> (the Skua.Core host adapter).</summary>

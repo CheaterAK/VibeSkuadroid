@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.ToolsView"
+             x:DataType="vm:ToolsViewModel">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:FastTravelViewModel"><v:FastTravelView /></DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Grid RowDefinitions="Auto,*">
+    <Button Grid.Row="0" Classes="small" HorizontalAlignment="Left" Margin="12,8,12,0"
+            Content="{Binding BackText}" Command="{Binding CloseCommand}" />
+
+    <!-- The list of tools -->
+    <ScrollViewer Grid.Row="1" IsVisible="{Binding IsListVisible}">
+      <StackPanel Margin="12">
+        <ItemsControl ItemsSource="{Binding Entries}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ToolEntry">
+              <Border Classes="card">
+                <StackPanel Spacing="6">
+                  <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Title}" />
+                  <TextBlock TextWrapping="Wrap" Classes="muted" Text="{Binding Description}" />
+                  <Button Classes="small primary" HorizontalAlignment="Left" Content="Open" Command="{Binding Open}" />
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- An open tool -->
+    <ContentControl Grid.Row="1" IsVisible="{Binding !IsListVisible}" Content="{Binding CurrentPage}" />
+  </Grid>
+</UserControl>

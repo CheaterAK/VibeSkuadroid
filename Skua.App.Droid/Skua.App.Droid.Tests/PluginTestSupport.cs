@@ -62,6 +62,10 @@ internal sealed class FakePluginBackends : IPluginBackends
     public FakeControlBackend FakeControl { get; } = new();
 
     public IControlBackend? Control => FakeControl;
+
+    public FakeGameTools FakeTools { get; } = new();
+
+    public Skua.App.Droid.Core.Tools.IGameTools? GameTools => FakeTools;
 }
 
 internal sealed class FakeButler : IButlerBackend
