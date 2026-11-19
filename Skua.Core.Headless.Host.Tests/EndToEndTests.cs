@@ -122,7 +122,7 @@ public sealed class EndToEndTests : IAsyncLifetime
         foreach (string l in script)
             _output.WriteLine(l);
         _output.WriteLine(_session.Gaps.Format());
-        Assert.Null(error);
+        Assert.True(error is null, error?.ToString() + "\n" + string.Join("\n", _log));
         Assert.Contains(script, l => l.Contains("cells=Enter,r2,r3", StringComparison.Ordinal));
         Assert.Contains(script, l => l.Contains("accepted=True", StringComparison.Ordinal));
         Assert.Contains(script, l => l.Contains("cell=r2 monsters=2", StringComparison.Ordinal));
