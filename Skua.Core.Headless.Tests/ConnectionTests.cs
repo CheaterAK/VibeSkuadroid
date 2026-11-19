@@ -87,13 +87,43 @@ public class ConnectionTests : IAsyncLifetime
         IReadOnlyList<string> commands = _fake.LastSession.Commands;
         Assert.Equal(new[] { "firstJoin", "moveToCell", "retrieveUserData", "retrieveInventory" }, commands.Take(4));
         string login = _fake.LastSession.Received.Select(r => r.Text).Single(t => t.Contains("action='login'"));
-        Assert.Contains("SPIDER#0001~Hero~5.32", login);
+        Assert.Contains("SPIDER#0001~hero~5.32", login); // the game lowercases the name (Game.onLoginComplete)
         Assert.Contains("z='zone_master'", login);
-        Assert.Contains("<ver v='166' />", _fake.LastSession.Received.First().Text);
+        Assert.Contains("<ver v='157' />", _fake.LastSession.Received.First().Text);
+        Assert.Equal(new[] { "157" }, _fake.ApiVersions.ToArray());
 
         // moveToArea, loadInventoryBig and sAct are over 400 chars, so the fake sent them compressed.
         Assert.True(c.GetStatistics().CompressedIn >= 2);
         Assert.Equal(0, c.GetStatistics().UndecodableIn);
+    }
+
+    [Fact]
+    public async Task TheFakeRefusesWhatTheRealClientWouldNotSend()
+    {
+        // The connection lowercases the name as the game does; a superseded token (a second web login replaced it) and
+        // a verChk version the fake is told to require are refused.
+        AqwConnection mixed = New();
+        string fresh = _fake.IssueToken("Hero");
+        _fake.RequiredApiVersion = "157";
+        await mixed.ConnectAsync(_fake.Server, "Hero", fresh, "5.32");
+        Assert.Equal("hero~5.32", _fake.LoginNicks.Last());
+
+        string superseded = fresh;
+        _fake.IssueToken("Hero");
+        AqwConnection stale = New();
+        AqwLoginException e = await Assert.ThrowsAsync<AqwLoginException>(() => stale.ConnectAsync(_fake.Server, "Hero", superseded, "5.32"));
+        Assert.Equal(LoginFailureKind.SocketRejected, e.Kind);
+        Assert.Contains(FakeAqwServer.CharacterDataRefusal, e.Message);
+
+        AqwConnection oldApi = New(WithApi(Fast(), "166"));
+        AqwLoginException api = await Assert.ThrowsAsync<AqwLoginException>(() => oldApi.ConnectAsync(_fake.Server, "Hero", superseded, "5.32"));
+        Assert.Equal(LoginFailureKind.ApiVersionRejected, api.Kind);
+    }
+
+    private static AqwConnectionOptions WithApi(AqwConnectionOptions options, string api)
+    {
+        options.ApiVersion = api;
+        return options;
     }
 
     [Fact]
@@ -106,6 +136,63 @@ public class ConnectionTests : IAsyncLifetime
         await c.ConnectAsync(_fake.Server, "Hero", FakeAqwServer.Token, "5.32");
         Assert.Contains(seen, s => s.Contains("<pword><![CDATA[<token>]]>"));
         Assert.DoesNotContain(seen, s => s.Contains(FakeAqwServer.Token));
+    }
+
+    [Fact]
+    public async Task TheHandshakeIsTracedRedactedUpToTheFirstMoveToArea()
+    {
+        const string password = "pw-Secret-9";
+        _fake.LoginMessage = $"Welcome hero@example.com {password}";
+        AqwConnection c = New();
+        c.AddRedaction(password, "<password>");
+        List<(HeadlessLogLevel Level, string Message)> log = new();
+        c.Log += (_, e) =>
+        {
+            lock (log)
+                log.Add((e.Level, e.Message));
+        };
+        await c.ConnectAsync(_fake.Server, "Hero", FakeAqwServer.Token, "5.32");
+        await new GameCommands(c).JumpAsync("r2", "Left");
+
+        string[] trace;
+        lock (log)
+            trace = log.Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)).Select(l => l.Message).ToArray();
+        Assert.All(log.Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)), l => Assert.Equal(HeadlessLogLevel.Info, l.Level));
+        Assert.Contains(trace, l => l.Contains(">> <msg t='sys'><body action='verChk' r='0'><ver v='157' /></body></msg>"));
+        Assert.Contains(trace, l => l.Contains("<< <msg t='sys'><body action='apiOK'"));
+        Assert.Contains(trace, l => l.Contains(">> <msg t='sys'><body action='login' r='0'><login z='zone_master'><nick><![CDATA[SPIDER#0001~hero~5.32]]></nick><pword><![CDATA[<token>]]></pword>"));
+        Assert.Contains(trace, l => l.Contains("<< %xt%loginResponse%-1%true%") && l.Contains("Welcome <email> <password>%"));
+        Assert.Contains(trace, l => l.Contains(">> %xt%zm%firstJoin%1%"));
+        Assert.Contains(trace, l => l.Contains("<< {\"t\":\"xt\",\"b\":{\"r\":-1,\"o\":{\"cmd\":\"moveToArea\""));
+        Assert.EndsWith("trace ends.", trace[^1]);
+        Assert.DoesNotContain(trace, l => l.Contains("moveToCell%") && l.Contains("r2"));
+        string all;
+        lock (log)
+            all = string.Join('\n', log.Select(l => l.Message));
+        Assert.DoesNotContain(FakeAqwServer.Token, all);
+        Assert.DoesNotContain(password, all);
+        Assert.DoesNotContain("hero@example.com", all);
+        Assert.Contains("Socket login", all);
+    }
+
+    [Fact]
+    public async Task TheTokenIsReadWhenTheServerAnswersVerChk()
+    {
+        // Game.onConnectionHandler reads loginInfo.strToken only after apiOK: a web login that finishes while the
+        // socket opens supersedes the token the connect started with, and its token is the one sent.
+        string old = _fake.IssueToken("Hero");
+        string current = old;
+        AqwConnection c = New();
+        c.StateChanged += (_, state) =>
+        {
+            // The socket is open, verChk not yet sent.
+            if (state == ConnectionState.Handshaking)
+                current = _fake.IssueToken("Hero");
+        };
+        await c.ConnectAsync(_fake.Server, () => new SocketLogin("Hero", current), "5.32");
+        Assert.True(c.IsReady);
+        Assert.NotEqual(old, current);
+        Assert.Equal(current, _fake.LoginOutcomes.Last().Token);
     }
 
     [Fact]
@@ -375,14 +462,21 @@ public class ConnectionTests : IAsyncLifetime
     {
         AqwConnection c = New();
         List<string> pext = new();
-        c.ExtensionResponse += (_, e) => pext.Add(e.Json);
+        c.ExtensionResponse += (_, e) =>
+        {
+            lock (pext)
+                pext.Add(e.Json);
+        };
         c.PacketReceived += (_, _) => throw new InvalidOperationException("bad subscriber");
         await c.ConnectAsync(_fake.Server, "Hero", FakeAqwServer.Token, "5.32");
         Assert.True(c.IsReady);
         Assert.True(c.GetStatistics().SubscriberErrors > 0);
-        JsonObject moveToArea = pext.Select(j => (JsonObject)JsonNode.Parse(j)!).First(o => o["params"]!["dataObj"] is JsonObject d && (string?)d["cmd"] == "moveToArea");
+        string[] seen;
+        lock (pext)
+            seen = pext.ToArray(); // the reader thread may still be adding later packets
+        JsonObject moveToArea = seen.Select(j => (JsonObject)JsonNode.Parse(j)!).First(o => o["params"]!["dataObj"] is JsonObject d && (string?)d["cmd"] == "moveToArea");
         Assert.Equal("json", (string)moveToArea["params"]!["type"]!);
-        Assert.Contains(pext, j => j.Contains("\"loginResponse\""));
+        Assert.Contains(seen, j => j.Contains("\"loginResponse\""));
     }
 
     [Fact]
@@ -407,7 +501,7 @@ public class SessionTests : IAsyncLifetime
             Interlocked.Increment(ref _logins);
             return FakeHttp.Json(new JsonObject
             {
-                ["login"] = new JsonObject { ["bSuccess"] = 1, ["sToken"] = FakeAqwServer.Token, ["unm"] = "Hero", ["userid"] = 1, ["iLevel"] = 30, ["iUpgDays"] = -1 },
+                ["login"] = new JsonObject { ["bSuccess"] = 1, ["sToken"] = _fake.IssueToken("Hero"), ["unm"] = "Hero", ["userid"] = 1, ["iLevel"] = 30, ["iUpgDays"] = -1 },
                 ["servers"] = new JsonArray(
                     new JsonObject { ["sName"] = "Sandbox", ["sIP"] = "127.0.0.1", ["iPort"] = _fake.Port, ["iCount"] = 1, ["iMax"] = 1000, ["bOnline"] = 1, ["bUpg"] = 0 },
                     new JsonObject { ["sName"] = "MembersOnly", ["sIP"] = "127.0.0.1", ["iPort"] = 1, ["iCount"] = 0, ["iMax"] = 1000, ["bOnline"] = 1, ["bUpg"] = 1 }),
@@ -441,8 +535,101 @@ public class SessionTests : IAsyncLifetime
         Assert.True(session.Connection!.IsReady);
         Assert.Equal("5.40", session.ClientVersion!.Version);
         Assert.Equal(ClientVersionSource.ServerRequired, session.ClientVersion.Source);
-        Assert.Equal(new[] { "Hero~" + ClientVersion.Fallback, "Hero~5.40" }, _fake.LoginNicks.ToArray());
+        Assert.Equal(new[] { "hero~" + ClientVersion.Fallback, "hero~5.4" }, _fake.LoginNicks.ToArray());
         Assert.Equal(2, _logins); // a fresh token for the retry
+    }
+
+    [Fact]
+    public async Task ConnectWaitsForAWebLoginStillRunningAndUsesItsToken()
+    {
+        // Skua's relogin logs in over HTTP again right after the engine did; the second login replaces the token on
+        // the server as soon as it is processed, while its reply is still on the way.
+        await using AqwSession session = NewSession();
+        List<string> log = new();
+        session.Log += (_, e) =>
+        {
+            lock (log)
+                log.Add(e.Message);
+        };
+        await session.LoginAsync(new AqwCredentials("hero", "pw"));
+        GameServer server = session.PickServer();
+        _http.Delays["api/login/now"] = TimeSpan.FromMilliseconds(400);
+        Task<LoginResult> second = session.LoginAsync(new AqwCredentials("hero", "pw"));
+        await ConnectionTests.Until(() => _logins == 2);
+        await session.ConnectAsync(server);
+        Assert.True(second.IsCompletedSuccessfully);
+        Assert.True(session.Connection!.IsReady);
+        Assert.Equal(2, session.Account!.Generation);
+        Assert.Equal(new[] { (_fake.IssuedTokens.Last(), (string?)null) }, _fake.LoginOutcomes.ToArray());
+        lock (log)
+        {
+            Assert.Contains(log, l => l.StartsWith("A web login is still running", StringComparison.Ordinal));
+            Assert.Contains(log, l => l.Contains("with the token of web login #2", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task ARefusedDiscoveredVersionFallsBackToTheKnownGoodOneOnTheNextLoginOnly()
+    {
+        // Live: 5.33 (Game4000r9.swf's vParam) refused with "Character data could not be retrieved", 5.32 let in.
+        _fake.RefusedClientVersions.Add("5.33");
+        _http.Routes["api/data/gameversion"] = _ => FakeHttp.Json("""{"sFile":"Game4000r9.swf","sTitle":"t"}""");
+        _http.Routes["gamefiles/Game4000r9.swf"] = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(SyntheticSwf.GameFile("5.33")) };
+        await using AqwSession session = NewSession();
+        List<string> log = new();
+        session.Log += (_, e) =>
+        {
+            lock (log)
+                log.Add(e.Message);
+        };
+        await session.LoginAsync(new AqwCredentials("hero", "pw"));
+        AqwLoginException refused = await Assert.ThrowsAsync<AqwLoginException>(() => session.ConnectAsync(session.PickServer()));
+        Assert.Equal(LoginFailureKind.SocketRejected, refused.Kind);
+        Assert.Contains(FakeAqwServer.CharacterDataRefusal, refused.Message);
+        Assert.Single(_fake.LoginOutcomes); // the fallback adds no attempt of its own
+
+        // The caller's retry (Skua's relogin, the engine) logs in again and reconnects: this one sends 5.32.
+        await session.LoginAsync(new AqwCredentials("hero", "pw"));
+        await session.ConnectAsync(session.PickServer());
+        Assert.True(session.Connection!.IsReady);
+        Assert.Equal(new[] { "hero~5.33", "hero~5.32" }, _fake.LoginNicks.ToArray());
+        Assert.Equal(ClientVersionSource.KnownGood, session.ClientVersion!.Source);
+        lock (log)
+        {
+            Assert.Contains(log, l => l.Contains("Fallback armed: the next socket login (after a fresh web login) sends client version 5.32 once.", StringComparison.Ordinal));
+            Assert.Contains(log, l => l.StartsWith("Fallback: the last socket login with client version 5.33 was refused", StringComparison.Ordinal));
+            Assert.Contains(log, l => l.StartsWith("Fallback result: client version 5.32 got in where 5.33 was refused.", StringComparison.Ordinal));
+        }
+
+        // The session keeps what worked.
+        await session.LoginAsync(new AqwCredentials("hero", "pw"));
+        await session.ConnectAsync(session.PickServer());
+        Assert.Equal("hero~5.32", _fake.LoginNicks.Last());
+    }
+
+    [Fact]
+    public async Task TheVersionFallbackIsTriedOnceAndUndoneWhenItDoesNotHelp()
+    {
+        _fake.RefusedClientVersions.Add("5.33");
+        _fake.RefusedClientVersions.Add("5.32");
+        _http.Routes["api/data/gameversion"] = _ => FakeHttp.Json("""{"sFile":"Game4000r9.swf","sTitle":"t"}""");
+        _http.Routes["gamefiles/Game4000r9.swf"] = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(SyntheticSwf.GameFile("5.33")) };
+        await using AqwSession session = NewSession();
+        List<string> log = new();
+        session.Log += (_, e) =>
+        {
+            lock (log)
+                log.Add(e.Message);
+        };
+        for (int i = 0; i < 4; i++)
+        {
+            await session.LoginAsync(new AqwCredentials("hero", "pw"));
+            await Assert.ThrowsAsync<AqwLoginException>(() => session.ConnectAsync(session.PickServer()));
+        }
+        // One socket login per call, one of them with the known-good version, never a loop.
+        Assert.Equal(new[] { "hero~5.33", "hero~5.32", "hero~5.33", "hero~5.33" }, _fake.LoginNicks.ToArray());
+        lock (log)
+            Assert.Contains(log, l => l.StartsWith("Fallback result: client version 5.32 was refused the same way, so the version is not the cause", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -494,7 +681,7 @@ public class SessionTests : IAsyncLifetime
         Assert.Contains(snapshot, c => c.Name == "packet" && (string)c.Args[0] == $"%xt%zm%moveToCell%{session.World.RoomId}%r2%Left%");
         Assert.DoesNotContain(snapshot, c => c.Name == "packet" && ((string)c.Args[0]).StartsWith('<'));
         Assert.Equal("connectionLost", snapshot.Last().Name);
-        Assert.DoesNotContain(snapshot, c => c.Args.OfType<string>().Any(s => s.Contains(FakeAqwServer.Token)));
+        Assert.DoesNotContain(snapshot, c => c.Args.OfType<string>().Any(s => s.Contains(FakeAqwServer.TokenPrefix)));
     }
 
     [Fact]

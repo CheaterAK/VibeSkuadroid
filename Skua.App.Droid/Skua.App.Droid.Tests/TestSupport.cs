@@ -171,7 +171,7 @@ internal sealed class FakeAqw : IAsyncDisposable
             string body = request.Content!.ReadAsStringAsync().Result;
             bool ok = body.Contains("pass=" + Uri.EscapeDataString(Password), StringComparison.Ordinal);
             JsonObject login = ok
-                ? new JsonObject { ["bSuccess"] = 1, ["sToken"] = FakeAqwServer.Token, ["unm"] = "Hero", ["userid"] = 1, ["iLevel"] = 30, ["iUpgDays"] = -1 }
+                ? new JsonObject { ["bSuccess"] = 1, ["sToken"] = Server.IssueToken("Hero"), ["unm"] = "Hero", ["userid"] = 1, ["iLevel"] = 30, ["iUpgDays"] = -1 }
                 : new JsonObject { ["bSuccess"] = 0, ["sMsg"] = "Wrong password" };
             return FakeHttp.Json(new JsonObject { ["login"] = login, ["servers"] = Servers() }.ToJsonString());
         };

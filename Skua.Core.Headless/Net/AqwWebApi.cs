@@ -67,6 +67,18 @@ public sealed class LoginResult
     /// <summary>The <c>login</c> object without its token.</summary>
     public JsonObject Raw { get; }
 
+    /// <summary>
+    /// Which web login of its <see cref="AqwSession"/> this is (1, 2, ...; 0 outside a session). Each web login gives
+    /// a new token and the server only accepts the latest one.
+    /// </summary>
+    public long Generation { get; internal set; }
+
+    /// <summary>When the reply arrived (set by <see cref="AqwSession"/>).</summary>
+    public DateTimeOffset ObtainedAt { get; internal set; }
+
+    /// <summary>A socket login has used (or is using) this token.</summary>
+    public bool UsedBySocket { get; internal set; }
+
     public override string ToString()
     {
         return $"LoginResult({Username}, level {Level}, {Servers.Count} servers, token <redacted>)";

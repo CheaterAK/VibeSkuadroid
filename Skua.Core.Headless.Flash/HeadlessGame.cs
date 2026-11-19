@@ -19,6 +19,14 @@ public sealed class HeadlessGameOptions
 
     /// <summary>Download map files to learn their cells (otherwise <c>world.map.currentScene.labels</c> stays empty).</summary>
     public bool DownloadMapCells { get; set; } = true;
+
+    /// <summary>
+    /// A <see cref="HeadlessGame.Login"/> for the account just logged in, whose token no socket login has used yet and
+    /// is younger than this, shows that login's server list again instead of logging in over HTTP a second time
+    /// (each web login replaces the token). This is the engine's login followed at once by Skua's relogin, which
+    /// logs in again before it joins. Zero turns it off.
+    /// </summary>
+    public TimeSpan ReuseUnusedWebLoginFor { get; set; } = TimeSpan.FromSeconds(60);
 }
 
 /// <summary>A change of the login lifecycle.</summary>
@@ -221,15 +229,28 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
     {
         int request;
         CancellationToken token;
+        LoginResult? reuse;
         lock (_gate)
         {
+            reuse = UnusedLoginFor(username, password);
             _username = username;
             _password = password;
             _modal = null;
             _kicked = false;
             _loginVisible = true;
+            // The list (and the token behind it) belongs to the previous web login, which this one supersedes: without
+            // clearing it Skua's relogin sees "server list ready" at once and connects with the old token while the
+            // new login is still running (the likely cause of the live "Character data could not be retrieved" refusals).
+            _servers = reuse?.Servers ?? Array.Empty<GameServer>();
             request = ++_loginRequests;
             token = _lifecycle.Token;
+        }
+        if (reuse is not null)
+        {
+            Session.WriteLog(HeadlessLogLevel.Info, $"Login: web login #{reuse.Generation} for this account finished {(Time.GetUtcNow() - reuse.ObtainedAt).TotalSeconds:0.0} s ago "
+                + "and no socket login has used its token, so its server list is shown again instead of a second web login (which would replace the token).");
+            SetState(HeadlessGameState.ServerList);
+            return Task.CompletedTask;
         }
         SetState(HeadlessGameState.LoggingIn);
         return Task.Run(async () =>
@@ -259,6 +280,18 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
                 SetState(HeadlessGameState.LoggedOut);
             }
         }, CancellationToken.None);
+    }
+
+    // Under _gate. See HeadlessGameOptions.ReuseUnusedWebLoginFor.
+    private LoginResult? UnusedLoginFor(string username, string password)
+    {
+        LoginResult? account = Session.Account;
+        if (account is null || account.UsedBySocket || Session.WebLoginRunning || IsConnected || Options.ReuseUnusedWebLoginFor <= TimeSpan.Zero)
+            return null;
+        if (!string.Equals(username, _username, StringComparison.OrdinalIgnoreCase) || !string.Equals(password, _password, StringComparison.Ordinal))
+            return null;
+        TimeSpan age = Time.GetUtcNow() - account.ObtainedAt;
+        return age >= TimeSpan.Zero && age < Options.ReuseUnusedWebLoginFor ? account : null;
     }
 
     /// <summary>The account object skua reads as the static objLogin, or null before a login.</summary>

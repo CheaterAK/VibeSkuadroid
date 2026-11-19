@@ -18,6 +18,16 @@ namespace Skua.Core.Headless.Tests.Fakes;
 /// rejection, token checks, a "slow down" rule, silence and drop switches.
 /// </summary>
 /// <remarks>
+/// <para>
+/// Login rules: the password is the <c>sToken</c> of the account's latest web login. Each web login a test serves
+/// through <see cref="IssueToken"/> supersedes the account's earlier tokens, and a socket login with a superseded
+/// token, or with a client version listed in <see cref="RefusedClientVersions"/>, is refused with the live server's
+/// "Character data could not be retrieved" loginResponse. The nick's name must be the token's account in any case
+/// (the game sends it lowercased, another client that gets in sends <c>unm</c> as it is). <see cref="Token"/> is the
+/// account's token until the first <see cref="IssueToken"/>.
+/// </para>
+/// </remarks>
+/// <remarks>
 /// World: map testmap (cells Enter, r2 with two Pixies, r3 with a Pixie Queen), map shopmap; quest 1000
 /// "Pixie Problem" (3x Pixie Dust, a temp drop from Pixies) and 1001; Pixie Wing as a normal drop (getDrop);
 /// one bank item.
@@ -25,6 +35,15 @@ namespace Skua.Core.Headless.Tests.Fakes;
 public sealed class FakeAqwServer : IAsyncDisposable
 {
     public const string Token = "fake-token-123";
+
+    /// <summary>Every token this fake ever hands out starts with this (so tests can check none leaks).</summary>
+    public const string TokenPrefix = "fake-token-";
+
+    /// <summary>The account <see cref="Token"/> belongs to.</summary>
+    public const string Account = "Hero";
+
+    /// <summary>The live server's refusal seen on 2026-11-19 (the third field of the loginResponse is 0, the sixth this text).</summary>
+    public const string CharacterDataRefusal = "Character data could not be retrieved. Please Login and try again.";
 
     internal static readonly Dictionary<int, JsonObject> Items = new()
     {
@@ -80,6 +99,70 @@ public sealed class FakeAqwServer : IAsyncDisposable
 
     /// <summary>Every login nick seen (user~version), oldest first.</summary>
     public ConcurrentQueue<string> LoginNicks { get; } = new();
+
+    /// <summary>Every verChk API version seen, oldest first.</summary>
+    public ConcurrentQueue<string> ApiVersions { get; } = new();
+
+    /// <summary>verChk with another version is answered with apiKO. Null accepts any (as the live server did for 166).</summary>
+    public string? RequiredApiVersion { get; set; }
+
+    /// <summary>
+    /// Client versions (as written in the nick) refused with <see cref="CharacterDataRefusal"/>, the way the live
+    /// server refused 5.33 while it let a client with 5.32 in.
+    /// </summary>
+    public HashSet<string> RefusedClientVersions { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Every token <see cref="IssueToken"/> handed out, oldest first.</summary>
+    public ConcurrentQueue<string> IssuedTokens { get; } = new();
+
+    /// <summary>The message field of a successful loginResponse.</summary>
+    public string LoginMessage { get; set; } = "Welcome to the test server";
+
+    /// <summary>Every socket login's outcome, oldest first: the token it used and why it was refused (null when accepted).</summary>
+    public ConcurrentQueue<(string Token, string? Refusal)> LoginOutcomes { get; } = new();
+
+    private readonly object _tokenGate = new();
+    private readonly Dictionary<string, (string Account, bool Current, long IssuedAt)> _tokens = new(StringComparer.Ordinal)
+    {
+        [Token] = (Account, true, 0),
+    };
+    private int _tokenCount;
+
+    /// <summary>
+    /// A web login for <paramref name="account"/> (the <c>unm</c> the test's HTTP fake returns): a fresh token that
+    /// supersedes the account's earlier ones, as the live web login does.
+    /// </summary>
+    public string IssueToken(string account = Account)
+    {
+        lock (_tokenGate)
+        {
+            foreach (string key in _tokens.Keys.ToList())
+            {
+                (string owner, bool current, long at) = _tokens[key];
+                if (current && owner.Equals(account, StringComparison.OrdinalIgnoreCase))
+                    _tokens[key] = (owner, false, at);
+            }
+            string token = $"{TokenPrefix}r{Interlocked.Increment(ref _tokenCount)}-{Random.Shared.Next(100000, 999999)}";
+            _tokens[token] = (account, true, Stopwatch.GetTimestamp());
+            IssuedTokens.Enqueue(token);
+            return token;
+        }
+    }
+
+    /// <summary>Why a socket login with this nick name and token is refused, or null with the account's display name.</summary>
+    private (string? Refusal, string? Account) CheckLogin(string nickName, string token)
+    {
+        lock (_tokenGate)
+        {
+            if (!_tokens.TryGetValue(token, out (string Account, bool Current, long IssuedAt) t))
+                return ("Invalid login token.", null);
+            if (!t.Current)
+                return (CharacterDataRefusal, null);
+            if (!nickName.Equals(t.Account, StringComparison.OrdinalIgnoreCase))
+                return (CharacterDataRefusal, null);
+            return (null, t.Account);
+        }
+    }
 
     private int _sessionCount;
 
@@ -302,7 +385,11 @@ public sealed class FakeAqwServer : IAsyncDisposable
             {
                 if (m.Contains("action='verChk'", StringComparison.Ordinal))
                 {
-                    Raw("<msg t='sys'><body action='apiOK' r='0'></body></msg>");
+                    string version = Regex.Match(m, "<ver v='([^']*)'").Groups[1].Value;
+                    _server.ApiVersions.Enqueue(version);
+                    Raw(_server.RequiredApiVersion is string api && api != version
+                        ? "<msg t='sys'><body action='apiKO' r='0'></body></msg>"
+                        : "<msg t='sys'><body action='apiOK' r='0'></body></msg>");
                 }
                 else if (m.Contains("action='login'", StringComparison.Ordinal))
                 {
@@ -440,19 +527,27 @@ public sealed class FakeAqwServer : IAsyncDisposable
             Match pword = Regex.Match(m, "<pword><!\\[CDATA\\[([^\\]]*)\\]\\]></pword>");
             string[] parts = nick.Groups[1].Value.Split('~');
             _server.LoginNicks.Enqueue(parts.Length >= 3 ? $"{parts[1]}~{parts[2]}" : nick.Groups[1].Value);
-            Name = parts.Length > 1 ? parts[1] : "nobody";
+            string nickName = parts.Length > 1 ? parts[1] : "nobody";
+            Name = nickName;
             ClientVersion = parts.Length > 2 ? parts[2] : string.Empty;
             if (_server.RequiredClientVersion is string required && Older(ClientVersion, required))
             {
+                _server.LoginOutcomes.Enqueue((pword.Groups[1].Value, "client version"));
                 Raw($"%xt%loginResponse%-1%0%-1%%Your game client is an older version. Server requires AQW game version {required} or higher. Please close the AQW game window and try again.%");
                 return;
             }
-            if (pword.Groups[1].Value != Token)
+            (string? refusal, string? account) = _server.RefusedClientVersions.Contains(ClientVersion)
+                ? (CharacterDataRefusal, null)
+                : _server.CheckLogin(nickName, pword.Groups[1].Value);
+            _server.LoginOutcomes.Enqueue((pword.Groups[1].Value, refusal));
+            if (refusal is not null)
             {
-                Raw("%xt%loginResponse%-1%0%-1%%Invalid login token.%");
+                Raw($"%xt%loginResponse%-1%0%-1%%{refusal}%");
                 return;
             }
-            Str("loginResponse", "true", Uid, Name.ToLowerInvariant(), "Welcome to the test server", string.Empty);
+            // The server spells the name as the account has it (initUserData strUsername), whatever the nick's case.
+            Name = account!;
+            Str("loginResponse", "true", Uid, Name.ToLowerInvariant(), _server.LoginMessage, string.Empty);
         }
 
         private static bool Older(string version, string required)

@@ -21,10 +21,12 @@ public static class Packets
     public const string Zone = "zone_master";
 
     /// <summary>
-    /// SmartFox API version sent with verChk. The reference clients disagree (Seraph sends 166, aqx 157); both are
-    /// reported to be accepted by the live server. Override through <see cref="Net.AqwConnectionOptions.ApiVersion"/>.
+    /// SmartFox API version sent with verChk: what the game's own SmartFoxClient sends (Game4000r9.swf,
+    /// <c>SmartFoxClient.handleSocketConnection</c>: <c>majVersion</c> 1, <c>minVersion</c> 5, <c>subVersion</c> 7
+    /// concatenated, so <c>157</c>). Seraph sends 166, which the live server also answered with apiOK.
+    /// Override through <see cref="Net.AqwConnectionOptions.ApiVersion"/>.
     /// </summary>
-    public const string DefaultApiVersion = "166";
+    public const string DefaultApiVersion = "157";
 
     /// <summary>The extension every AQW command goes to.</summary>
     public const string Extension = "zm";
@@ -35,14 +37,35 @@ public static class Packets
     }
 
     /// <summary>
-    /// The SmartFox login: nick <c>SPIDER#0001~&lt;user&gt;~&lt;clientVersion&gt;</c>, password = the HTTP login's
-    /// <c>sToken</c>, zone <c>zone_master</c>.
+    /// The SmartFox login as the game sends it (Game4000r9.swf, <c>Game.onConnectionHandler</c>:
+    /// <c>sfc.login(cLoginZone, clientToken + "~" + loginInfo.strUsername + "~" + clientVersion, loginInfo.strToken)</c>):
+    /// nick <c>SPIDER#0001~&lt;user&gt;~&lt;clientVersion&gt;</c>, password = the HTTP login's <c>sToken</c>, zone
+    /// <c>zone_master</c>.
     /// </summary>
+    /// <remarks>
+    /// The game lowercases the name (<c>Game.onLoginComplete</c>: <c>loginInfo.strUsername = objLogin.unm.toLowerCase()</c>),
+    /// so this does too, whatever case <paramref name="username"/> has. The version goes through an AS3
+    /// <c>Number</c> (<c>clientVersion = Number(vParam)</c>), so it is written as AS3 prints that number ("5.30" becomes "5.3").
+    /// </remarks>
     public static string Login(string username, string clientVersion, string token, string zone = Zone)
     {
         return $"<msg t='sys'><body action='login' r='0'><login z='{zone}'>"
-            + $"<nick>{CData($"{ClientToken}~{username}~{clientVersion}")}</nick>"
+            + $"<nick>{CData($"{ClientToken}~{LoginName(username)}~{As3Number(clientVersion)}")}</nick>"
             + $"<pword>{CData(token)}</pword></login></body></msg>";
+    }
+
+    /// <summary>The name the game puts in the login nick: the account name lowercased.</summary>
+    public static string LoginName(string username)
+    {
+        return username.ToLowerInvariant();
+    }
+
+    /// <summary>A numeric version as AS3 prints <c>Number(text)</c>; anything that is not a plain number is kept as it is.</summary>
+    public static string As3Number(string text)
+    {
+        if (double.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out double value) && double.IsFinite(value))
+            return value.ToString("R", CultureInfo.InvariantCulture);
+        return text;
     }
 
     /// <summary>Any extension command: <c>%xt%zm%&lt;cmd&gt;%&lt;room&gt;%&lt;arg&gt;%...</c>.</summary>

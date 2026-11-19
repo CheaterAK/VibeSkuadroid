@@ -390,12 +390,26 @@ internal sealed class FakeHttp : HttpMessageHandler
 
     public Dictionary<string, int> Hits { get; } = new();
 
+    /// <summary>Per path: how long the reply takes after the route ran (the server acted at once, the answer arrives later).</summary>
+    public Dictionary<string, TimeSpan> Delays { get; } = new();
+
     public static HttpResponseMessage Json(string json)
     {
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        HttpResponseMessage response = await RouteAsync(request, cancellationToken);
+        string key = request.RequestUri!.AbsolutePath.TrimStart('/');
+        if (key.StartsWith("game/", StringComparison.Ordinal))
+            key = key[5..];
+        if (Delays.TryGetValue(key, out TimeSpan delay))
+            await Task.Delay(delay, cancellationToken);
+        return response;
+    }
+
+    private async Task<HttpResponseMessage> RouteAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
         Bodies.Add(request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken));

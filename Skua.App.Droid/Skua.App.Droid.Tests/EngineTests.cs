@@ -72,8 +72,24 @@ public class EngineTests : IAsyncLifetime
         string everything = string.Join('\n', _engine.GetRecentLog().Select(l => l.Display))
             + string.Join('\n', _engine.GetRecentPackets().Select(p => p.Display));
         Assert.DoesNotContain(FakeAqw.Password, everything);
-        Assert.DoesNotContain(FakeAqwServer.Token, everything);
+        Assert.DoesNotContain(FakeAqwServer.TokenPrefix, everything);
         Assert.Contains(_engine.GetRecentPackets(), p => p.Direction == PacketDirection.In);
+    }
+
+    [Fact]
+    public async Task TheHandshakeTraceReachesTheConsoleAtInfoRedacted()
+    {
+        await _engine.LoginAsync(new LoginRequest("hero", FakeAqw.Password, null));
+        LogEntry[] trace = _engine.GetRecentLog().Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)).ToArray();
+        Assert.NotEmpty(trace);
+        Assert.All(trace, l => Assert.Equal(EngineLogLevel.Info, l.Level));
+        Assert.Contains(trace, l => l.Message.Contains("<ver v='157' />", StringComparison.Ordinal));
+        Assert.Contains(trace, l => l.Message.Contains("<pword><![CDATA[<token>]]></pword>", StringComparison.Ordinal));
+        Assert.Contains(trace, l => l.Message.Contains("<< %xt%loginResponse%-1%true%", StringComparison.Ordinal));
+        Assert.Contains(_engine.GetRecentLog(), l => l.Message.StartsWith("Socket login to Sandbox (127.0.0.1:", StringComparison.Ordinal) && l.Message.Contains("web login #1", StringComparison.Ordinal));
+        string everything = string.Join('\n', _engine.GetRecentLog().Select(l => l.Display));
+        Assert.DoesNotContain(FakeAqw.Password, everything);
+        Assert.DoesNotContain(FakeAqwServer.TokenPrefix, everything);
     }
 
     [Fact]

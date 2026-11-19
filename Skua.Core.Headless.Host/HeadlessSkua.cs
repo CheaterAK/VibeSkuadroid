@@ -467,6 +467,12 @@ public sealed class HeadlessSkuaSession : IAsyncDisposable
         {
             // ScriptInterface.Dispose (again, from the container) cancels its wrapper the same way.
         }
+        // That cancellation stops the container's dispose, so the services after it (DiscordWebhookService,
+        // ScriptWatchdogService, ...) are never disposed and stay registered on Skua's static messenger: the next
+        // session's script start then reaches them and they ask this disposed container for services
+        // (ObjectDisposedException from StartScript). Only one session lives at a time and every registration on the
+        // messenger belongs to it, so clear them all.
+        CommunityToolkit.Mvvm.Messaging.StrongReferenceMessenger.Default.Reset();
         Volatile.Write(ref s_live, 0);
     }
 }
