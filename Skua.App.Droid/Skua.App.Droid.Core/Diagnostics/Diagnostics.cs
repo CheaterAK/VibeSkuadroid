@@ -70,8 +70,13 @@ public enum EngineInitPhase
 }
 
 /// <summary>What the marker file says about one process start.</summary>
+/// <param name="ProcessId">The process.</param>
+/// <param name="StartedAt">When it started.</param>
+/// <param name="LastStep">The last startup step it reached.</param>
+/// <param name="LastStepAt">When it reached that step.</param>
 /// <param name="Engine">The engine composition, which runs on a background thread alongside the steps.</param>
-public sealed record StartupMarker(int ProcessId, DateTimeOffset StartedAt, StartupStep LastStep, DateTimeOffset LastStepAt, EngineInitPhase Engine = EngineInitPhase.None)
+/// <param name="Activity">What the process was doing at its last heartbeat or lifecycle transition, if recorded.</param>
+public sealed record StartupMarker(int ProcessId, DateTimeOffset StartedAt, StartupStep LastStep, DateTimeOffset LastStepAt, EngineInitPhase Engine = EngineInitPhase.None, ProcessActivity? Activity = null)
 {
     public bool Completed => LastStep >= StartupStep.FirstFrame && Engine != EngineInitPhase.Started;
 
@@ -88,6 +93,13 @@ public sealed record StartupMarker(int ProcessId, DateTimeOffset StartedAt, Star
 
     /// <summary>The previous process died while composing the engine: skip it once so the crash screen can show.</summary>
     public bool DiedInEngineInit => Engine == EngineInitPhase.Started || LastStep == StartupStep.EngineInitStarted;
+
+    /// <summary>
+    /// The process was running a script at its last heartbeat and did not end itself on purpose. Without Android's exit
+    /// records (below Android 11) this is the only sign that a running process died after startup; with them, the exit
+    /// record says how.
+    /// </summary>
+    public bool DiedWhileBusy => !EndedUnexpectedly && Activity is { ScriptBusy: true, Planned: null };
 }
 
 /// <summary>Removes secrets from any diagnostic text before it is written or shown.</summary>
@@ -152,6 +164,10 @@ public sealed class DiagnosticsStore
     public const string CrashReportFile = "crash-report.txt";
     public const string LogFile = "events.log";
     public const string MarkerFile = "startup-marker.txt";
+    public const string ExitHistoryFile = "exit-history.txt";
+
+    /// <summary>An exit-record section appended to a pending report is cut at this size.</summary>
+    public const int MaxAppendChars = 96 * 1024;
 
     /// <summary>The log rolls over at this size (one previous file is kept).</summary>
     public const int MaxLogBytes = 128 * 1024;
@@ -179,6 +195,8 @@ public sealed class DiagnosticsStore
     public string LogPath => Path.Combine(Directory, LogFile);
 
     public string MarkerPath => Path.Combine(Directory, MarkerFile);
+
+    public string ExitHistoryPath => Path.Combine(Directory, ExitHistoryFile);
 
     /// <summary>A crash report is waiting to be shown.</summary>
     public bool HasPendingReport
@@ -243,6 +261,57 @@ public sealed class DiagnosticsStore
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Adds a section to the pending report (for example how Android says the process that wrote it ended).
+    /// Scrubbed and bounded; false when no report is pending.
+    /// </summary>
+    public bool AppendToPendingReport(string title, string section)
+    {
+        try
+        {
+            string text = section.Length <= MaxAppendChars ? section : section[..MaxAppendChars] + "\n...(truncated)";
+            text = DiagnosticText.Scrub($"\n\n--- {title} ---\n{text}\n");
+            lock (_lock)
+            {
+                if (!File.Exists(CrashReportPath))
+                    return false;
+                File.AppendAllText(CrashReportPath, text);
+                AppendLogLocked($"added to the pending crash report: {title}");
+                return true;
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The newest process exit record already handled, or null (never handled, unreadable).</summary>
+    public ExitHistoryMark? ReadExitHistoryMark()
+    {
+        try
+        {
+            lock (_lock)
+                return File.Exists(ExitHistoryPath) ? ExitHistoryMark.Parse(File.ReadAllText(ExitHistoryPath)) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public void WriteExitHistoryMark(ExitHistoryMark mark)
+    {
+        try
+        {
+            lock (_lock)
+                WriteAtomic(ExitHistoryPath, mark.Serialize());
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
         }
     }
 
@@ -317,7 +386,8 @@ public sealed class DiagnosticsStore
                 return null;
             EngineInitPhase engine = values.TryGetValue("engine", out string? e) && int.TryParse(e, NumberStyles.Integer, CultureInfo.InvariantCulture, out int phase)
                 && Enum.IsDefined((EngineInitPhase)phase) ? (EngineInitPhase)phase : EngineInitPhase.None;
-            return new StartupMarker(processId, ParseTime(values, "started"), (StartupStep)stepNumber, ParseTime(values, "at"), engine);
+            return new StartupMarker(processId, ParseTime(values, "started"), (StartupStep)stepNumber, ParseTime(values, "at"), engine,
+                ProcessActivity.FromMarker(values));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -325,13 +395,17 @@ public sealed class DiagnosticsStore
         }
     }
 
-    /// <summary>Records that process <paramref name="processId"/> reached <paramref name="step"/>, its engine composition at <paramref name="engine"/>.</summary>
-    public void WriteMarker(int processId, DateTimeOffset startedAt, StartupStep step, EngineInitPhase engine = EngineInitPhase.None)
+    /// <summary>
+    /// Records that process <paramref name="processId"/> reached <paramref name="step"/>, its engine composition at
+    /// <paramref name="engine"/>, and what it was last doing (<paramref name="activity"/>: heartbeat and lifecycle).
+    /// </summary>
+    public void WriteMarker(int processId, DateTimeOffset startedAt, StartupStep step, EngineInitPhase engine = EngineInitPhase.None, ProcessActivity? activity = null)
     {
         try
         {
             string text = string.Create(CultureInfo.InvariantCulture,
-                $"pid={processId}\nstarted={startedAt:O}\nstep={(int)step}\nname={step}\nengine={(int)engine}\nat={_time.GetUtcNow():O}\n");
+                $"pid={processId}\nstarted={startedAt:O}\nstep={(int)step}\nname={step}\nengine={(int)engine}\nat={_time.GetUtcNow():O}\n")
+                + activity?.ToMarkerLines();
             lock (_lock)
                 WriteAtomic(MarkerPath, text);
         }
@@ -339,6 +413,10 @@ public sealed class DiagnosticsStore
         {
         }
     }
+
+    /// <summary>The report for a process that died while a script ran, where Android keeps no exit records (below 11).</summary>
+    public static string DescribeBusyDeath(StartupMarker marker) => FormattableString.Invariant(
+        $"The previous run (pid {marker.ProcessId}, started {marker.StartedAt:u}) ended while a script was running, without a captured exception and without ending itself. Its last record: {marker.Activity?.Describe() ?? "(none)"}. This Android version (below 11) does not say why a process ended: a native crash, Android's low memory killer or the vendor's task management are the usual causes.");
 
     /// <summary>Human-readable summary of a marker for the crash report.</summary>
     public static string DescribeMarker(StartupMarker marker) => FormattableString.Invariant(

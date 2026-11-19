@@ -178,6 +178,8 @@ internal static class EngineRuntime
 
         // The foreground service follows the engine: started as soon as a session or script is active.
         engine.SnapshotChanged += (_, snapshot) => EngineService.EnsureRunningFor(application, snapshot);
+        // Heartbeats record the script and connection state (read from the immutable snapshot; no subscription).
+        CrashCapture.EngineState = () => (engine.Snapshot.Script.State.ToString(), engine.Snapshot.Connection.ToString());
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
         return new Composition(host, platform, library);
     }

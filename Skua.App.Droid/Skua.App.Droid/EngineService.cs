@@ -109,7 +109,7 @@ public sealed class EngineService : Service
         // Application.OnCreate could not, without waiting for it here. Commands that arrive meanwhile are queued and
         // run once it is composed; without an engine the service only satisfies startForeground and stops.
         EngineRuntime.WhenInitialized(this, OnEngineComposed);
-        CrashCapture.Info("Engine service created.");
+        CrashCapture.Lifecycle("service created");
     }
 
     /// <summary>Main thread, once the composition completed: attach to the engine and run the queued commands.</summary>
@@ -139,6 +139,7 @@ public sealed class EngineService : Service
     {
         // Must be in the foreground within seconds of startForegroundService, whatever the action, engine or not.
         bool foreground = PromoteToForeground();
+        CrashCapture.Lifecycle($"service start {intent?.Action?.Split('.')[^1] ?? "(sticky restart)"}{(foreground ? string.Empty : " (not in the foreground)")}");
         if (!foreground || _composed && _host is null)
         {
             StopService();
@@ -176,7 +177,7 @@ public sealed class EngineService : Service
         }
         ReleaseLocks();
         s_running = false;
-        Log.Info(EngineRuntime.LogTag, "Engine service destroyed.");
+        CrashCapture.Lifecycle("service destroyed");
         base.OnDestroy();
     }
 

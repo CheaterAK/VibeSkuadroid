@@ -1,4 +1,5 @@
 using Android.App;
+using Android.Content;
 using Android.Runtime;
 using Avalonia;
 using Avalonia.Android;
@@ -56,6 +57,11 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
             return; // Application.onCreate itself does nothing; skipping base also skips Avalonia here.
 
         CrashCapture.Step(StartupStep.ApplicationCreate);
+        // How the previous run ended, by Android's own records (native crash, ANR, killed for memory): before any
+        // activity decides whether to show the crash screen.
+        ExitReasons.ScanOnce(this);
+        CrashCapture.Lifecycle("process start", UiState.None);
+        CrashCapture.StartHeartbeat();
         AppBootstrap.Factory = EngineRuntime.CreateAppServices;
         AppBootstrap.ReportError = (where, e) => CrashCapture.Recovered(where, e);
         AppBootstrap.MainViewCreated = () => CrashCapture.Step(StartupStep.MainViewCreated);
@@ -90,4 +96,19 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
 
     protected override AppBuilder CustomizeAppBuilder(AppBuilder builder) =>
         base.CustomizeAppBuilder(builder).WithInterFont();
+
+    /// <summary>Memory pressure as Android reports it: recorded (the next report says how close the process was to a kill).</summary>
+    public override void OnTrimMemory([GeneratedEnum] TrimMemory level)
+    {
+        base.OnTrimMemory(level);
+        if (!ProcessInfo.IsRestartProcess(this))
+            CrashCapture.Lifecycle($"trimMemory {(int)level} {level}");
+    }
+
+    public override void OnLowMemory()
+    {
+        base.OnLowMemory();
+        if (!ProcessInfo.IsRestartProcess(this))
+            CrashCapture.Lifecycle("lowMemory");
+    }
 }
