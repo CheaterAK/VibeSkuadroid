@@ -464,6 +464,12 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
     }
 
+    public void WriteLog(EngineLogLevel level, string source, string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        AddLog(level, source, message ?? string.Empty);
+    }
+
     public bool CanPauseScript => _scripts.CanPause;
 
     public Task PauseScriptAsync(CancellationToken cancellationToken = default) => SetPausedAsync(true, cancellationToken);

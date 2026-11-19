@@ -134,6 +134,11 @@ public interface IBotEngine : IAsyncDisposable
         remove { }
     }
 
+    /// <summary>Adds a line to the engine's log (the Console), as the app's own parts (the script queue) report.</summary>
+    void WriteLog(EngineLogLevel level, string source, string message)
+    {
+    }
+
     /// <summary>
     /// The options of <paramref name="scriptPath"/> read from the option profile <paramref name="optionStorage"/>
     /// (null: the script's own storage). Saving the returned set with <see cref="SaveScriptOptionsAsync"/> writes that profile.

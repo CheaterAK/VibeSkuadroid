@@ -21,6 +21,8 @@ namespace Skua.App.Droid.Core.Platform;
 ///         Cached-Scripts/         Skua.Core compiler disk cache (emitted script assemblies)
 ///   droid/settings.json           this app's settings (no secrets)
 ///   droid/plugins.json            built-in plugins: on/off and options (no secrets)
+///   droid/queue.json              the script queue and its position (resume after a restart; no secrets)
+///   droid/playlists/*.json        saved script queues (no secrets)
 /// no_backup/secrets/              Keystore-encrypted credential (Context.NoBackupFilesDir)
 /// cache/                          temporary files (Context.CacheDir, TMPDIR)
 /// </code>
@@ -48,6 +50,15 @@ public sealed record AppPaths(string FilesDir, string NoBackupDir, string CacheD
 
     /// <summary>Restart bookkeeping (resume after a memory restart). No secrets.</summary>
     public string ResumeFile => Path.Combine(AppDataDir, "resume.json");
+
+    /// <summary>The script queue: entries, position and results (<see cref="Scheduler.QueueStore"/>). No secrets.</summary>
+    public string QueueFile => Path.Combine(AppDataDir, "queue.json");
+
+    /// <summary>Saved script queues (playlists). No secrets.</summary>
+    public string PlaylistsDir => Path.Combine(AppDataDir, "playlists");
+
+    /// <summary>Skua's options folder (script options <c>.cfg</c>, CoreBots' <c>CBO_Storage(..).txt</c>).</summary>
+    public string SkuaOptionsDir => Path.Combine(SkuaDir, "options");
 
     public string SecretsDir => Path.Combine(NoBackupDir, "secrets");
 
