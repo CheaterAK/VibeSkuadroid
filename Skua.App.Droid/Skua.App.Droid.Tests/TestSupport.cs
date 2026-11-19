@@ -163,6 +163,9 @@ internal sealed class FakeAqw : IAsyncDisposable
 {
     public const string Password = "hunter2-secret";
 
+    /// <summary>The live web API root: the bank request only ever sends the token there (the handler is in-process).</summary>
+    public static readonly Uri BaseUri = new("https://game.aq.com/game/");
+
     public FakeAqw()
     {
         Http.Routes["api/login/now"] = request =>
@@ -176,6 +179,9 @@ internal sealed class FakeAqw : IAsyncDisposable
             return FakeHttp.Json(new JsonObject { ["login"] = login, ["servers"] = Servers() }.ToJsonString());
         };
         Http.Routes["api/data/servers"] = _ => FakeHttp.Json(Servers().ToJsonString());
+        // The bank as the game loads it (POST api/char/bank, contract enforced by the fake); socket loadBank unanswered.
+        Http.Routes["api/char/bank"] = Server.AnswerBankRequest;
+        Server.AnswerSocketLoadBank = false;
         Http.Routes["api/data/gameversion"] = _ => new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("no") };
     }
 
@@ -204,7 +210,7 @@ internal sealed class FakeAqw : IAsyncDisposable
                 IdleProbeAfter = TimeSpan.Zero,
             },
         };
-        return new AqwSession(options, new AqwWebApi(new AqwWebApiOptions { BaseUri = new Uri("https://example.test/game/") }, Http));
+        return new AqwSession(options, new AqwWebApi(new AqwWebApiOptions { BaseUri = FakeAqw.BaseUri }, Http));
     }
 
     public HeadlessBotEngine NewEngine(IScriptHost? scripts = null, bool autoReconnect = true) => new(new HeadlessEngineOptions

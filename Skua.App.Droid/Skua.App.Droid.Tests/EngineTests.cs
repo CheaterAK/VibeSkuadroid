@@ -40,6 +40,11 @@ public class EngineTests : IAsyncLifetime
         Assert.False(lists.BankLoaded);
         await _engine.LoadBankAsync();
         Assert.True(_engine.GetWorldLists().BankLoaded);
+        Assert.Single(_engine.GetWorldLists().Bank);
+        // The console line the live test needs: how the bank came, status, count, time (never the token).
+        Assert.Contains(_engine.GetRecentLog(), e => e.Level == EngineLogLevel.Info && e.Message.StartsWith("Bank: loaded over HTTPS (POST api/char/bank", StringComparison.Ordinal)
+            && e.Message.Contains("HTTP 200, 1 items received", StringComparison.Ordinal));
+        Assert.Equal(new string?[] { null }, _aqw.Server.BankRequests.ToArray());
     }
 
     [Fact]
