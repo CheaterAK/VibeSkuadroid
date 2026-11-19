@@ -12,6 +12,7 @@ public enum AppPage
     Scripts,
     World,
     Console,
+    Plugins,
     Settings,
 }
 
@@ -37,6 +38,12 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Scripts = new ScriptsViewModel(services);
         World = new WorldViewModel(services);
         Console = new ConsoleViewModel(services);
+        Plugins = new PluginsViewModel(services);
+        Plugins.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PluginsViewModel.Title))
+                OnPropertyChanged(nameof(Title));
+        };
         Settings = new SettingsViewModel(services);
 
         _host.Engine.SnapshotChanged += OnSnapshotChanged;
@@ -55,10 +62,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     public ConsoleViewModel Console { get; }
 
+    /// <summary>The built-in plugins (Daily Tracker, Butler, Cosmetics) and their pages.</summary>
+    public PluginsViewModel Plugins { get; }
+
     public SettingsViewModel Settings { get; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CurrentContent), nameof(Title), nameof(IsHomePage), nameof(IsScriptsPage), nameof(IsWorldPage), nameof(IsConsolePage), nameof(IsSettingsPage))]
+    [NotifyPropertyChangedFor(nameof(CurrentContent), nameof(Title), nameof(IsHomePage), nameof(IsScriptsPage), nameof(IsWorldPage), nameof(IsConsolePage), nameof(IsPluginsPage), nameof(IsSettingsPage))]
     private AppPage _currentPage = AppPage.Home;
 
     [ObservableProperty]
@@ -99,6 +109,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         AppPage.Scripts => Scripts,
         AppPage.World => World,
         AppPage.Console => Console,
+        AppPage.Plugins => Plugins,
         _ => Settings,
     };
 
@@ -108,6 +119,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         AppPage.Scripts => "Scripts",
         AppPage.World => "World",
         AppPage.Console => "Console",
+        AppPage.Plugins => Plugins.Title,
         _ => "Settings",
     };
 
@@ -118,6 +130,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public bool IsWorldPage => CurrentPage == AppPage.World;
 
     public bool IsConsolePage => CurrentPage == AppPage.Console;
+
+    public bool IsPluginsPage => CurrentPage == AppPage.Plugins;
 
     public bool IsSettingsPage => CurrentPage == AppPage.Settings;
 
@@ -132,6 +146,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public bool GoBack()
     {
         if (CurrentPage == AppPage.Scripts && (Scripts.CloseOverlay() || Scripts.GoUp()))
+            return true;
+        if (CurrentPage == AppPage.Plugins && Plugins.CloseSubPage())
             return true;
         if (CurrentPage != AppPage.Home)
         {
@@ -175,6 +191,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         World.IsActive = value == AppPage.World;
         Console.IsActive = value == AppPage.Console;
+        Plugins.IsActive = value == AppPage.Plugins;
         if (value == AppPage.Scripts)
             Scripts.Refresh();
     }
@@ -242,6 +259,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Dashboard.Apply(s);
         Scripts.Apply(s);
         World.Apply(s);
+        Plugins.Apply(s);
         Settings.Apply(s);
         ApplyVerdict(_host.MemoryVerdict);
     }
@@ -264,5 +282,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _host.Engine.SnapshotChanged -= OnSnapshotChanged;
         _host.MemoryVerdictChanged -= OnMemoryVerdictChanged;
         Console.Dispose();
+        Plugins.Dispose();
     }
 }

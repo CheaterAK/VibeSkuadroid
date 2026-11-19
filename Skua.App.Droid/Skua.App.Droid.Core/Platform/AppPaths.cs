@@ -20,6 +20,7 @@ namespace Skua.App.Droid.Core.Platform;
 ///       Scripts/                  ClientFileSources.SkuaScriptsDIR: imported and synced scripts
 ///         Cached-Scripts/         Skua.Core compiler disk cache (emitted script assemblies)
 ///   droid/settings.json           this app's settings (no secrets)
+///   droid/plugins.json            built-in plugins: on/off and options (no secrets)
 /// no_backup/secrets/              Keystore-encrypted credential (Context.NoBackupFilesDir)
 /// cache/                          temporary files (Context.CacheDir, TMPDIR)
 /// </code>
@@ -41,6 +42,9 @@ public sealed record AppPaths(string FilesDir, string NoBackupDir, string CacheD
     public string AppDataDir => Path.Combine(FilesDir, "droid");
 
     public string SettingsFile => Path.Combine(AppDataDir, "settings.json");
+
+    /// <summary>The built-in plugins' state and options (<see cref="Plugins.PluginStore"/>). No secrets.</summary>
+    public string PluginsFile => Path.Combine(AppDataDir, "plugins.json");
 
     /// <summary>Restart bookkeeping (resume after a memory restart). No secrets.</summary>
     public string ResumeFile => Path.Combine(AppDataDir, "resume.json");

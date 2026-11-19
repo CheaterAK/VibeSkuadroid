@@ -14,6 +14,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
+    <!-- The built-in plugins' game-side halves; the adapter creates them on its session (IPluginBackendSource). -->
+    <ProjectReference Include="..\Skua.App.Droid.Plugins\Skua.App.Droid.Plugins.csproj" />
     <ProjectReference Include="..\..\Skua.Core\Skua.Core.csproj" />
     <!-- HeadlessSkuaSession: Skua.Core's services on the headless Flash bridge (brings Skua.Core.Headless.Flash). -->
     <ProjectReference Include="..\..\Skua.Core.Headless.Host\Skua.Core.Headless.Host.csproj" />

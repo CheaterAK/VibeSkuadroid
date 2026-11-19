@@ -12,6 +12,7 @@
     <DataTemplate DataType="vm:ScriptsViewModel"><v:ScriptsView /></DataTemplate>
     <DataTemplate DataType="vm:WorldViewModel"><v:WorldView /></DataTemplate>
     <DataTemplate DataType="vm:ConsoleViewModel"><v:ConsoleView /></DataTemplate>
+    <DataTemplate DataType="vm:PluginsViewModel"><v:PluginsView /></DataTemplate>
     <DataTemplate DataType="vm:SettingsViewModel"><v:SettingsView /></DataTemplate>
   </UserControl.DataTemplates>
 
@@ -86,6 +87,12 @@
           <StackPanel HorizontalAlignment="Center" Spacing="2">
             <PathIcon Data="{StaticResource IconConsole}" Width="22" Height="22" />
             <TextBlock Text="Console" HorizontalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Classes="nav" Classes.active="{Binding IsPluginsPage}" Command="{Binding NavigateCommand}" CommandParameter="Plugins">
+          <StackPanel HorizontalAlignment="Center" Spacing="2">
+            <PathIcon Data="{StaticResource IconPlugins}" Width="22" Height="22" />
+            <TextBlock Text="Plugins" HorizontalAlignment="Center" />
           </StackPanel>
         </Button>
         <Button Classes="nav" Classes.active="{Binding IsSettingsPage}" Command="{Binding NavigateCommand}" CommandParameter="Settings">

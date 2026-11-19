@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The built-in plugins' game-side halves for the Android app (Daily Tracker, Butler), on Skua's IScriptInterface of
+    the engine's one HeadlessSkuaSession. They implement the plugin seams of Skua.App.Droid.Core (IPluginBackends);
+    the script host adapter (Skua.App.Droid.Scripting) creates them, so the Android head needs no change.
+    Platform neutral and tested on Linux. No Avalonia (the desktop plugins' windows are Avalonia 11 and stay there).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Skua.App.Droid.Plugins</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
+    <ProjectReference Include="..\..\Skua.Core\Skua.Core.csproj" />
+    <!-- UI-free logic extracted from the desktop plugins (the desktop plugins compile the same files in). -->
+    <ProjectReference Include="..\..\Skua.Plugins.Shared\Skua.Plugins.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ButlerV5's per-account class lookup (CoreBots' CBO file) and skill-mode choice, compiled in unchanged from the
+      desktop plugin (the file is UI-free; the plugin project itself is Avalonia 11 and cannot be referenced).
+    -->
+    <Compile Include="..\..\Skua.Plugin.ButlerV5\AccountConfig.cs" Link="Butler\Linked\AccountConfig.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Skua.App.Droid.Tests" />
+  </ItemGroup>
+
+</Project>
