@@ -48,6 +48,7 @@
           <TextBlock Classes="caption" Text="SCRIPT" />
           <TextBlock Text="{Binding ScriptName}" FontWeight="SemiBold" />
           <TextBlock Classes="muted" Text="{Binding ScriptState}" TextWrapping="Wrap" />
+          <TextBlock Classes="muted" Text="{Binding QueueLine}" TextWrapping="Wrap" Foreground="{StaticResource PrimaryBrush}" IsVisible="{Binding QueueLine, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Classes="muted" Text="{Binding ScriptCounters}" IsVisible="{Binding ScriptCounters, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <TextBlock Classes="error" Text="{Binding ScriptMessage}" IsVisible="{Binding ScriptMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
           <Grid ColumnDefinitions="*,*" Margin="0,6,0,0" IsVisible="{Binding ScriptBusy}">

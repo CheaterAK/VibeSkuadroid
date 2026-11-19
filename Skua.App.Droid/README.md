@@ -6,7 +6,7 @@ Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .N
 
 | Project | TFM | What |
 |---|---|---|
-| `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog), ViewModels, settings, credential vault format, script library |
+| `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog, script queue), ViewModels, settings, credential vault format, script library |
 | `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`) |
 | `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) on Skua's `IScriptInterface`; created by the script host adapter |
 | `Skua.App.Droid.UI` | net10.0 | Avalonia 12 views (compiled bindings) |
@@ -204,6 +204,66 @@ Measured once from Linux: 1953 scripts (13.2 MB) in 28 s.
 
 Reference images scripts compile against are packed as APK assets under `assets/script-refs/` by
 `ScriptReferences.targets`; the tests compile real scripts through Skua.Core against exactly that set.
+
+## Pause and resume
+
+*Pause* (Scripts page, Dashboard, notification action) uses Skua's own pause unchanged
+(`ScriptManager.SetPausedAsync`, the desktop's Pause button and hotkey): the skill timer pauses and the script
+thread blocks on `ScriptPauseEvent` at its next `Bot.Sleep` / `Bot.Wait` call (every wait loop of Skua and CoreBots
+goes through them); *Resume* stops Skua's auto attack and releases the thread. Nothing in it needs Flash or a window,
+so it works headless as is. The adapter mirrors `ScriptPaused` into `ScriptStatus.Paused`; everything that shows the
+script state shows "Paused" (Scripts page, Dashboard, notification, heartbeat). A paused script is still busy: the
+memory watchdog does not restart, the wake lock stays, and the session keeps its keepalive and AFK clearing (they
+live in the connection, not in the script). A script that never calls Sleep or Wait does not stop until it does.
+Stop works while paused (Skua cancels the wait). If the connection drops while paused, Skua's relogin restarts the
+script unpaused, as on the desktop. The notification's Pause/Resume action is an explicit, immutable PendingIntent
+to the engine service, which is not exported.
+
+## Script queue
+
+The desktop's Script Scheduler, on the Scripts page (*Queue* tab; *Add to queue* in the Library tab). The queue
+(`Skua.App.Droid.Core/Scheduler/ScriptScheduler.cs`) lives with the engine in `EngineHost` for the whole process, not
+in a ViewModel: it keeps running in the background (the foreground service and its wake lock stay up while it runs,
+also between runs), and a recreated activity shows the same state. The notification shows the current entry
+("Queue 2/5: Gold farm (run 1/3)"); its Stop stops the queue's script and with it the queue.
+
+**Per entry**: display name (desktop default: the file name, "Name (2).cs" for a second copy), runs (or repeat until
+stopped), stop after N minutes (the entry's total run time, paused time excluded), wait before the next run, on
+error: skip / stop the queue / retry N times, and two profiles:
+
+* *Script options*: the entry's own Skua option storage `Queue_<script>_<id>` (the desktop's scheme), edited in the
+  usual options editor and saved by Skua as `options/<storage>.cfg`. The run starts with Skua's `OverrideStorage` set
+  to it and `SilentConfig` on; both stay set until the next start, so Skua's relogin restart of the script reads the
+  same profile (the desktop clears it when the script stops, so its relogin restart falls back to the script's own
+  options).
+* *CoreBots profile*: CoreBots' settings (edited over the account's current CBO file) stored with the entry and
+  written to `options/CBO_Storage(<account>).txt` right before each run of the entry. The file then keeps the last
+  applied profile. Without a profile the file is left as it is.
+
+Dialogs are answered by the headless policy (see *Unattended dialogs*). Errors are shown as one plain-English
+sentence ("The script does not compile: ...", "The script crashed: it used something that was not there
+(NullReferenceException: ...)"). Playlists (queue plus settings) are saved by name in `files/droid/playlists/`; a
+loaded playlist leaves out entries whose script is gone. *Continue* runs from the entry the queue stopped at.
+
+**Relogin.** Ported from the desktop: a run that ends while the account is disconnected (the engine was not online
+during or right after it) is not counted ("Disconnected"); the queue waits for the connection. If Skua's relogin
+restarts the same script (it does after a drop while a script runs, when AutoRelogin is on), the queue adopts that
+run: no second start, nothing skipped. If the account is back and the script was not restarted within 8 s, the
+queue starts the same entry again. Before every run the queue waits until the account is online (the desktop's
+"Scheduler Paused"). The script's Stop (any page, the notification) and logging out stop the queue.
+
+**Memory and restarts.** Script assemblies are never unloaded (Mono), and the app reuses identical ones through
+`ScriptAssemblyStore`, so re-running a script costs nothing but a long queue of different scripts grows memory. The
+watchdog only restarts when no script runs and the engine was idle for 30 s, which a queue rarely is. So between two
+runs (never during one, never before the first run after a start) the queue asks `EngineHost`: if memory is over the
+threshold and an automatic restart is allowed now (auto restart on, threshold not too low, 3 min uptime, 15 min since
+the last automatic restart) and the session can be restored (a remembered password), the engine restarts. Before
+every restart (this one, the watchdog's, the restart button) the queue saves its position with "resume after the
+restart"; after the restart's login (or, if the login could not be resumed, once the user logs in) it continues at
+that run: the entry that ran is not repeated and the next one is not skipped. A restart while the queue waited for a
+reconnect mid-entry runs that entry again. The desktop has no equivalent (its queue is in memory only). If the
+process dies without a planned restart (crash, killed), the queue is not resumed by itself: it shows "Interrupted"
+and *Continue* resumes there. The state (`files/droid/queue.json`) is written at every step; it holds no secrets.
 
 ## Plugins
 
