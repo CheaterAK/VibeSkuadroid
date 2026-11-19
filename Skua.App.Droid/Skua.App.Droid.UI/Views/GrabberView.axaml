@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.GrabberView"
+             x:DataType="vm:GrabberViewModel">
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <ComboBox HorizontalAlignment="Stretch" Margin="0,0,8,0" ItemsSource="{Binding Tabs}" SelectedItem="{Binding SelectedTab}">
+                <ComboBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:GrabberTab">
+                    <TextBlock Text="{Binding Display}" />
+                  </DataTemplate>
+                </ComboBox.ItemTemplate>
+              </ComboBox>
+              <Button Grid.Column="1" Classes="primary" Content="Grab" Command="{Binding GrabCommand}" />
+            </Grid>
+            <TextBox Text="{Binding SearchText}" PlaceholderText="Search" TextInputOptions.AutoCapitalization="False" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding ListText}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !IsOnline}" Text="Log in to grab and act." />
+
+            <!-- The tab's actions on the selection -->
+            <ItemsControl ItemsSource="{Binding Actions}">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:GrabberActionButton">
+                  <Button Classes="small primary" Classes.danger="{Binding Destructive}" Margin="0,0,6,6"
+                          Content="{Binding Title}" Command="{Binding Command}" />
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <WrapPanel>
+              <Button Classes="small" Margin="0,0,6,6" Content="Copy IDs" Command="{Binding CopyIdsCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Copy names" Command="{Binding CopyNamesCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Copy lines" Command="{Binding CopyLinesCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Share details" Command="{Binding ShareDetailsCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Content="Select all" Command="{Binding SelectAllCommand}" />
+              <Button Classes="small" Margin="0,0,6,6" Command="{Binding ClearSelectionCommand}"
+                      Content="{Binding SelectedCount, StringFormat='Unselect ({0})'}" />
+              <Button Classes="small danger" Margin="0,0,6,6" Content="Cancel task" IsVisible="{Binding CanCancel}" Command="{Binding CancelCommand}" />
+            </WrapPanel>
+            <TextBlock Classes="error" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Status}" IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </StackPanel>
+        </Border>
+
+        <ItemsControl ItemsSource="{Binding Rows}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GrabberRow">
+              <Grid ColumnDefinitions="Auto,Auto,*,Auto" Margin="0,2">
+                <CheckBox VerticalAlignment="Center" IsChecked="{Binding IsSelected}" />
+                <TextBlock Grid.Column="1" Classes="mono" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0" Text="{Binding Id}" />
+                <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                  <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding Text}" />
+                  <TextBlock Classes="muted" Text="junk" IsVisible="{Binding IsJunk}" />
+                </StackPanel>
+                <Button Grid.Column="3" Classes="small" Margin="4,0,0,0" Content="ID" Command="{Binding CopyIdCommand}" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+    <v:ConfirmOverlay DataContext="{Binding Confirm}" />
+  </Panel>
+</UserControl>

@@ -24,12 +24,20 @@ public sealed partial class ToolsViewModel : ObservableObject
         Store = new PluginStore(Path.Combine(Path.GetDirectoryName(services.Paths.PluginsFile) ?? ".", "tools.json"));
         FastTravel = new FastTravelViewModel(services, Store);
         Loader = new LoaderViewModel(services);
+        Grabber = new GrabberViewModel(services);
+        Loader.ViewInGrabberRequested += (_, kind) =>
+        {
+            OpenPage(Grabber);
+            _ = Grabber.ShowAsync(kind == Tools.LoaderKind.Shop ? Tools.GrabberCategory.ShopItems : Tools.GrabberCategory.Quests);
+        };
         Entries =
         [
             new ToolEntry("Fast Travel", "Saved map destinations (map, cell, pad) and Skua's presets: one tap to travel, in your private room if you like.",
                 new RelayCommand(() => OpenPage(FastTravel))),
             new ToolEntry("Loader", "Load a shop or quests by ID; Skua's quest list with search, copy names and IDs, load and fake complete.",
                 new RelayCommand(() => OpenPage(Loader))),
+            new ToolEntry("Grabber", "Browse what the game holds now (shop items, shops, quests, map items, inventory, bank, monsters): search, copy IDs and names, and the desktop's item actions.",
+                new RelayCommand(() => OpenPage(Grabber))),
         ];
     }
 
@@ -41,6 +49,8 @@ public sealed partial class ToolsViewModel : ObservableObject
     public FastTravelViewModel FastTravel { get; }
 
     public LoaderViewModel Loader { get; }
+
+    public GrabberViewModel Grabber { get; }
 
     /// <summary>The hub is shown (instead of the settings).</summary>
     [ObservableProperty]
@@ -61,6 +71,7 @@ public sealed partial class ToolsViewModel : ObservableObject
     {
         FastTravelViewModel => "Fast Travel",
         LoaderViewModel => "Loader",
+        GrabberViewModel => "Grabber",
         _ => "Tools",
     };
 
@@ -97,6 +108,7 @@ public sealed partial class ToolsViewModel : ObservableObject
     {
         FastTravelViewModel ft => ft.Confirm,
         LoaderViewModel l => l.Confirm,
+        GrabberViewModel g => g.Confirm,
         _ => null,
     };
 
@@ -107,11 +119,14 @@ public sealed partial class ToolsViewModel : ObservableObject
             ft.Refresh();
         else if (newValue is LoaderViewModel loader)
             loader.Refresh();
+        else if (newValue is GrabberViewModel grabber)
+            grabber.Refresh();
     }
 
     internal void Apply(EngineSnapshot s)
     {
         FastTravel.Apply(s);
         Loader.Apply(s);
+        Grabber.Apply(s);
     }
 }

@@ -7,6 +7,7 @@
   <UserControl.DataTemplates>
     <DataTemplate DataType="vm:FastTravelViewModel"><v:FastTravelView /></DataTemplate>
     <DataTemplate DataType="vm:LoaderViewModel"><v:LoaderView /></DataTemplate>
+    <DataTemplate DataType="vm:GrabberViewModel"><v:GrabberView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Grid RowDefinitions="Auto,*">

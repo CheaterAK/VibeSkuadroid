@@ -14,6 +14,89 @@ public interface IGameTools
     IFastTravelBackend FastTravel { get; }
 
     ILoaderBackend Loader { get; }
+
+    IGrabberBackend Grabber { get; }
+}
+
+/// <summary>What the Grabber grabs (Skua's GrabberTypes, the desktop Grabber's tabs).</summary>
+public enum GrabberCategory
+{
+    ShopItems,
+    ShopIds,
+    Quests,
+    MapItemIds,
+    Inventory,
+    HouseInventory,
+    TempInventory,
+    Bank,
+    CellMonsters,
+    MapMonsters,
+}
+
+/// <summary>The Grabber's item actions (the desktop Grabber's buttons).</summary>
+public enum GrabberAction
+{
+    Buy,
+    LoadShop,
+    OpenQuest,
+    AcceptQuest,
+    RegisterQuest,
+    FakeComplete,
+    UnregisterAll,
+    GetMapItem,
+    Equip,
+    Sell,
+    SellAll,
+    ToBank,
+    HouseToBank,
+    ToInventory,
+    Kill,
+    TeleportTo,
+}
+
+/// <summary>A grabbed object.</summary>
+/// <param name="Id">Its ID (item, quest, shop, monster or map item ID).</param>
+/// <param name="Name">Its name (map items: "Map item").</param>
+/// <param name="Text">The desktop's summary line ("[ID] name | ..."), also what the search looks in.</param>
+/// <param name="IsJunk">Marked as junk (Skua's junk list).</param>
+/// <param name="Handle">The Skua object behind it (opaque to the page; handed back to the backend).</param>
+public sealed record GrabbedItem(int Id, string Name, string Text, bool IsJunk, object Handle);
+
+/// <summary>A quantity to ask for.</summary>
+public sealed record QuantityAsk(string Label, int Min, int Max, int Initial);
+
+/// <summary>What the page asks before an action, or why the action is refused.</summary>
+/// <param name="Refusal">The action is refused (the desktop's warning), or null.</param>
+/// <param name="Question">The confirmation question, or null when the action needs none (it spends or moves nothing).</param>
+/// <param name="Quantity">Ask for a quantity with the question, or null.</param>
+public sealed record GrabberPlan(string? Refusal, string? Question, QuantityAsk? Quantity)
+{
+    public static GrabberPlan Refuse(string why) => new(why, null, null);
+}
+
+/// <summary>
+/// Grabber (desktop GrabberView): grab the current game state by category with Skua's grabber service, and the
+/// desktop Grabber's item actions. Shop, quest and bank actions shared with the Control page go through its backend;
+/// the rules (AC items, gold, one sale at a time, equipped items) are the desktop's.
+/// </summary>
+public interface IGrabberBackend
+{
+    /// <summary>Grabs a category now (Skua's GrabberService.Grab). Blocking for the map items (saved map data only).</summary>
+    /// <exception cref="Engine.EngineException">The game is not available.</exception>
+    IReadOnlyList<GrabbedItem> Grab(GrabberCategory category);
+
+    /// <summary>Checks an action on the selection: refused, or what to ask.</summary>
+    GrabberPlan Plan(GrabberAction action, IReadOnlyList<GrabbedItem> items);
+
+    /// <summary>Runs an action (after the page asked). Returns a line for the user.</summary>
+    /// <exception cref="Engine.EngineException">Refused or failed.</exception>
+    Task<string> RunAsync(GrabberAction action, IReadOnlyList<GrabbedItem> items, int quantity, IProgress<string> progress, CancellationToken cancellationToken);
+
+    /// <summary>The desktop's Copy text (title line, one summary line per item).</summary>
+    string CopyText(string title, IReadOnlyList<GrabbedItem> items);
+
+    /// <summary>The desktop's Export text (every property of every item).</summary>
+    string DetailedText(string title, IReadOnlyList<GrabbedItem> items);
 }
 
 /// <summary>What the Loader loads by ID (desktop Loader: Shop, Quest).</summary>

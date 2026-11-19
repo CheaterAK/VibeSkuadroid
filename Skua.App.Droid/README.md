@@ -243,6 +243,39 @@ Cost: the page reads the game only while it is open and the app is in the foregr
 updates per second), on a worker thread; a list is replaced only when its content changed. In the background it does
 nothing; returning reads the latest state once.
 
+## Tools (Settings > Open tools)
+
+Ports of the desktop's Fast Travel, Loader and Grabber windows, as pages of a Tools hub (`ToolsViewModel`, a list of
+`ToolEntry(Title, Description, Open)`) opened from the top of Settings; Back closes a question, then the page, then
+the hub. Their game side is `IGameTools` (Core), implemented in `Skua.App.Droid.Plugins/Tools` on the engine's Skua
+session and exposed as `IPluginBackends.GameTools` (like the Control page's backend).
+
+* **Fast Travel**: the desktop's list itself (Skua's `FastTravels` setting, same file and `name,map,cell,pad` lines,
+  `Skua.Core.Models.FastTravelEntry`); search by name, map or cell; one tap travels through Skua's `IMapService.Travel`
+  (private room toggle and number, default on / 111111 like the desktop, saved in `files/droid/tools.json`; the
+  tercessuinotlim detour through m22); add (with *Current*: the map, cell and pad you are in), edit, delete, clear,
+  and add Skua's presets (`DefaultFastTravels`).
+* **Loader**: load a shop (one ID; the Control page's `LoadShop`, which checks it arrived) or quests (`1,2 3`; Skua's
+  `Quests.Load`, then waits for them) by ID, then *View in Grabber*; Skua's quest list (`QuestData.json`, kept current
+  by the community script sync) with the desktop's search, select, copy names / IDs / `// name | id` lines, load, and
+  *Fake* (Skua's client-only `UpdateQuest`); Skua's updater for new IDs or a range, with progress and Cancel. The input
+  rules and copy formats are the desktop's (`Skua.Core.Models.Quests.LoaderText`). At most 200 rows show; search narrows.
+* **Grabber**: the desktop's ten tabs (Skua's `GrabberService.Grab`), search in the desktop's summary lines
+  (`Skua.Core.Services.GrabberText`), select, copy IDs / names / the desktop's Copy text, a per-row ID copy, the
+  desktop's Export text to the share sheet, and the desktop's buttons per tab: Buy; Load Shop; Open, Accept, Register,
+  Fake Complete, Unregister All; Get Map Item; Equip, Sell, Sell All, To Bank; To Inventory; Kill, Teleport To.
+  Buying, selling, loading a shop, accepting and the bank moves call the Control page's backend (same checks and
+  verification); the rest calls Skua's `GrabberService` tasks that ask nothing. The desktop's refusals apply (AC items
+  that cost AC, not enough gold, one sale at a time, equipped items). *GetMap Item IDs* lists only map items the
+  desktop saved before: Skua finds them by decompiling the map file with FFDec, Windows only.
+
+Safety: the pages never use Skua's dialog service (it declines every unattended confirmation here); they ask with
+their own confirmation card (`ConfirmHost`). Buy, Sell, Sell All, Get Map Item (with the desktop's quantity
+questions), the bank moves, Equip and Register ask first; deleting, clearing and adding presets in Fast Travel ask;
+the quest list update asks. While a script runs every action first asks "A script is running; do it anyway?". One
+action at a time per page; long Grabber tasks (Kill) and the quest update can be cancelled. Actions go through Skua's
+API and the client's own throttles (`world.lock`).
+
 ## Plugins
 
 The desktop app's three plugins are built in (Plugins tab): each has an on/off switch and, where it can run, a page.

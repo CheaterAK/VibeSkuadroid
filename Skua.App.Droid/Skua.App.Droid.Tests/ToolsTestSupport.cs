@@ -14,6 +14,10 @@ internal sealed class FakeGameTools : IGameTools
     public FakeLoader FakeLoader { get; } = new();
 
     public ILoaderBackend Loader => FakeLoader;
+
+    public FakeGrabber FakeGrabber { get; } = new();
+
+    public IGrabberBackend Grabber => FakeGrabber;
 }
 
 internal sealed class FakeFastTravel : IFastTravelBackend
@@ -118,4 +122,62 @@ internal sealed class FakeLoader : ILoaderBackend
             await Task.Delay(10);
         return List.ToList();
     }
+}
+
+internal sealed class FakeGrabber : IGrabberBackend
+{
+    public List<string> Calls { get; } = new();
+
+    /// <summary>When set, RunAsync waits for it (or for cancellation).</summary>
+    public ManualResetEventSlim? Gate { get; set; }
+
+    public IReadOnlyList<GrabbedItem> Grab(GrabberCategory category)
+    {
+        Calls.Add($"grab {category}");
+        return category switch
+        {
+            GrabberCategory.ShopItems =>
+            [
+                new(40, "Health Potion", "[40] Health Potion | Cost: 10 Gold", false, "potion"),
+                new(41, "Fancy Hat", "[41] Fancy Hat | Cost: 1,000 Gold", false, "hat"),
+            ],
+            GrabberCategory.Inventory =>
+            [
+                new(1, "Default Sword", "[1] Default Sword x1 | Category: Sword", false, "sword"),
+                new(30, "Old Boots", "[30] Old Boots x3 | Category: Misc", true, "boots"),
+            ],
+            GrabberCategory.MapMonsters => [new(5, "Pixie", "[5] Pixie | Cell: r2 | HP: 100/100", false, "pixie")],
+            _ => [],
+        };
+    }
+
+    public GrabberPlan Plan(GrabberAction action, IReadOnlyList<GrabbedItem> items)
+    {
+        if (items.Count == 0)
+            return GrabberPlan.Refuse("Select at least one item.");
+        return action switch
+        {
+            GrabberAction.Buy when items.Count == 1 => new(null, $"Buy {items[0].Name}?", new QuantityAsk("Buy quantity", 1, 99, 1)),
+            GrabberAction.Buy => new(null, $"Buy {items.Count} items?", null),
+            GrabberAction.Sell when items.Count > 1 => GrabberPlan.Refuse("ATTENTION - 2 items selected!"),
+            GrabberAction.Sell => new(null, $"Sell {items[0].Name}?", new QuantityAsk("Sell quantity", 1, 3, 1)),
+            _ => new(null, null, null),
+        };
+    }
+
+    public async Task<string> RunAsync(GrabberAction action, IReadOnlyList<GrabbedItem> items, int quantity, IProgress<string> progress, CancellationToken cancellationToken)
+    {
+        Calls.Add($"{action} {string.Join(",", items.Select(i => i.Id))} x{quantity}");
+        progress.Report("working");
+        while (Gate is { IsSet: false })
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(10, CancellationToken.None);
+        }
+        return $"{action} done";
+    }
+
+    public string CopyText(string title, IReadOnlyList<GrabbedItem> items) => $"=== {title} ({items.Count} items) ===\n" + string.Join("\n", items.Select(i => i.Text));
+
+    public string DetailedText(string title, IReadOnlyList<GrabbedItem> items) => "details of " + string.Join(",", items.Select(i => i.Id));
 }

@@ -228,6 +228,23 @@ public partial class ToolsTests
         Render();
         Assert.False(overlay.IsEffectivelyVisible);
 
+        // The Grabber with rows, its actions and a quantity question; the Loader with its list.
+        tools.OpenPage(tools.Grabber);
+        await tools.Grabber.GrabCommand.ExecuteAsync(null);
+        Render();
+        Assert.NotNull(window.GetVisualDescendantOfType(nameof(GrabberView)));
+        tools.Grabber.Rows[0].IsSelected = true;
+        Task buy = tools.Grabber.Actions[0].Command.ExecuteAsync(null);
+        Render();
+        Assert.True(tools.Grabber.Confirm.HasQuantity);
+        tools.Grabber.Confirm.CancelCommand.Execute(null);
+        await buy;
+        Render();
+        tools.OpenPage(tools.Loader);
+        await Sandbox.Until(() => tools.Loader.Quests.Count == 3);
+        Render();
+        Assert.NotNull(window.GetVisualDescendantOfType(nameof(LoaderView)));
+
         lock (sink.Messages)
             Assert.Empty(sink.Messages.Where(m => m.Contains("Binding", StringComparison.OrdinalIgnoreCase)));
         window.Close();

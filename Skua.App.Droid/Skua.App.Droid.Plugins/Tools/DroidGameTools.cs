@@ -17,9 +17,12 @@ public sealed class DroidGameTools : IGameTools
     {
         FastTravel = new FastTravelBackend(bot, services);
         Loader = new LoaderBackend(bot, services, control);
+        Grabber = new GrabberBackend(bot, services, control);
     }
 
     public IFastTravelBackend FastTravel { get; }
 
     public ILoaderBackend Loader { get; }
+
+    public IGrabberBackend Grabber { get; }
 }
