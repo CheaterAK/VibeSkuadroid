@@ -100,6 +100,7 @@ public class MainActivity : AvaloniaMainActivity
         base.OnStart();
         _started = true;
         CrashCapture.Lifecycle("onStart", UiState.Foreground);
+        TryRun("UI visible", () => AppBootstrap.SetUiVisible(true));
         if (_engineReady)
             BindEngineService();
     }
@@ -136,6 +137,8 @@ public class MainActivity : AvaloniaMainActivity
     {
         _started = false;
         CrashCapture.Lifecycle("onStop", UiState.Background);
+        // Engine snapshots and log lines keep arriving: they wait (bounded) instead of updating views without a window.
+        TryRun("UI hidden", () => AppBootstrap.SetUiVisible(false));
         if (_link.Bound)
             TryRun("unbind the engine service", () => UnbindService(_link));
         _link.Bound = false;

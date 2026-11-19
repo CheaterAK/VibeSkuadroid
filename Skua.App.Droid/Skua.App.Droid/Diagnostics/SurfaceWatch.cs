@@ -49,5 +49,23 @@ internal sealed class SurfaceWatch : Java.Lang.Object, ISurfaceHolderCallback
     public void SurfaceChanged(ISurfaceHolder holder, [GeneratedEnum] Format format, int width, int height) =>
         CrashCapture.Lifecycle($"surfaceChanged {width}x{height}");
 
-    public void SurfaceDestroyed(ISurfaceHolder holder) => CrashCapture.Lifecycle("surfaceDestroyed");
+    /// <summary>
+    /// Runs after Avalonia's own surfaceDestroyed: waits for a frame still being drawn into the window before Android
+    /// destroys it (<see cref="RenderFence"/>, upstream Avalonia#22728).
+    /// </summary>
+    public void SurfaceDestroyed(ISurfaceHolder holder)
+    {
+        TimeSpan? waited = null;
+        try
+        {
+            waited = RenderFence.WaitForFrameInFlight();
+        }
+        catch (Exception e)
+        {
+            CrashCapture.NonFatal("render fence", e);
+        }
+        CrashCapture.Lifecycle(waited is { } w && w.TotalMilliseconds >= 1
+            ? $"surfaceDestroyed (waited {w.TotalMilliseconds:0} ms for the frame in flight)"
+            : "surfaceDestroyed");
+    }
 }

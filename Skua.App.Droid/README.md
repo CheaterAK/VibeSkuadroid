@@ -101,6 +101,22 @@ foreground or background, script state, connection, RSS. It goes to the events l
 11+) to the process state summary Android returns with that process's exit record, so the report says what the app was
 doing just before it died. Below Android 11 a process that died while a script ran is reported from the marker alone.
 
+## Background and foreground
+
+The engine, its log and the ViewModels live for the whole process; each activity gets a fresh view. While the activity
+is stopped (`AppBootstrap.SetUiVisible(false)` from `MainActivity.onStop`), engine snapshots and console lines are not
+pushed into the bound properties and lists: snapshots keep only the latest, console lines wait in a bounded queue
+(`BoundedFeed`, twice the 600 visible lines). On `onStart` the latest snapshot is applied once and the queue is flushed,
+or, if it overflowed during a long run in the background, the console lists are rebuilt once from the engine's buffer.
+So a script logging for hours in the background costs no UI work and the return to the foreground at most one rebuild.
+
+**Avalonia workaround (`RenderFence`).** In Avalonia 12.1.x, `surfaceDestroyed` (app going to the background) releases
+the window and only asks the compositor to stop at its next commit; a frame already being drawn keeps using the
+destroyed surface (AvaloniaUI/Avalonia#22728; fix proposed in PR #22738, not in 12.1.6). A surface callback registered
+after Avalonia's (`Diagnostics/SurfaceWatch.cs`) waits, at most 500 ms, for the compositor's render lock (private,
+reached by reflection once; without it nothing happens), so no frame is drawing into the window when Android destroys
+it. Remove it once the Avalonia version in use has the upstream fix.
+
 ## Scripts
 
 Scripts run on unmodified Skua.Core through `Skua.Core.Headless.Host` (`HeadlessSkuaSession`: ScriptManager,
