@@ -21,7 +21,9 @@ namespace Skua.App.Droid.Core.Platform;
 ///         Cached-Scripts/         Skua.Core compiler disk cache (emitted script assemblies)
 ///   droid/settings.json           this app's settings (no secrets)
 ///   droid/plugins.json            built-in plugins: on/off and options (no secrets)
-/// no_backup/secrets/              Keystore-encrypted credential (Context.NoBackupFilesDir)
+///   droid/notify.json             drop watch list, junk and webhook options (no secrets)
+///   droid/notification-history.json  Notification Center history (no secrets)
+/// no_backup/secrets/              Keystore-encrypted password and Discord webhook URL (Context.NoBackupFilesDir)
 /// cache/                          temporary files (Context.CacheDir, TMPDIR)
 /// </code>
 /// </remarks>
@@ -45,6 +47,12 @@ public sealed record AppPaths(string FilesDir, string NoBackupDir, string CacheD
 
     /// <summary>The built-in plugins' state and options (<see cref="Plugins.PluginStore"/>). No secrets.</summary>
     public string PluginsFile => Path.Combine(AppDataDir, "plugins.json");
+
+    /// <summary>Drop watch list, junk and Discord webhook options (<see cref="Notifications.NotificationSettingsStore"/>). No secrets.</summary>
+    public string NotificationSettingsFile => Path.Combine(AppDataDir, "notify.json");
+
+    /// <summary>The Notification Center's history (<see cref="Notifications.NotificationHistory"/>). No secrets.</summary>
+    public string NotificationHistoryFile => Path.Combine(AppDataDir, "notification-history.json");
 
     /// <summary>Restart bookkeeping (resume after a memory restart). No secrets.</summary>
     public string ResumeFile => Path.Combine(AppDataDir, "resume.json");

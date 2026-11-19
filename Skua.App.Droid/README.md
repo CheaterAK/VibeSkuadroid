@@ -272,3 +272,30 @@ token, the account's characters, network access and the foreground service, and 
 process. It would need at least an explicit warning, a hash or signature allowlist, and the same review as a script,
 which already runs with these rights (scripts are source compiled on the device; a DLL is opaque).
 
+
+## Notifications, junk and Discord (Settings > Tools)
+
+`NotificationHub` (`Skua.App.Droid.Core/Notifications`) is created with the engine and runs without any UI. Skua's game
+and script messages reach it through `IGameEvents` (`Skua.App.Droid.Scripting/SkuaGameEvents.cs`); the message handlers
+only queue, one background worker does the rest, so the Flash bridge and the script thread never wait.
+
+* **Notification Center**: the desktop's entries and filters, newest first, at most 500, kept in
+  `files/droid/notification-history.json` (scrubbed like crash reports).
+* **Notify Drop**: a watch list (`|`-separated input, whole name, case-insensitive) in `files/droid/notify.json`. A watched
+  item dropped or obtained posts a notification on its own channel "Watched drops" (`DropNotifications.cs`, default
+  importance; `EngineService` is untouched); tapping opens the app; one notification per item, alerting once while shown;
+  a secure lock screen shows only "A watched item dropped" unless item names are allowed there.
+* **Current drops**: the World page's Drops tab picks up, rejects, picks up all, and adds a drop to the watch or junk list.
+* **Junk Items**: Skua's `IJunkService` and its `JunkItems.json` in the script folder (the desktop's file and format; the
+  community sync replaces it like the desktop's auto-update does). Sell all junk (equipped items kept). Android adds
+  *reject junk drops automatically*: Skua's `RejectExcept` for the junk drop, unless the running script asked for it or it
+  is watched. The headless bridge's `rejectExcept` closes the rejected drops in the world model, as the game client does.
+* **Discord webhook**: the URL must be `https://` on discord.com, discordapp.com or their canary./ptb. subdomains,
+  `/api[/vN]/webhooks/<id>/<token>`, optionally `?thread_id=`; it is a credential, so it is encrypted in the Keystore
+  secret store (`no_backup/secrets`, entry `discord-webhook`), registered with the diagnostics scrubber, never logged or
+  shown again. Cards (`WebhookPayloads`): Script Started, Farming Session Concluded, Script Error (script name only),
+  Kicked/Disconnected & Relogging, Scheduler Paused (`NotificationHub.NotifySchedulerPaused`), Rare Drop! for watched items
+  (30 s per item). They carry script, item and map names, counts and durations; the character name only when allowed
+  (else "VibeSkua Bot"); `allowed_mentions` is empty. One queue (`DiscordWebhookSender`): 429 waits for `retry_after` /
+  `Retry-After` (at most 60 s, 5 attempts), an empty bucket delays the next message, 2 messages per second at most, the
+  oldest message is dropped when 50 wait.

@@ -110,6 +110,12 @@ public interface IBotEngine : IAsyncDisposable
     Plugins.IPluginBackends? Plugins => null;
 
     /// <summary>
+    /// Game and script events and the drop and junk actions of the Skua host (drop notifications, Notification
+    /// Center, junk, Discord webhook). Null when this engine has none (no Skua host).
+    /// </summary>
+    Notifications.IGameEvents? GameEvents => null;
+
+    /// <summary>
     /// Registers long work done for the user outside the game (a script repository sync): it shows in
     /// <see cref="EngineSnapshot.BackgroundWork"/> and keeps the process (the foreground service) alive until disposed.
     /// </summary>

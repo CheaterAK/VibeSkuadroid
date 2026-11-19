@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.ToolsView"
+             x:DataType="vm:ToolsViewModel">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:NotificationCenterViewModel"><v:NotificationCenterView /></DataTemplate>
+    <DataTemplate DataType="vm:NotifyDropViewModel"><v:NotifyDropView /></DataTemplate>
+    <DataTemplate DataType="vm:JunkItemsViewModel"><v:JunkItemsView /></DataTemplate>
+    <DataTemplate DataType="vm:DiscordWebhookViewModel"><v:DiscordWebhookView /></DataTemplate>
+  </UserControl.DataTemplates>
+
+  <Panel>
+    <!-- The list of tools -->
+    <ScrollViewer IsVisible="{Binding IsListVisible}">
+      <StackPanel Margin="12,4,12,12">
+        <ItemsControl ItemsSource="{Binding Entries}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ToolEntry">
+              <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,0,0,10" Padding="14"
+                      CornerRadius="12" BorderThickness="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushMain}"
+                      Command="{Binding $parent[ItemsControl].((vm:ToolsViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="2">
+                    <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Title}" />
+                    <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Description}" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Classes="muted" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="20" Text="›" />
+                </Grid>
+              </Button>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- An open tool -->
+    <Grid RowDefinitions="Auto,*" IsVisible="{Binding !IsListVisible}">
+      <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="12,8,12,0">
+        <Button Classes="small" Content="‹ Tools" Command="{Binding CloseCommand}" />
+        <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{Binding CurrentTitle}" />
+      </Grid>
+      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
+    </Grid>
+  </Panel>
+</UserControl>

@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Skua.App.Droid.Core.Engine;
+using Skua.App.Droid.Core.Notifications;
 using Skua.App.Droid.Core.Plugins;
 using Skua.App.Droid.Plugins;
 using Skua.Core.Headless;
@@ -32,7 +33,7 @@ namespace Skua.App.Droid.Scripting;
 /// <c>LoadContextFactory</c>), so an unchanged CoreBots is loaded once per process.
 /// </para>
 /// </remarks>
-public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource
+public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource, IGameEventSource
 {
     /// <summary>
     /// The version Skua reports to scripts (bot.Version and the "ApplicationVersion" setting). CoreBots'
@@ -55,6 +56,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     private readonly Dictionary<string, IScriptOptionContainer> _optionContainers = new(StringComparer.Ordinal);
     private HeadlessSkuaSession? _skua;
     private DroidPluginBackends? _plugins;
+    private SkuaGameEvents? _gameEvents;
     private ScriptStatus _status = ScriptStatus.Idle;
     private string? _loaded;
     private string? _runError;
@@ -102,6 +104,12 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     /// current session's IScriptInterface, so they keep working across logouts (the session object is kept).
     /// </summary>
     public IPluginBackends? PluginBackends => _plugins;
+
+    /// <summary>
+    /// Skua's game and script messages, drop actions and junk list on this host's session (drop notifications,
+    /// Notification Center, junk, Discord webhook). Created with the session.
+    /// </summary>
+    public IGameEvents? GameEvents => _gameEvents;
 
     /// <summary>Unattended answers to scripts' message boxes (logged as "dialog" lines).</summary>
     public HeadlessDialogPolicy Dialogs { get; } = DefaultDialogPolicy();
@@ -188,6 +196,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
                 });
             _skua = skua;
             _plugins = new DroidPluginBackends(() => _skua?.Bot, () => _skua?.Services);
+            _gameEvents = new SkuaGameEvents(() => _skua?.Bot, () => _skua?.Services, warning => Emit(EngineLogLevel.Warning, "drops", warning));
             return skua.Game.Session;
         }
         catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or TypeInitializationException)
@@ -417,6 +426,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         HeadlessSkuaSession? s = Interlocked.Exchange(ref _skua, null);
         StrongReferenceMessenger.Default.UnregisterAll(_recipient);
         Interlocked.Exchange(ref _plugins, null)?.Dispose();
+        Interlocked.Exchange(ref _gameEvents, null)?.Dispose();
         if (s is null)
             return;
         s.ScriptRunningChanged -= OnScriptRunningChanged;
