@@ -29,6 +29,8 @@ internal static class Program
         // Deliberately no secret store on desktop: the desktop CryptoUtils key is derived from machine/user name.
         EngineHost host = new(engine, settings, new CredentialVault(new UnavailableSecretStore()), new ResumeStore(paths.ResumeFile), new NullPlatformServices());
         ScriptLibrary library = new(paths.ScriptsDir);
+        host.AttachScheduler(new Skua.App.Droid.Core.Scheduler.ScriptScheduler(engine,
+            new Skua.App.Droid.Core.Scheduler.QueueStore(paths.QueueFile, paths.PlaylistsDir), paths.ScriptsDir, paths.SkuaOptionsDir));
         AppBootstrap.Factory = () => new AppServices(host, new AvaloniaUiDispatcher(), new AvaloniaFilePicker(), library, new ScriptRepositorySync(library, paths.SkuaDir), paths);
 
         try

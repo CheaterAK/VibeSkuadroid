@@ -4,9 +4,15 @@
              xmlns:s="using:Skua.App.Droid.Core.Scripts"
              x:Class="Skua.App.Droid.UI.Views.ScriptsView"
              x:DataType="vm:ScriptsViewModel">
-  <Grid>
+  <Grid RowDefinitions="Auto,*">
+    <!-- Library / Queue -->
+    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="12,8,12,0" IsVisible="{Binding ShowTabs}">
+      <ToggleButton Classes="tab" Content="Library" IsChecked="{Binding IsLibraryTab, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Library" />
+      <ToggleButton Classes="tab" Content="{Binding QueueTabTitle}" IsChecked="{Binding ShowQueue, Mode=OneWay}" Command="{Binding SelectTabCommand}" CommandParameter="Queue" />
+    </StackPanel>
+
     <!-- Browser -->
-    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,8" IsVisible="{Binding IsBrowsing}">
+    <Grid Grid.Row="1" RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="12,8" IsVisible="{Binding IsBrowsing}">
 
       <Border Grid.Row="0" Classes="banner" Margin="0,0,0,8" IsVisible="{Binding ScriptsUnavailable}">
         <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding ScriptSupportText}" />
@@ -43,10 +49,11 @@
           <Button Grid.Column="2" Classes="small primary" HorizontalAlignment="Stretch" Margin="2,0" Content="Resume" Command="{Binding ResumeCommand}" IsVisible="{Binding IsPaused}" />
           <Button Grid.Column="3" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop" Command="{Binding StopCommand}" />
         </Grid>
-        <Grid ColumnDefinitions="*,*,*">
+        <Grid ColumnDefinitions="*,*,*,*">
           <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Import files" Command="{Binding ImportFilesCommand}" />
           <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Import folder" Command="{Binding ImportFolderCommand}" />
-          <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteCommand}" />
+          <Button Grid.Column="2" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Add to queue" Command="{Binding AddToQueueCommand}" IsVisible="{Binding HasQueue}" />
+          <Button Grid.Column="3" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteCommand}" />
         </Grid>
         <Grid ColumnDefinitions="*,*,Auto">
           <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Sync community scripts" Command="{Binding SyncRepositoryCommand}" />
@@ -59,8 +66,121 @@
       </StackPanel>
     </Grid>
 
+
+    <!-- Queue (the engine's script queue) -->
+    <ContentControl Grid.Row="1" Margin="12,8" Content="{Binding Queue}" IsVisible="{Binding IsQueueVisible}">
+      <ContentControl.ContentTemplate>
+        <DataTemplate x:DataType="vm:QueueViewModel">
+          <Grid>
+            <Grid RowDefinitions="Auto,Auto,*,Auto" IsVisible="{Binding IsListing}">
+              <Border Grid.Row="0" Classes="card" Margin="0,0,0,6">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="caption" Text="SCRIPT QUEUE" />
+                  <TextBlock Text="{Binding CurrentName}" FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="{Binding CurrentName, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <TextBlock Classes="muted" Text="{Binding ProgressText}" TextWrapping="Wrap" />
+                  <TextBlock Classes="muted" Text="{Binding ElapsedText}" IsVisible="{Binding ElapsedText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <TextBlock Classes="muted" Text="{Binding NextText}" TextWrapping="Wrap" IsVisible="{Binding NextText, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <TextBlock Classes="muted" Text="{Binding StatusText}" TextWrapping="Wrap" />
+                </StackPanel>
+              </Border>
+              <Grid Grid.Row="1" ColumnDefinitions="*,*,*" Margin="0,0,0,6">
+                <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Start" Command="{Binding StartCommand}" />
+                <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Continue" Command="{Binding ContinueCommand}" />
+                <Button Grid.Column="2" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop queue" Command="{Binding StopCommand}" />
+              </Grid>
+              <ListBox Grid.Row="2" ItemsSource="{Binding Items}" SelectedItem="{Binding SelectedItem}" Background="Transparent">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="vm:QueueItemViewModel">
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto">
+                      <TextBlock Classes="muted" Text="{Binding Position}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                      <TextBlock Grid.Column="1" Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                      <Border Grid.Column="2" Classes="status" Classes.done="{Binding IsDone}" Classes.todo="{Binding IsProblem}" Margin="8,0,0,0">
+                        <TextBlock Text="{Binding Status}" FontSize="12" HorizontalAlignment="Center" />
+                      </Border>
+                      <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="muted" FontSize="12" Text="{Binding Summary}" TextWrapping="Wrap" />
+                      <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Classes="muted" FontSize="12" Text="{Binding Detail}" IsVisible="{Binding Detail, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                      <TextBlock Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Classes="error" FontSize="12" Text="{Binding Error}" TextWrapping="Wrap" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <StackPanel Grid.Row="3" Spacing="6" Margin="0,8,0,0">
+                <Grid ColumnDefinitions="*,*,*,*">
+                  <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Up" Command="{Binding MoveUpCommand}" />
+                  <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Down" Command="{Binding MoveDownCommand}" />
+                  <Button Grid.Column="2" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Edit" Command="{Binding EditCommand}" />
+                  <Button Grid.Column="3" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Remove" Command="{Binding RemoveCommand}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto">
+                  <CheckBox IsChecked="{Binding Loop}" IsEnabled="{Binding IsIdle}" Content="Loop: start over after the last entry" />
+                  <Button Grid.Column="1" Classes="small danger" Content="Clear" Command="{Binding ClearCommand}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto">
+                  <TextBox Text="{Binding PlaylistName}" PlaceholderText="Playlist name" TextInputOptions.AutoCapitalization="False" />
+                  <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Save" Command="{Binding SavePlaylistCommand}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                  <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Playlists}" SelectedItem="{Binding SelectedPlaylist}" PlaceholderText="Saved playlists" />
+                  <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Load" Command="{Binding LoadPlaylistCommand}" />
+                  <Button Grid.Column="2" Classes="small danger" Margin="6,0,0,0" Content="Delete" Command="{Binding DeletePlaylistCommand}" />
+                </Grid>
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+              </StackPanel>
+            </Grid>
+
+            <!-- Entry editor -->
+            <Grid RowDefinitions="*,Auto" IsVisible="{Binding IsEditing}">
+              <ScrollViewer>
+                <ContentControl Content="{Binding Editor}">
+                  <ContentControl.ContentTemplate>
+                    <DataTemplate x:DataType="vm:QueueEntryEditorViewModel">
+                      <StackPanel Spacing="6">
+                        <TextBlock Classes="title" Text="{Binding Header}" TextWrapping="Wrap" />
+                        <TextBlock Classes="muted" Text="{Binding ScriptText}" TextWrapping="Wrap" />
+                        <TextBlock Classes="caption" Text="NAME" Margin="0,6,0,0" />
+                        <TextBox Text="{Binding Name}" />
+                        <TextBlock Classes="caption" Text="RUNS" Margin="0,6,0,0" />
+                        <Grid ColumnDefinitions="100,*">
+                          <TextBox Text="{Binding Runs}" IsEnabled="{Binding !Repeat}" />
+                          <CheckBox Grid.Column="1" Margin="10,0,0,0" IsChecked="{Binding Repeat}" Content="Repeat until stopped or the time limit" />
+                        </Grid>
+                        <TextBlock Classes="caption" Text="STOP AFTER (MINUTES, EMPTY: NO LIMIT)" Margin="0,6,0,0" />
+                        <TextBox Text="{Binding StopAfterMinutes}" PlaceholderText="no limit" />
+                        <TextBlock Classes="caption" Text="WAIT BEFORE THE NEXT RUN (SECONDS)" Margin="0,6,0,0" />
+                        <TextBox Text="{Binding DelaySeconds}" />
+                        <TextBlock Classes="caption" Text="ON ERROR" Margin="0,6,0,0" />
+                        <ComboBox HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:QueueEntryEditorViewModel.ErrorChoices}" SelectedItem="{Binding OnError}" />
+                        <Grid ColumnDefinitions="Auto,100" IsVisible="{Binding IsRetry}">
+                          <TextBlock Text="Retries" VerticalAlignment="Center" Margin="0,0,10,0" />
+                          <TextBox Grid.Column="1" Text="{Binding Retries}" />
+                        </Grid>
+                        <TextBlock Classes="muted" Text="{Binding CoreBotsText}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
+                        <TextBlock Classes="error" TextWrapping="Wrap" Text="{Binding Error}" IsVisible="{Binding Error, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                      </StackPanel>
+                    </DataTemplate>
+                  </ContentControl.ContentTemplate>
+                </ContentControl>
+              </ScrollViewer>
+              <StackPanel Grid.Row="1" Spacing="6" Margin="0,8,0,0">
+                <Grid ColumnDefinitions="*,*,*">
+                  <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Script options" Command="{Binding EditScriptOptionsCommand}" />
+                  <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="CoreBots profile" Command="{Binding EditCoreBotsOptionsCommand}" />
+                  <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="No CoreBots" Command="{Binding ClearCoreBotsProfileCommand}" />
+                </Grid>
+                <Grid ColumnDefinitions="*,*">
+                  <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Cancel" Command="{Binding CloseEditorCommand}" />
+                  <Button Grid.Column="1" Classes="primary" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Save" Command="{Binding SaveEntryCommand}" />
+                </Grid>
+              </StackPanel>
+            </Grid>
+          </Grid>
+        </DataTemplate>
+      </ContentControl.ContentTemplate>
+    </ContentControl>
+
     <!-- Options editor (Skua's script options window) -->
-    <Grid RowDefinitions="*,Auto" Margin="12,8" IsVisible="{Binding IsEditingOptions}">
+    <Grid Grid.Row="1" RowDefinitions="*,Auto" Margin="12,8" IsVisible="{Binding IsEditingOptions}">
       <ContentControl Content="{Binding OptionsEditor}">
         <ContentControl.ContentTemplate>
           <DataTemplate x:DataType="vm:ScriptOptionsViewModel">

@@ -64,6 +64,10 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private string? _scriptMessage;
 
+    /// <summary>"Queue 2/5: Gold farm (run 1/3)" while the script queue runs.</summary>
+    [ObservableProperty]
+    private string? _queueLine;
+
     /// <summary>Kills, deaths, quests and drops (Skua's bot stats) while logged in.</summary>
     [ObservableProperty]
     private string? _scriptCounters;
@@ -147,6 +151,7 @@ public sealed partial class DashboardViewModel : ObservableObject
         ScriptName = s.Script.ScriptName ?? "No script loaded";
         ScriptState = Formatting.ScriptLine(s.Script);
         ScriptMessage = s.Script.State == ScriptRunState.Faulted ? s.Script.Message : null;
+        QueueLine = _host.Scheduler?.Status.NotificationLine;
         ScriptCounters = s.ScriptCounters?.Display;
         MemoryText = Formatting.Memory(s.Memory);
         MemoryDetail = s.Memory.RssBytes < 0

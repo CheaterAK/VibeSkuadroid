@@ -134,6 +134,8 @@ public sealed class EngineService : Service
         _host = EngineRuntime.Host;
         _host.Engine.SnapshotChanged += OnSnapshot;
         _host.RestartStarting += OnRestartStarting;
+        if (_host.Scheduler is { } queue)
+            queue.StatusChanged += OnQueueStatus;
         OnSnapshot(this, _host.Engine.Snapshot);
         string?[] pending = _pending.ToArray();
         _pending.Clear();
@@ -186,6 +188,8 @@ public sealed class EngineService : Service
         {
             _host.Engine.SnapshotChanged -= OnSnapshot;
             _host.RestartStarting -= OnRestartStarting;
+            if (_host.Scheduler is { } queue)
+                queue.StatusChanged -= OnQueueStatus;
         }
         ReleaseLocks();
         s_running = false;
@@ -219,8 +223,13 @@ public sealed class EngineService : Service
         {
             if (host.Engine.Snapshot.Script.IsBusy)
             {
-                await host.Engine.StopScriptAsync();
+                await host.Engine.StopScriptAsync(); // stops the script queue too
                 return; // stay connected; a second Stop logs out
+            }
+            if (host.Scheduler is { IsRunning: true } queue)
+            {
+                await queue.StopAsync(); // between two queue runs: stop the queue, stay connected
+                return;
             }
             await host.LogoutAsync();
         }
@@ -268,6 +277,13 @@ public sealed class EngineService : Service
         }
     }
 
+    // The queue's entry changes between snapshots: show it (the notification update is throttled below).
+    private void OnQueueStatus(object? sender, Skua.App.Droid.Core.Scheduler.QueueStatus status)
+    {
+        if (_host?.Engine.Snapshot is EngineSnapshot latest)
+            OnSnapshot(this, latest);
+    }
+
     private void OnSnapshot(object? sender, EngineSnapshot snapshot)
     {
         _latest = snapshot;
@@ -279,9 +295,10 @@ public sealed class EngineService : Service
         if (!ReferenceEquals(snapshot, _latest) || _host is null)
             return;
 
-        UpdateLocks(snapshot.Script.IsBusy);
+        // The wake lock also covers the queue's waits between runs (a dozing CPU would stall the delay).
+        UpdateLocks(snapshot.Script.IsBusy || _host.Scheduler?.IsRunning == true);
 
-        bool idle = !snapshot.NeedsForegroundService;
+        bool idle = !snapshot.NeedsForegroundService && _host.Scheduler?.IsRunning != true;
         if (idle)
         {
             _idleSince ??= DateTimeOffset.UtcNow;
@@ -342,7 +359,10 @@ public sealed class EngineService : Service
             ScriptRunState.Faulted => "Script failed",
             _ => "No script running",
         };
-        if (s.BackgroundWork is string work)
+        string? queueLine = _host?.Scheduler?.Status is { IsRunning: true } q ? q.NotificationLine ?? q.Text : null;
+        if (queueLine is not null)
+            script = s.Script.IsBusy ? $"{queueLine} · {script}" : queueLine;
+        else if (s.BackgroundWork is string work)
             script = s.Script.IsBusy ? $"{script} · {work}" : work;
         string memory = s.Memory.RssBytes > 0 ? $" · {s.Memory.RssMb:0} MB" : string.Empty;
         string character = s.Character is CharacterState c ? $"{c.Name} (lvl {c.Level}) · {c.Map} · " : string.Empty;
@@ -385,7 +405,7 @@ public sealed class EngineService : Service
         if (pauseOrResume is not null)
             builder.AddAction(0, paused ? "Resume" : "Pause", pauseOrResume);
         return builder
-            .AddAction(0, s.Script.IsBusy ? "Stop script" : "Stop", stop)!
+            .AddAction(0, s.Script.IsBusy ? "Stop script" : queueLine is not null ? "Stop queue" : "Stop", stop)!
             .Build()!;
     }
 
