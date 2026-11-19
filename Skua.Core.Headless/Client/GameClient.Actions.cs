@@ -322,8 +322,12 @@ public sealed partial class GameClient
         return SendXt("sellItem", null, itemId, quantity, charItemId);
     }
 
-    /// <summary>World.toggleBank: opens or closes the bank; the first open loads it (over the socket, see remarks).</summary>
-    /// <remarks>The Flash client fetches the bank over HTTP (api/char/bank with the login token); headless asks the game server with loadBank All, which Skua's own Bank.Load also uses.</remarks>
+    /// <summary>World.toggleBank: opens or closes the bank; the first open loads it.</summary>
+    /// <remarks>
+    /// The game loads it with Game.getBank (HTTP api/char/bank with the login token). The request is sent as
+    /// <c>loadBank All</c>, the packet Skua's Bank.Load sends too; HeadlessGame answers that packet the game's way
+    /// (AqwSession.LoadBankAsync) and only sends it to the server if HTTP fails.
+    /// </remarks>
     public void ToggleBank()
     {
         bool open;

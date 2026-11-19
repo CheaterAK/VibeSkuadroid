@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -31,6 +32,37 @@ public sealed class AqwWebApiOptions
 
     /// <summary>Upper bound for a downloaded game SWF (client version discovery).</summary>
     public long MaxGameFileBytes { get; set; } = 64L * 1024 * 1024;
+
+    /// <summary>Upper bound for the <c>api/char/bank</c> reply (the whole bank as JSON; a full bank is a few MB at most).</summary>
+    public long MaxBankBytes { get; set; } = 16L * 1024 * 1024;
+}
+
+/// <summary>A bank the <c>api/char/bank</c> call returned.</summary>
+/// <param name="Items">The bank items as the server sent them (the game's <c>JSON.parse(data) as Array</c>).</param>
+/// <param name="HttpStatus">The reply's HTTP status.</param>
+/// <param name="BodyBytes">The reply's size in bytes.</param>
+/// <param name="Elapsed">From sending the request to the parsed reply.</param>
+/// <param name="Shape">"array" (the game's own shape), or "object.items" when the items came wrapped in an object.</param>
+public sealed record BankReply(JsonArray Items, int HttpStatus, long BodyBytes, TimeSpan Elapsed, string Shape);
+
+/// <summary>The <c>api/char/bank</c> call failed. The message never carries the login token or the reply's body.</summary>
+public sealed class AqwBankException : Exception
+{
+    public AqwBankException(string message, int? httpStatus = null, long? bodyBytes = null, TimeSpan? elapsed = null)
+        : base(message)
+    {
+        HttpStatus = httpStatus;
+        BodyBytes = bodyBytes;
+        Elapsed = elapsed;
+    }
+
+    /// <summary>The reply's HTTP status, when one arrived.</summary>
+    public int? HttpStatus { get; }
+
+    /// <summary>The reply's size in bytes, when one arrived.</summary>
+    public long? BodyBytes { get; }
+
+    public TimeSpan? Elapsed { get; }
 }
 
 /// <summary>What the HTTP login returns: the socket token and the server list.</summary>
@@ -133,10 +165,13 @@ public sealed class AqwLoginException : Exception
 
 /// <summary>
 /// The game's HTTP endpoints: <c>api/login/now</c> (token and server list), <c>api/data/servers</c>,
-/// <c>api/data/gameversion</c> and <c>gamefiles/</c>.
+/// <c>api/data/gameversion</c>, <c>api/char/bank</c> and <c>gamefiles/</c>.
 /// </summary>
 public sealed class AqwWebApi : IDisposable
 {
+    /// <summary>The only host the login token is ever sent to over HTTP (and only over HTTPS).</summary>
+    public const string TokenHost = "game.aq.com";
+
     private readonly HttpClient _http;
 
     public AqwWebApi(AqwWebApiOptions? options = null, HttpMessageHandler? handler = null)
@@ -242,6 +277,116 @@ public sealed class AqwWebApi : IDisposable
         }
     }
 
+    /// <summary>
+    /// The bank, as the game loads it: Game.getBank, <c>requestAPI("bank", {layout: {cat: "all"}}, ..., true)</c> in
+    /// Game4000r9.swf. That is a <c>POST</c> to <c>api/char/bank?v=&lt;Math.random()&gt;</c> under the game path with the
+    /// request headers <c>ccid</c> (<c>world.myAvatar.objData.CharID</c>) and <c>token</c> (<c>loginInfo.strToken</c>,
+    /// the web login's <c>sToken</c>), and the one form field <c>layout={"cat":"all"}</c> (URLVariables, so
+    /// <c>application/x-www-form-urlencoded</c>). The reply is a JSON array of bank items.
+    /// </summary>
+    /// <remarks>
+    /// The token goes only to <see cref="TokenHost"/> over HTTPS (anything else is refused before a request is made);
+    /// the POST is never redirected; the reply is bounded by <see cref="AqwWebApiOptions.MaxBankBytes"/>. Neither the
+    /// token nor the reply's body appear in an exception message.
+    /// </remarks>
+    /// <exception cref="AqwBankException">Refused, failed, not HTTP 200, or not a bank.</exception>
+    public async Task<BankReply> GetBankAsync(int charId, string token, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(token);
+        if (charId <= 0)
+            throw new AqwBankException("No character id (objData.CharID) to ask the bank for.");
+        Uri uri = new(Options.BaseUri, "api/char/bank?v=" + As3Random());
+        if (!IsTokenUri(uri))
+            throw new AqwBankException($"Refused to send the login token to {uri.Scheme}://{uri.Authority}: the bank request only goes to https://{TokenHost}.");
+
+        using HttpRequestMessage request = NewRequest(HttpMethod.Post, uri);
+        request.Headers.TryAddWithoutValidation("ccid", charId.ToString(CultureInfo.InvariantCulture));
+        request.Headers.TryAddWithoutValidation("token", token);
+        request.Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("layout", """{"cat":"all"}""") });
+
+        long started = Stopwatch.GetTimestamp();
+        int status;
+        byte[]? body;
+        try
+        {
+            using HttpResponseMessage response = await SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            status = (int)response.StatusCode;
+            if (response.Content.Headers.ContentLength is long length && length > Options.MaxBankBytes)
+                throw new AqwBankException($"The bank reply is {length} bytes, over the {Options.MaxBankBytes} byte limit.", status, length, Stopwatch.GetElapsedTime(started));
+            body = await ReadBoundedAsync(response.Content, Options.MaxBankBytes, cancellationToken).ConfigureAwait(false);
+            if (body is null)
+                throw new AqwBankException($"The bank reply exceeds the {Options.MaxBankBytes} byte limit.", status, null, Stopwatch.GetElapsedTime(started));
+        }
+        catch (Exception e) when (e is HttpRequestException or IOException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            // No inner exception: whatever a handler put in its messages stays out of logs and crash reports.
+            throw new AqwBankException($"The bank request to {uri.Host} failed: {Describe(e).Replace(token, "<token>", StringComparison.Ordinal)}", elapsed: Stopwatch.GetElapsedTime(started));
+        }
+
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
+        if (status != 200)
+            throw new AqwBankException($"The bank request returned HTTP {status} ({body.Length} bytes).", status, body.Length, elapsed);
+
+        JsonNode? node;
+        try
+        {
+            node = JsonNode.Parse(body);
+        }
+        catch (JsonException)
+        {
+            string kind = body.Length > 0 && body[0] == (byte)'<' ? "an HTML page" : "not JSON";
+            throw new AqwBankException($"The bank request returned HTTP {status} with a body that is {kind} ({body.Length} bytes).", status, body.Length, elapsed);
+        }
+
+        // Game.onBankComplete: world.addItemsToBank(JSON.parse(data) as Array). Anything but an array is no bank there;
+        // an object wrapping the items under "items" is accepted too, and reported as such.
+        switch (node)
+        {
+            case JsonArray array:
+                return new BankReply(array, status, body.Length, elapsed, "array");
+            case JsonObject o when o["items"] is JsonArray wrapped:
+                o.Remove("items");
+                return new BankReply(wrapped, status, body.Length, elapsed, "object.items");
+            case JsonObject o:
+                throw new AqwBankException($"The bank request returned HTTP {status} with a JSON object (keys: {string.Join(", ", o.Select(p => p.Key).Take(12))}) "
+                    + $"instead of an item array ({body.Length} bytes).", status, body.Length, elapsed);
+            default:
+                throw new AqwBankException($"The bank request returned HTTP {status} with JSON {node?.GetValueKind().ToString() ?? "null"} instead of an item array ({body.Length} bytes).",
+                    status, body.Length, elapsed);
+        }
+    }
+
+    /// <summary>True for the only place the login token may go: https://<see cref="TokenHost"/> on the default port.</summary>
+    public static bool IsTokenUri(Uri uri)
+    {
+        return uri.IsAbsoluteUri
+            && uri.Scheme == Uri.UriSchemeHttps
+            && string.Equals(uri.Host, TokenHost, StringComparison.OrdinalIgnoreCase)
+            && uri.IsDefaultPort;
+    }
+
+    // AS3 Math.random() as the game appends it ("?v=0.8312...").
+    private static string As3Random()
+    {
+        return Random.Shared.NextDouble().ToString("0.0###############", CultureInfo.InvariantCulture);
+    }
+
+    // The body, or null when it is longer than max.
+    private static async Task<byte[]?> ReadBoundedAsync(HttpContent content, long max, CancellationToken cancellationToken)
+    {
+        await using Stream body = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using MemoryStream copy = new();
+        byte[] buffer = new byte[81920];
+        int read;
+        while ((read = await body.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (copy.Length + read > max)
+                return null;
+            copy.Write(buffer, 0, read);
+        }
+        return copy.ToArray();
+    }
+
     public void Dispose()
     {
         _http.Dispose();
@@ -271,7 +416,12 @@ public sealed class AqwWebApi : IDisposable
 
     private HttpRequestMessage NewRequest(HttpMethod method, string relative)
     {
-        HttpRequestMessage request = new(method, new Uri(Options.BaseUri, relative));
+        return NewRequest(method, new Uri(Options.BaseUri, relative));
+    }
+
+    private HttpRequestMessage NewRequest(HttpMethod method, Uri uri)
+    {
+        HttpRequestMessage request = new(method, uri);
         request.Headers.TryAddWithoutValidation("User-Agent", Options.UserAgent);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
         if (Options.Referer is not null)

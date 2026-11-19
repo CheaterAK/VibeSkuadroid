@@ -2,6 +2,7 @@ using Skua.Core.Headless.Commands;
 using Skua.Core.Headless.Net;
 using Skua.Core.Headless.Protocol;
 using Skua.Core.Headless.World;
+using System.Text.Json.Nodes;
 
 namespace Skua.Core.Headless;
 
@@ -36,6 +37,15 @@ public sealed class AqwSessionOptions
     /// Adds no attempt of its own.
     /// </summary>
     public bool FallBackToKnownGoodVersion { get; set; } = true;
+
+    /// <summary>
+    /// When the bank's HTTP load (the game's way) fails, ask the game server with the socket request
+    /// <c>loadBank All</c> (World.sendLoadBankRequest, which the game defines and answers but never calls itself).
+    /// </summary>
+    public bool BankSocketFallback { get; set; } = true;
+
+    /// <summary>How long the socket fallback waits for the <c>loadBank</c> reply.</summary>
+    public TimeSpan BankSocketTimeout { get; set; } = TimeSpan.FromSeconds(10);
 }
 
 /// <summary>
@@ -53,6 +63,10 @@ public sealed class AqwSession : IAsyncDisposable
     private AqwConnection? _connection;
     private Task? _pendingLogin;
     private long _loginsStarted;
+    private long _forgottenThrough;
+    private readonly object _bankGate = new();
+    private Task<BankLoadResult>? _bankLoad;
+    private AqwConnection? _bankLoadConnection;
     private VersionFallback _fallback;
     private string? _refusedVersion;
     private ClientVersionResult? _workingVersion;
@@ -106,7 +120,7 @@ public sealed class AqwSession : IAsyncDisposable
     public AqwConnection? Connection => _connection;
 
     /// <summary>Commands over the current connection.</summary>
-    public GameCommands Commands => new(_connection ?? throw new InvalidOperationException("Not connected."));
+    public GameCommands Commands => new(_connection ?? throw new InvalidOperationException("Not connected."), LoadBankAsync);
 
     /// <summary>A web login has started and not finished.</summary>
     public bool WebLoginRunning
@@ -148,6 +162,9 @@ public sealed class AqwSession : IAsyncDisposable
             result.ObtainedAt = _time.GetUtcNow();
             lock (_loginGate)
             {
+                // ForgetCredentials ran while this login was in flight: its token must not come back into memory.
+                if (generation <= _forgottenThrough)
+                    throw new OperationCanceledException("The login was forgotten while it ran.");
                 // Two logins in flight: the one started last is the one whose token the server keeps.
                 if (Account is null || Account.Generation < generation)
                     Account = result;
@@ -189,8 +206,9 @@ public sealed class AqwSession : IAsyncDisposable
             await CloseCurrentAsync().ConfigureAwait(false);
             await WaitForWebLoginAsync(cancellationToken).ConfigureAwait(false);
             LoginResult account = Account ?? throw new InvalidOperationException("Log in first.");
+            // Only the token is redacted in place (it is the socket login's password). The account password never goes
+            // on the socket, so registering it would only match game text by chance and reveal it through the label.
             AqwConnection connection = new(Options.Connection, World, _time);
-            connection.AddRedaction(_credentials?.Password, "<password>");
             Attach(connection);
             _connection = connection;
             Server = server;
@@ -317,10 +335,129 @@ public sealed class AqwSession : IAsyncDisposable
     /// Drops the credentials kept for <see cref="ReconnectAsync"/> and the last HTTP login (its token and server
     /// list). The session stays usable: the next <see cref="LoginAsync"/> starts over.
     /// </summary>
+    /// <remarks>A web login still running when this is called is dropped when it finishes (its token is not kept).</remarks>
     public void ForgetCredentials()
     {
-        _credentials = null;
-        Account = null;
+        lock (_loginGate)
+        {
+            _forgottenThrough = _loginsStarted;
+            _credentials = null;
+            Account = null;
+        }
+    }
+
+    /// <summary>
+    /// Loads the bank the way the game does (World.toggleBank -> Game.getBank: <c>POST api/char/bank</c> with
+    /// <c>objData.CharID</c> and the newest web login's token, <see cref="AqwWebApi.GetBankAsync"/>) into
+    /// <c>world.bankinfo</c>, then reports it to every layer as a <c>loadBank</c> reply (<see cref="AqwConnection.DispatchLocal"/>),
+    /// which is what Skua's Bank.Load waits for. If the HTTP load fails, the socket request <c>loadBank All</c> is
+    /// tried (<see cref="AqwSessionOptions.BankSocketFallback"/>). A bank already loaded on this connection is not
+    /// requested again (the game's <c>myAvatar.bank != null</c>); concurrent calls share one load.
+    /// </summary>
+    /// <remarks>Each load writes one Info line (method, HTTP status, item count, time) or a Warning with the status and body size; never the token.</remarks>
+    public Task<BankLoadResult> LoadBankAsync(CancellationToken cancellationToken = default)
+    {
+        AqwConnection connection = _connection ?? throw new InvalidOperationException("Not connected.");
+        Task<BankLoadResult> load;
+        lock (_bankGate)
+        {
+            if (_bankLoad is not { IsCompleted: false } || !ReferenceEquals(_bankLoadConnection, connection))
+            {
+                _bankLoadConnection = connection;
+                _bankLoad = Task.Run(() => LoadBankCoreAsync(connection));
+            }
+            load = _bankLoad;
+        }
+        return load.WaitAsync(cancellationToken);
+    }
+
+    private async Task<BankLoadResult> LoadBankCoreAsync(AqwConnection connection)
+    {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        string Ms() => $"{System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds:0} ms";
+        TimeSpan Elapsed() => System.Diagnostics.Stopwatch.GetElapsedTime(started);
+
+        if (World.IsBankLoaded)
+        {
+            int known = World.GetBank().Count;
+            ReportBankLoaded(connection, "already loaded");
+            RaiseLog(HeadlessLogLevel.Info, $"Bank: already loaded on this connection ({known} items); not requested again, as the game does.");
+            return new BankLoadResult(BankLoadMethod.AlreadyLoaded, true, known, null, Elapsed(), null);
+        }
+
+        string failure;
+        int? status = null;
+        await WaitForWebLoginAsync(CancellationToken.None).ConfigureAwait(false);
+        LoginResult? account = Account;
+        int charId = World.CharId;
+        if (account is null)
+        {
+            failure = "no web login token in memory (logged out, or the login was forgotten)";
+        }
+        else if (charId <= 0)
+        {
+            failure = "the character data (initUserData) carried no CharID";
+        }
+        else
+        {
+            try
+            {
+                BankReply reply = await _api.GetBankAsync(charId, account.Token).ConfigureAwait(false);
+                if (!ReferenceEquals(_connection, connection) || connection.State == ConnectionState.Closed)
+                {
+                    RaiseLog(HeadlessLogLevel.Warning, $"Bank: the HTTPS reply (HTTP {reply.HttpStatus}, {reply.Items.Count} items) came after the connection closed; dropped.");
+                    return new BankLoadResult(BankLoadMethod.None, false, 0, reply.HttpStatus, Elapsed(), "the connection closed during the load");
+                }
+                int count = World.AddItemsToBank(reply.Items);
+                ReportBankLoaded(connection, "api/char/bank");
+                RaiseLog(HeadlessLogLevel.Info, $"Bank: loaded over HTTPS (POST api/char/bank, the game's own request; token of web login #{account.Generation}): "
+                    + $"HTTP {reply.HttpStatus}, {reply.Items.Count} items received{(reply.Shape == "array" ? string.Empty : $" (wrapped: {reply.Shape})")}, "
+                    + $"{count} in the bank, {reply.BodyBytes} bytes, {Ms()}.");
+                return new BankLoadResult(BankLoadMethod.Http, true, count, reply.HttpStatus, Elapsed(), null);
+            }
+            catch (AqwBankException e)
+            {
+                failure = e.Message;
+                status = e.HttpStatus;
+            }
+        }
+
+        bool fallback = Options.BankSocketFallback && connection.State != ConnectionState.Closed;
+        RaiseLog(HeadlessLogLevel.Warning, $"Bank: the HTTPS load (POST api/char/bank) failed after {Ms()}: {failure}"
+            + (fallback ? " Falling back to the socket request loadBank All." : string.Empty));
+        if (!fallback)
+            return new BankLoadResult(BankLoadMethod.None, false, 0, status, Elapsed(), failure);
+
+        InboundPacket? answer = null;
+        try
+        {
+            answer = await connection.SendAndWaitAsync(Packets.LoadBank(World.RoomId), p => p.Kind == PacketKind.Json && p.Command == "loadBank",
+                Options.BankSocketTimeout).ConfigureAwait(false);
+        }
+        catch (ConnectionClosedException)
+        {
+        }
+        if (answer is not null && World.IsBankLoaded)
+        {
+            int count = World.GetBank().Count;
+            RaiseLog(HeadlessLogLevel.Info, $"Bank: loaded over the socket (loadBank All fallback): {count} items in the bank, {Ms()} in all.");
+            return new BankLoadResult(BankLoadMethod.Socket, true, count, status, Elapsed(), failure);
+        }
+        string socket = answer is null
+            ? $"no loadBank reply within {Options.BankSocketTimeout.TotalSeconds:0} s"
+            : "the server answered loadBank without bitSuccess";
+        RaiseLog(HeadlessLogLevel.Warning, $"Bank: not loaded. HTTPS: {failure}. Socket fallback: {socket}.");
+        return new BankLoadResult(BankLoadMethod.None, false, 0, status, Elapsed(), $"{failure}; socket fallback: {socket}");
+    }
+
+    // What the socket's loadBank reply does for the game (and for Skua, whose Bank.Load waits for it): a reply
+    // built here, with no items (they are in the model already), handed to every layer as if it had arrived.
+    private static void ReportBankLoaded(AqwConnection connection, string source)
+    {
+        if (connection.State == ConnectionState.Closed)
+            return;
+        JsonObject o = new() { ["cmd"] = "loadBank", ["bitSuccess"] = 1, ["sHeadlessSource"] = source };
+        connection.DispatchLocal(new JsonObject { ["t"] = "xt", ["b"] = new JsonObject { ["r"] = -1, ["o"] = o } }.ToJsonString());
     }
 
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)

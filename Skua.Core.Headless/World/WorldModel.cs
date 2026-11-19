@@ -105,9 +105,37 @@ public sealed partial class WorldModel
         get { lock (_gate) return _inventoryLoaded; }
     }
 
+    /// <summary>
+    /// The bank arrived this connection (the game's <c>myAvatar.bank != null</c>): over HTTP
+    /// (<see cref="AddItemsToBank"/>) or as a socket <c>loadBank</c> reply.
+    /// </summary>
     public bool IsBankLoaded
     {
         get { lock (_gate) return _bankLoaded; }
+    }
+
+    /// <summary><c>world.myAvatar.objData.CharID</c> from initUserData (0 before it arrives): the game's <c>ccid</c>.</summary>
+    public int CharId
+    {
+        get { lock (_gate) return JsonUtil.AsInt(ObjData["CharID"]); }
+    }
+
+    /// <summary>
+    /// Game.onBankComplete for the <c>api/char/bank</c> reply: BankController.addItemsToBank (each item by ItemID,
+    /// replacing one already known; classes are never kept in the bank), then <c>myAvatar.bank = []</c> (loaded). The
+    /// used-slot count (<c>iBankCount</c>) is not touched: the game takes it from loadInventoryBig's bankCount.
+    /// </summary>
+    /// <returns>How many items the bank now holds.</returns>
+    public int AddItemsToBank(JsonArray items)
+    {
+        int count = 0;
+        Write((_, _) =>
+        {
+            AddItemsToBankCore(items);
+            _bankLoaded = true;
+            count = BankItems.Count;
+        }, "bank");
+        return count;
     }
 
     /// <summary>Clears everything (new connection).</summary>

@@ -38,10 +38,19 @@ public sealed class GameCommands
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(10);
 
     private readonly AqwConnection _connection;
+    private readonly Func<CancellationToken, Task<BankLoadResult>>? _bankLoader;
 
     public GameCommands(AqwConnection connection)
+        : this(connection, null)
+    {
+    }
+
+    /// <param name="connection">The connection the commands go over.</param>
+    /// <param name="bankLoader">Loads the bank (the session's <see cref="AqwSession.LoadBankAsync"/>); null asks over the socket.</param>
+    public GameCommands(AqwConnection connection, Func<CancellationToken, Task<BankLoadResult>>? bankLoader)
     {
         _connection = connection;
+        _bankLoader = bankLoader;
     }
 
     public AqwConnection Connection => _connection;
@@ -182,9 +191,21 @@ public sealed class GameCommands
             (JsonObject?)reply.Data?.DeepClone());
     }
 
-    /// <summary><c>loadBank</c> (category All, as Skua.Core); returns the bank as now known.</summary>
+    /// <summary>
+    /// Loads the bank and returns it. From <see cref="AqwSession.Commands"/>: the game's way
+    /// (<see cref="AqwSession.LoadBankAsync"/>, HTTP <c>api/char/bank</c>, socket fallback). On a bare connection
+    /// (no session, so no login token): the socket request <c>loadBank All</c>.
+    /// </summary>
+    /// <exception cref="TimeoutException">The bank did not load; the message says why.</exception>
     public async Task<IReadOnlyList<ItemInfo>> LoadBankAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
+        if (_bankLoader is not null)
+        {
+            BankLoadResult result = await _bankLoader(cancellationToken).ConfigureAwait(false);
+            if (!result.Loaded)
+                throw new TimeoutException($"The bank did not load: {result.Failure}");
+            return World.GetBank();
+        }
         InboundPacket? reply = await _connection.SendAndWaitAsync(
             Packets.LoadBank(World.RoomId),
             p => p.Kind == PacketKind.Json && p.Command == "loadBank",

@@ -374,7 +374,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
         catch (TimeoutException e)
         {
-            throw new EngineException("The bank did not load in time.", e);
+            throw new EngineException(Scrub(e.Message), e);
         }
         finally
         {

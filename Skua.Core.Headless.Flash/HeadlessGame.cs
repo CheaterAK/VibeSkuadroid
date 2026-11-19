@@ -198,8 +198,33 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
         AqwConnection? c = Session.Connection;
         if (c is null || c.State == ConnectionState.Closed)
             return false;
+        if (IsBankRequest(packet))
+        {
+            // The game never asks the socket for the bank: World.toggleBank calls Game.getBank (HTTP api/char/bank).
+            // Skua's Bank.Load, World.sendLoadBankRequest and the client's toggleBank all express "load the bank" as
+            // this packet, so it is answered the game's way; the session falls back to sending it if HTTP fails.
+            _ = LoadBankAsync();
+            return true;
+        }
         _ = c.SendAsync(packet);
         return true;
+    }
+
+    private static bool IsBankRequest(string packet)
+    {
+        return packet.StartsWith("%xt%zm%loadBank%", StringComparison.Ordinal);
+    }
+
+    private async Task LoadBankAsync()
+    {
+        try
+        {
+            await Session.LoadBankAsync().ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is InvalidOperationException or OperationCanceledException or ConnectionClosedException)
+        {
+            Log?.Invoke(this, $"Bank load stopped: {e.Message}");
+        }
     }
 
     /// <summary>sfc.sendString / sendXtMessage: any packet, paced like the client's own.</summary>
@@ -285,6 +310,9 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
     // Under _gate. See HeadlessGameOptions.ReuseUnusedWebLoginFor.
     private LoginResult? UnusedLoginFor(string username, string password)
     {
+        // Empty credentials never reuse anything (after ForgetLogin the remembered name and password are empty too).
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            return null;
         LoginResult? account = Session.Account;
         if (account is null || account.UsedBySocket || Session.WebLoginRunning || IsConnected || Options.ReuseUnusedWebLoginFor <= TimeSpan.Zero)
             return null;
