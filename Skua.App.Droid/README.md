@@ -167,7 +167,7 @@ Reference images scripts compile against are packed as APK assets under `assets/
 
 ## Plugins
 
-The desktop app's plugins are built in (Plugins tab): each has an on/off switch and, where it can run, a page.
+The desktop app's three plugins are built in (Plugins tab): each has an on/off switch and, where it can run, a page.
 Their state and options live in `files/droid/plugins.json` (app-private, no secrets). The desktop plugins themselves
 cannot be loaded: their windows are Avalonia 11 and this app is Avalonia 12, so their UI-free logic is reused instead.
 
@@ -175,6 +175,7 @@ cannot be loaded: their windows are Avalonia 11 and this app is Avalonia 12, so 
 |---|---|---|
 | Daily & Weekly Tracker | everything: daily/weekly quests, ultra boss lockouts, refresh, batch loading, refresh after a turn-in, after a script stops and every 5 minutes while open, Start for the matching community script | the quest table and the status checks are in `Skua.Plugins.Shared` (UI-free); the desktop plugin compiles the same files in |
 | ButlerV5 | one account: follow any player by name, go to / jump to a player, follow options, recent targets, players in the room, the log | `PlayerFollower` (the desktop follower's in-room logic; it finds the player through the game instead of the master's sync file); `AccountConfig.cs` compiled in unchanged |
+| Cosmetics | listed, cannot be switched on | every action only changes what the local game view draws (equipment slots and art, colours, pet, fake `genderSwap` packets to the client); it sends nothing to the server, and saved outfits are catalog art, not owned items |
 
 **ButlerV5, army work.** Summon, the roster, send-all, quest sync and the order/decline handshake need several local
 accounts. Adding them means: several Skua sessions in one process (one per account), the desktop sync file format

@@ -91,6 +91,18 @@ public sealed partial class PluginsViewModel : ObservableObject, IDisposable
 {
     public const string DailyTrackerId = "dailytracker";
     public const string ButlerId = ButlerViewModel.PluginId;
+    public const string CosmeticsId = "cosmetics";
+
+    /// <summary>
+    /// Why Cosmetics cannot run here. Every action of the desktop plugin changes only what its own client draws: it
+    /// writes the avatar's equipment slots (objData.eqp) and loads their art (loadMovieAtES), recolours the avatar,
+    /// removes the pet clip, and feeds the client fake "genderSwap" packets (sendClientPacket). It never sends a request
+    /// to the server (no equip, no gender change, no outfit save); saved outfits are sets of catalog art, not items the
+    /// account owns. Other players never see any of it, and this app draws nothing.
+    /// </summary>
+    public const string CosmeticsNote =
+        "Not available: it only changes what a game window draws (looks you do not own, colours, gender preview, saved looks). " +
+        "It never asks the server for anything, so other players never see it, and this app has no game view.";
 
     public PluginsViewModel(AppServices services)
     {
@@ -111,6 +123,8 @@ public sealed partial class PluginsViewModel : ObservableObject, IDisposable
                     ? "One account: follow any player (goto, then their cell, fighting beside them), go to or jump to a player, follow options and the log. Summoning and following your own other accounts (army) are not in this version."
                     : "Needs the Skua script host.",
                 Store.IsEnabled(ButlerId), OpenPage, OnEnabledChanged),
+            new PluginEntry(CosmeticsId, "Cosmetics", "NinjaXz & Lord Exelot", "Visually loads any cosmetic item without owning it and manages saved outfit loadouts.",
+                available: false, hasPage: false, CosmeticsNote, enabled: false, OpenPage, OnEnabledChanged),
         ];
         foreach (PluginEntry entry in Entries)
             ApplyEnabled(entry);

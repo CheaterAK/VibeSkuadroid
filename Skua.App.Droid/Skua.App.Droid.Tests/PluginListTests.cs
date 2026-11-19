@@ -15,6 +15,13 @@ public class PluginListTests
         PluginsViewModel list = shell.Plugins;
         Assert.Equal([PluginsViewModel.DailyTrackerId, PluginsViewModel.ButlerId], list.Entries.Where(e => e.IsAvailable).Select(e => e.Id));
         Assert.All(list.Entries.Where(e => e.IsAvailable), e => Assert.True(e.IsEnabled)); // on by default
+        PluginEntry cosmetics = list.Entries.Single(e => e.Id == PluginsViewModel.CosmeticsId);
+        Assert.False(cosmetics.IsAvailable);
+        Assert.False(cosmetics.HasPage);
+        Assert.Equal("Not available", cosmetics.StateText);
+        Assert.Contains("never asks the server", cosmetics.Note);
+        cosmetics.IsEnabled = true;
+        Assert.False(cosmetics.IsEnabled);
 
         await app.Host.LoginAsync("hero", FakeAqw.Password, null, remember: false);
         await Sandbox.Until(() => shell.IsOnline);
