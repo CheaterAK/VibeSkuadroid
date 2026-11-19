@@ -60,8 +60,11 @@ appears). Its callbacks give the login/in-game milestones and the load reducers:
 player is in the game. Packet callbacks are only counted. `official` loads the site's `Loader4.swf` the way the
 game page does (no callbacks, so only first frame and socket milestones).
 
-**Frame rate and quality** are Ruffle settings (`frameRate` locks the player's rate, `quality` is the stage
-quality). They apply when the view opens; change them on the settings screen and reopen the view.
+**Frame rate, quality and resolution.** `frameRate` locks Ruffle's frame rate, `quality` is the stage quality.
+Render resolution caps `window.devicePixelRatio` before Ruffle starts: Ruffle sizes its canvas as CSS size x
+pixel ratio, so a cap of 1 on a 2400x1080 screen (ratio 2.625) draws about 7 times fewer pixels than native. In the
+desktop check with software rendering, ratio 3 took ~54 s to the login screen against ~5 s at ratio 1. All apply
+when the view opens; change them on the settings screen and reopen the view.
 
 ## Build
 
@@ -100,8 +103,8 @@ directory). Versions, tarball URLs, npm integrity values and per-file SHA-256 ar
 
 1. Install the Release APK (allow installs from the file manager or browser you open it with).
 2. Make sure the account is not logged in anywhere else (the headless app, a PC): a second login kicks the first.
-3. Open **Game View Spike**, keep the defaults (skua loader, Ruffle 0.7.1, 4 fps, low quality, renderer auto,
-   transport channel, hide players and disable FX on), tap **Open game view**.
+3. Open **Game View Spike**, keep the defaults (skua loader, Ruffle 0.7.1, 4 fps, low quality, resolution cap 2,
+   renderer auto, transport channel, hide players and disable FX on), tap **Open game view**.
 4. Log in on the game's own screen (do not tick its Save boxes), pick a server, walk around, open a few game
    menus (inventory, quests, a shop). The HUD at the top left shows fps, main-thread load, app memory, Ruffle
    memory and crashes. **Report** shows the report so far (Share/Copy); **X** or Back closes the view and saves it.
@@ -109,8 +112,8 @@ directory). Versions, tarball URLs, npm integrity values and per-file SHA-256 ar
 
 Then, if the first run works, one setting change per run, sending each report:
 
-* Renderer `webgl`, then `canvas` (and `webgpu` if the WebView supports it); frame rate 2 and 8;
-  quality medium; Ruffle nightly; loader official; kill lag on.
+* Render resolution `1` and `native`; renderer `webgl`, then `canvas` (and `webgpu` if the WebView supports it);
+  frame rate 2 and 8; quality medium; Ruffle nightly; loader official; kill lag on.
 * One run with **10-minute soak** on (stay in the game, screen on; a report is saved when it ends).
 * If sockets never connect with `channel`, one run with transport `loopback` (and, if that fails too, with
   "Allow mixed content").

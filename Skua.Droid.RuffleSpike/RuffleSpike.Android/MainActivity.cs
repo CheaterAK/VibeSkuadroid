@@ -46,6 +46,8 @@ public sealed class MainActivity : Activity
         Spinner("Frame rate", SpikeSettings.FrameRates.Select(f => f.ToString(CultureInfo.InvariantCulture)).ToArray(),
             _settings.FrameRate.ToString(CultureInfo.InvariantCulture), v => _settings.FrameRate = int.Parse(v, CultureInfo.InvariantCulture), col, null);
         Spinner("Quality", SpikeSettings.Qualities, _settings.Quality, v => _settings.Quality = v, col, null);
+        Spinner("Render resolution (pixel ratio cap)", SpikeSettings.PixelRatios, _settings.PixelRatio, v => _settings.PixelRatio = v, col,
+            "native = the screen's own ratio; lower = fewer pixels to draw (softer image)");
         Spinner("Renderer", SpikeSettings.Renderers, _settings.Renderer, v => _settings.Renderer = v, col,
             "auto = Ruffle picks (webgpu, wgpu-webgl, webgl, canvas)");
         Spinner("Socket transport", SpikeSettings.Transports, _settings.Transport, v => _settings.Transport = v, col,

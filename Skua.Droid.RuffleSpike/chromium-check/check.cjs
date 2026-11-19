@@ -28,6 +28,7 @@ const config = {
   ruffle: opt("ruffle", "stable"),
   frameRate: +opt("frame-rate", 4),
   quality: opt("quality", "low"),
+  pixelRatio: opt("pixel-ratio", "native"),
   renderer: opt("renderer", "auto"),
   maxExecutionDuration: +opt("max-exec", 30),
   logLevel: opt("log-level", "warn"),
@@ -85,7 +86,7 @@ function startProbe(dll, mode, onLine) {
     proxy: proxy ? { server: proxy, bypass: "127.0.0.1,localhost" } : undefined,
     args: ["--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
   });
-  const context = await browser.newContext({ viewport: { width: 958, height: 550 } });
+  const context = await browser.newContext({ viewport: { width: 958, height: 550 }, deviceScaleFactor: +opt("device-scale", 1) });
   if (opt("grant-lna", false)) {
     // Desktop Chrome asks before a public origin may reach 127.0.0.1 (Local Network Access); grant it here.
     await context.grantPermissions(["local-network-access"], { origin: "https://game.aq.com" });
@@ -145,6 +146,11 @@ function startProbe(dll, mode, onLine) {
     await page.evaluate(() => window.vspike.testConnect("sock7.aq.com", 5593));
   }
   await page.waitForTimeout(seconds * 1000);
+  console.log("canvas: " + await page.evaluate(() => {
+    const p = document.getElementById("player");
+    const c = p && p.shadowRoot && p.shadowRoot.querySelector("canvas");
+    return c ? c.width + "x" + c.height + " (css " + c.clientWidth + "x" + c.clientHeight + ", ratio " + window.devicePixelRatio + ")" : "none";
+  }));
   const shot = opt("screenshot", null);
   if (shot) await page.screenshot({ path: shot });
   console.log("\n--- requests (game.aq.com passed through, others blocked) ---");

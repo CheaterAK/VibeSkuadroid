@@ -311,12 +311,20 @@
     mark("page_start");
     cfg = await (await fetch("config.json", { cache: "no-store" })).json();
     emit("config", {
-      swf: cfg.swf, ruffle: cfg.ruffle, transport: cfg.transport, frameRate: cfg.frameRate, quality: cfg.quality, renderer: cfg.renderer,
+      swf: cfg.swf, ruffle: cfg.ruffle, transport: cfg.transport, frameRate: cfg.frameRate, quality: cfg.quality, pixelRatio: cfg.pixelRatio, renderer: cfg.renderer,
       maxExecutionDuration: cfg.maxExecutionDuration, modules: cfg.modules, mute: cfg.mute,
       soakMinutes: cfg.soakMinutes, socketProxies: (cfg.socketProxy || []).length,
       ua: clip(navigator.userAgent, 200), dpr: window.devicePixelRatio,
       screen: window.innerWidth + "x" + window.innerHeight,
     });
+
+    // Render resolution: Ruffle sizes its canvas as CSS size x devicePixelRatio, read on every tick.
+    const realRatio = window.devicePixelRatio;
+    const cap = parseFloat(cfg.pixelRatio);
+    if (cap > 0 && cap < realRatio) {
+      Object.defineProperty(window, "devicePixelRatio", { configurable: true, get: () => cap });
+    }
+    emit("pixel_ratio", { real: realRatio, used: window.devicePixelRatio });
 
     // Only the bundled build directories are accepted.
     const ruffleDir = cfg.ruffle === "nightly" ? "ruffle-nightly" : "ruffle-0.7.1";

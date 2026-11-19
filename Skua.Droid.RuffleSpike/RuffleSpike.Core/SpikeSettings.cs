@@ -14,6 +14,7 @@ public sealed class SpikeSettings
     public static readonly string[] RuffleBuilds = ["stable", "nightly"];
     public static readonly int[] MaxExecutionDurations = [15, 60];
     public static readonly string[] Transports = ["channel", "loopback"];
+    public static readonly string[] PixelRatios = ["native", "2", "1.5", "1"];
 
     /// <summary>"skua": this repo's skua.swf loader (ExternalInterface, modules); "official": the site's Loader4.swf.</summary>
     public string Swf { get; set; } = "skua";
@@ -26,6 +27,11 @@ public sealed class SpikeSettings
     public string Transport { get; set; } = "channel";
     public int FrameRate { get; set; } = 4;
     public string Quality { get; set; } = "low";
+    /// <summary>
+    /// Caps the device pixel ratio Ruffle renders at ("native" = no cap). Ruffle sizes its canvas as CSS size x
+    /// devicePixelRatio, so on a 2400x1080 screen (ratio 2.625) "1" draws about 7 times fewer pixels than native.
+    /// </summary>
+    public string PixelRatio { get; set; } = "2";
     public string Renderer { get; set; } = "auto";
     public int MaxExecutionDuration { get; set; } = 60;
     public bool HidePlayers { get; set; } = true;
@@ -61,6 +67,7 @@ public sealed class SpikeSettings
         if (!Transports.Contains(Transport)) Transport = d.Transport;
         if (!FrameRates.Contains(FrameRate)) FrameRate = d.FrameRate;
         if (!Qualities.Contains(Quality)) Quality = d.Quality;
+        if (!PixelRatios.Contains(PixelRatio)) PixelRatio = d.PixelRatio;
         if (!Renderers.Contains(Renderer)) Renderer = d.Renderer;
         if (!MaxExecutionDurations.Contains(MaxExecutionDuration)) MaxExecutionDuration = d.MaxExecutionDuration;
         if (SoakMinutes is not (0 or 10)) SoakMinutes = 0;
@@ -68,7 +75,7 @@ public sealed class SpikeSettings
     }
 
     public string Describe() =>
-        $"loader={Swf} ruffle={Ruffle} transport={Transport} fps={FrameRate} quality={Quality} renderer={Renderer} maxExec={MaxExecutionDuration}s "
+        $"loader={Swf} ruffle={Ruffle} transport={Transport} fps={FrameRate} quality={Quality} pixelRatio={PixelRatio} renderer={Renderer} maxExec={MaxExecutionDuration}s "
         + $"hidePlayers={On(HidePlayers)} disableFX={On(DisableFX)} killLag={On(KillLag)} skipCutscenes={On(SkipCutscenes)} "
         + $"mute={On(Mute)} soak={(SoakMinutes > 0 ? SoakMinutes + "min" : "off")} mixedContent={On(AllowMixedContent)}";
 
@@ -87,6 +94,7 @@ public sealed class SpikeSettings
             ["transport"] = Transport,
             ["frameRate"] = FrameRate,
             ["quality"] = Quality,
+            ["pixelRatio"] = PixelRatio,
             ["renderer"] = Renderer,
             ["maxExecutionDuration"] = MaxExecutionDuration,
             ["logLevel"] = "warn",
