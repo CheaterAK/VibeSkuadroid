@@ -45,6 +45,9 @@ public sealed record AppSettings
     /// <summary>The user dismissed the battery optimisation prompt.</summary>
     public bool BatteryPromptDismissed { get; init; }
 
+    /// <summary>Maps joined from the Control page, newest first.</summary>
+    public IReadOnlyList<string>? RecentMaps { get; init; }
+
     public const int MinMemoryThresholdMb = 384;
     public const int MaxMemoryThresholdMb = 8192;
 
@@ -56,6 +59,7 @@ public sealed record AppSettings
         RememberedAccount = string.IsNullOrWhiteSpace(RememberedAccount) ? null : RememberedAccount.Trim(),
         Server = string.IsNullOrWhiteSpace(Server) ? null : Server.Trim(),
         ClientVersion = string.IsNullOrWhiteSpace(ClientVersion) ? null : ClientVersion.Trim(),
+        RecentMaps = RecentMaps?.Where(m => !string.IsNullOrWhiteSpace(m)).Select(m => m.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(8).ToList(),
     };
 }
 

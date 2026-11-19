@@ -58,7 +58,7 @@ public class HeadlessUiTests
             Dispatcher.UIThread.RunJobs();
         }
 
-        foreach (string page in new[] { "Home", "Scripts", "World", "Console", "Plugins", "Settings" })
+        foreach (string page in new[] { "Home", "Scripts", "Control", "World", "Console", "Plugins", "Settings" })
         {
             shell.NavigateCommand.Execute(page);
             Render();
@@ -76,7 +76,7 @@ public class HeadlessUiTests
         Assert.True(shell.ShowDashboard);
         Render();
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(DashboardView)));
-        foreach (string page in new[] { "World", "Console", "Scripts", "Plugins", "Settings", "Home" })
+        foreach (string page in new[] { "Control", "World", "Console", "Scripts", "Plugins", "Settings", "Home" })
         {
             shell.NavigateCommand.Execute(page);
             Render();

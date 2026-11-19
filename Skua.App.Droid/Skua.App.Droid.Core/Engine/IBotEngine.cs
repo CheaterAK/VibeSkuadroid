@@ -32,6 +32,11 @@ public interface IBotEngine : IAsyncDisposable
     /// <summary>The most recent log lines, oldest first (bounded ring buffer).</summary>
     IReadOnlyList<LogEntry> GetRecentLog();
 
+    /// <summary>Adds a line to the engine's log (the Console), as the engine's own lines are added (secrets scrubbed).</summary>
+    void WriteLog(EngineLogLevel level, string source, string message)
+    {
+    }
+
     /// <summary>Clears the in-memory log ring buffer.</summary>
     void ClearLog();
 
