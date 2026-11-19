@@ -23,7 +23,8 @@ public sealed class AqwSessionOptions
 
     /// <summary>
     /// The client version last seen working on the live servers. Default <see cref="Net.ClientVersion.Fallback"/>
-    /// (5.32: another client got in with it on 2026-11-19, while 5.33, the vParam of Game4000r9.swf, was refused).
+    /// (5.32: another client got in with it on 2026-11-19; our refused logins that day sent 5.33, the vParam of
+    /// Game4000r9.swf, which the game itself sends too, so the version is a suspect, not a known cause).
     /// </summary>
     public string KnownGoodClientVersion { get; set; } = Net.ClientVersion.Fallback;
 
