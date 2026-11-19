@@ -172,8 +172,8 @@ public sealed partial class SpikeRecorder
             sb.AppendLine();
 
             sb.AppendLine("== Milestones (s since the view opened) ==");
-            foreach (string m in new[] { "page_start", "wasm_instantiated", "ruffle_instance", "first_frame", "skua_swf_ready", "game_swf_loaded", "login_screen", "socket_connected", "in_game", "ruffle_panic" })
-                sb.AppendLine($"  {m,-18} {(_marks.TryGetValue(m, out double t) ? t.ToString("F1", ci) : "-")}");
+            foreach (string m in new[] { "page_start", "wasm_instantiated", "ruffle_instance", "first_frame", "skua_swf_ready", "game_swf_loaded", "login_screen", "server_socket_connected", "socket_connected", "in_game", "soak_complete", "ruffle_panic" })
+                sb.AppendLine($"  {m,-23} {(_marks.TryGetValue(m, out double t) ? t.ToString("F1", ci) : "-")}");
             sb.AppendLine();
 
             double? inGame = _marks.TryGetValue("in_game", out double ig) ? ig : null;

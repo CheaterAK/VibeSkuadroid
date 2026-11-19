@@ -23,8 +23,8 @@ public class RecorderTests
         Assert.Equal(1.5, r.MarkTime("first_frame"));
         Assert.Equal(6.0, r.MarkTime("login_screen"));
         string report = r.BuildReport();
-        Assert.Contains("first_frame        1.5", report);
-        Assert.Contains("login_screen       6.0", report);
+        Assert.Contains("first_frame             1.5", report);
+        Assert.Contains("login_screen            6.0", report);
         Assert.Contains("whole run: n=1 avg 4.00", report);
         Assert.Contains("wasm 81", report);
         Assert.Contains("socket_state connected=false", report);
