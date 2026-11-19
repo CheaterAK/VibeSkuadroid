@@ -383,6 +383,37 @@ public class WorldModelTests
     }
 
     [Fact]
+    public void HttpBankReplyFillsBankinfoAsTheGameDoes()
+    {
+        // Game.onBankComplete -> BankController.addItemsToBank: by ItemID, classes never kept; iBankCount untouched.
+        WorldModel w = LoggedIn();
+        w.Apply(Pkt.Json("""{"cmd":"initUserData","uid":40001,"data":{"CharID":777}}"""));
+        Assert.Equal(777, w.CharId);
+        Assert.False(w.IsBankLoaded);
+        JsonArray reply = (JsonArray)JsonNode.Parse("""
+            [{"ItemID":11,"CharItemID":5003,"sName":"Pixie Wing","sType":"Item","iQty":"2","bCoins":0},
+             {"ItemID":2,"CharItemID":5009,"sName":"Healer","sType":"Class","iQty":1,"bCoins":0},
+             {"ItemID":50,"CharItemID":5011,"sName":"AC Helm","sType":"Helm","iQty":1,"bCoins":1}]
+            """)!;
+        Assert.Equal(2, w.AddItemsToBank(reply));
+        Assert.True(w.IsBankLoaded);
+        Assert.Equal(new[] { 11, 50 }, w.GetBank().Select(i => i.ItemId).OrderBy(i => i));
+        Assert.Equal(2, w.GetBank().Single(i => i.ItemId == 11).Quantity);
+        Assert.Equal("1", w.GetGameObject("world.myAvatar.iBankCount"));
+        Assert.Equal(2, ((JsonArray)JsonNode.Parse(w.GetGameObject("world.bankinfo.items")!)!).Count);
+        Assert.Equal(2, w.AddItemsToBank((JsonArray)JsonNode.Parse("""[{"ItemID":11,"sName":"Pixie Wing","iQty":5}]""")!));
+        Assert.Equal(5, w.GetBank().Single(i => i.ItemId == 11).Quantity);
+    }
+
+    [Fact]
+    public void RefusedSocketBankReplyLoadsNothing()
+    {
+        WorldModel w = LoggedIn();
+        w.Apply(Pkt.Json("""{"cmd":"loadBank","bitSuccess":0}"""));
+        Assert.False(w.IsBankLoaded);
+    }
+
+    [Fact]
     public void BankLoadAndMoves()
     {
         WorldModel w = LoggedIn();

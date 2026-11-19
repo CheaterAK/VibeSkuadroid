@@ -164,6 +164,77 @@ public sealed class FakeAqwServer : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Answer the socket <c>loadBank</c> request (the game defines the request and its reply handler but never
+    /// sends it; whether the live server still answers it is unknown). False: no reply, as suspected live.
+    /// </summary>
+    public bool AnswerSocketLoadBank { get; set; } = true;
+
+    /// <summary>HTTP status <see cref="AnswerBankRequest"/> answers a well-formed request with (200: the bank).</summary>
+    public HttpStatusCode BankHttpStatus { get; set; } = HttpStatusCode.OK;
+
+    /// <summary>Every <c>api/char/bank</c> request served, oldest first: null when it met the contract, else why not.</summary>
+    public ConcurrentQueue<string?> BankRequests { get; } = new();
+
+    /// <summary>
+    /// The game's <c>api/char/bank</c> endpoint as Game4000r9.swf's Game.requestAPI("bank", ...) uses it: a POST to
+    /// https://game.aq.com/game/api/char/bank?v=&lt;Math.random()&gt;, request headers <c>ccid</c> (the character's
+    /// objData.CharID) and <c>token</c> (the account's current web login token), a browser User-Agent, and the
+    /// form body <c>layout={"cat":"all"}</c> and nothing else. Anything else is refused (HTTP 400/401/403), so a
+    /// wrong request fails the test. The reply is the bank of the character that token and id belong to, as a JSON array.
+    /// </summary>
+    public HttpResponseMessage AnswerBankRequest(HttpRequestMessage request)
+    {
+        (string? refusal, HttpStatusCode code, Session? session) = CheckBankRequest(request);
+        BankRequests.Enqueue(refusal);
+        if (refusal is not null)
+            return new HttpResponseMessage(code) { Content = new StringContent("refused: " + refusal) };
+        if (BankHttpStatus != HttpStatusCode.OK)
+            return new HttpResponseMessage(BankHttpStatus) { Content = new StringContent("<html>error page</html>") };
+        JsonArray items = new(session!.Bank.Select(x => (JsonNode)x.DeepClone()).ToArray());
+        return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(items.ToJsonString(), Encoding.UTF8, "text/html") };
+    }
+
+    private (string? Refusal, HttpStatusCode Code, Session? Session) CheckBankRequest(HttpRequestMessage r)
+    {
+        Uri uri = r.RequestUri!;
+        if (r.Method != HttpMethod.Post)
+            return ($"method {r.Method}", HttpStatusCode.MethodNotAllowed, null);
+        if (uri.Scheme != Uri.UriSchemeHttps || uri.Host != "game.aq.com" || uri.AbsolutePath != "/game/api/char/bank")
+            return ($"url {uri.Scheme}://{uri.Host}{uri.AbsolutePath}", HttpStatusCode.NotFound, null);
+        if (!Regex.IsMatch(uri.Query, @"^\?v=0\.\d+$"))
+            return ($"query {uri.Query}", HttpStatusCode.BadRequest, null);
+        string? agent = r.Headers.UserAgent.ToString();
+        if (string.IsNullOrEmpty(agent) || !agent.StartsWith("Mozilla/", StringComparison.Ordinal))
+            return ("no browser User-Agent", HttpStatusCode.Forbidden, null);
+        if (!r.Headers.TryGetValues("ccid", out IEnumerable<string>? ccids) || ccids.Count() != 1 || !int.TryParse(ccids.Single(), out int ccid))
+            return ("ccid header", HttpStatusCode.BadRequest, null);
+        if (!r.Headers.TryGetValues("token", out IEnumerable<string>? tokens) || tokens.Count() != 1)
+            return ("token header", HttpStatusCode.BadRequest, null);
+        if (r.Content?.Headers.ContentType?.MediaType != "application/x-www-form-urlencoded")
+            return ($"content type {r.Content?.Headers.ContentType?.MediaType}", HttpStatusCode.BadRequest, null);
+        string body = r.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        string[] fields = body.Split('&');
+        if (fields.Length != 1 || !fields[0].StartsWith("layout=", StringComparison.Ordinal)
+            || Uri.UnescapeDataString(fields[0]["layout=".Length..].Replace('+', ' ')) != """{"cat":"all"}""")
+            return ("form body is not exactly layout={\"cat\":\"all\"}", HttpStatusCode.BadRequest, null);
+        string token = tokens.Single();
+        string account;
+        lock (_tokenGate)
+        {
+            if (!_tokens.TryGetValue(token, out (string Account, bool Current, long IssuedAt) t) || !t.Current)
+                return ("token is not the account's current one", HttpStatusCode.Unauthorized, null);
+            account = t.Account;
+        }
+        Session? session = _sessions.Where(s => !s.Closed && s.LoggedIn && account.Equals(s.Name, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(s => s.Number).FirstOrDefault();
+        if (session is null)
+            return ("no character of that account is logged in", HttpStatusCode.Unauthorized, null);
+        if (session.CharId != ccid)
+            return ($"ccid {ccid} is not the character's CharID", HttpStatusCode.Forbidden, null);
+        return (null, HttpStatusCode.OK, session);
+    }
+
     private int _sessionCount;
 
     private async Task AcceptLoopAsync()
@@ -251,6 +322,12 @@ public sealed class FakeAqwServer : IAsyncDisposable
         public int Uid { get; } = 40000 + Random.Shared.Next(1000);
 
         public string? Name { get; private set; }
+
+        /// <summary>The character id initUserData sends (objData.CharID); not the web login's userid.</summary>
+        public int CharId { get; } = 777;
+
+        /// <summary>The socket login was accepted.</summary>
+        public bool LoggedIn { get; private set; }
 
         public string? ClientVersion { get; private set; }
 
@@ -498,6 +575,8 @@ public sealed class FakeAqwServer : IAsyncDisposable
                     return;
 
                 case "loadBank":
+                    if (!_server.AnswerSocketLoadBank)
+                        return;
                     Json(new JsonObject { ["cmd"] = "loadBank", ["bitSuccess"] = 1, ["items"] = new JsonArray(Bank.Select(x => (JsonNode)x.DeepClone()).ToArray()) });
                     return;
 
@@ -547,6 +626,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
             }
             // The server spells the name as the account has it (initUserData strUsername), whatever the nick's case.
             Name = account!;
+            LoggedIn = true;
             Str("loginResponse", "true", Uid, Name.ToLowerInvariant(), _server.LoginMessage, string.Empty);
         }
 
@@ -572,7 +652,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 ["iHouseSlots"] = 20,
                 ["strClassName"] = "Healer",
                 ["iCP"] = 3000,
-                ["CharID"] = 777,
+                ["CharID"] = CharId,
                 ["intAccessLevel"] = 1,
                 ["strGender"] = "F",
                 ["strQuests"] = new string('0', 100),
