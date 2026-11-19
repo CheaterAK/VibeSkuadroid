@@ -1,0 +1,71 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:n="using:Skua.App.Droid.Core.Notifications"
+             x:Class="Skua.App.Droid.UI.Views.NotificationCenterView"
+             x:DataType="vm:NotificationCenterViewModel">
+  <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="12,8">
+    <!-- Filter chips with counts -->
+    <ScrollViewer Grid.Row="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+      <ItemsControl ItemsSource="{Binding Filters}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:NotificationFilter">
+            <ToggleButton Classes="tab" Content="{Binding Label}" IsChecked="{Binding IsSelected, Mode=OneWay}"
+                          Command="{Binding $parent[ItemsControl].((vm:NotificationCenterViewModel)DataContext).SelectFilterCommand}" CommandParameter="{Binding}" />
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </ScrollViewer>
+
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,8,0,4">
+      <Button Classes="small" Content="Copy" Command="{Binding CopyCommand}" />
+      <Button Classes="small" Content="Share" Command="{Binding ShareCommand}" />
+      <Button Classes="small danger" Content="Clear" Command="{Binding ClearCommand}" />
+    </StackPanel>
+    <StackPanel Grid.Row="2">
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,8" Text="{Binding EmptyText}" IsVisible="{Binding IsEmpty}" />
+    </StackPanel>
+
+    <ListBox Grid.Row="3" ItemsSource="{Binding FilteredNotifications}" Background="Transparent">
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="n:NotificationEntry">
+          <Grid ColumnDefinitions="Auto,*">
+            <Border Width="4" CornerRadius="2" Margin="0,2,10,2" Background="{StaticResource BorderStrongBrush}"
+                    Classes.item="{Binding IsItem}" Classes.warning="{Binding IsWarning}" Classes.error="{Binding IsError}" Classes.watched="{Binding Watched}" />
+            <StackPanel Grid.Column="1">
+              <TextBlock TextWrapping="Wrap" Text="{Binding Message}" Classes.watched="{Binding Watched}" />
+              <TextBlock Classes="muted" FontSize="11">
+                <Run Text="{Binding TimeDisplay}" />
+                <Run Text="·" />
+                <Run Text="{Binding DateDisplay}" />
+                <Run Text="·" />
+                <Run Text="{Binding KindName}" />
+              </TextBlock>
+            </StackPanel>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+      <ListBox.Styles>
+        <Style Selector="Border.item">
+          <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
+        </Style>
+        <Style Selector="Border.warning">
+          <Setter Property="Background" Value="{StaticResource OrangeBrush}" />
+        </Style>
+        <Style Selector="Border.error">
+          <Setter Property="Background" Value="{StaticResource RedBrush}" />
+        </Style>
+        <Style Selector="Border.watched">
+          <Setter Property="Background" Value="{StaticResource GoldBrush}" />
+        </Style>
+        <Style Selector="TextBlock.watched">
+          <Setter Property="FontWeight" Value="Bold" />
+        </Style>
+      </ListBox.Styles>
+    </ListBox>
+  </Grid>
+</UserControl>

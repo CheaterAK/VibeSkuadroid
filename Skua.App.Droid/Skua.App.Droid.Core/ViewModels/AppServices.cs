@@ -1,4 +1,5 @@
 using Skua.App.Droid.Core.Hosting;
+using Skua.App.Droid.Core.Notifications;
 using Skua.App.Droid.Core.Platform;
 using Skua.App.Droid.Core.Scripts;
 
@@ -11,4 +12,11 @@ public sealed record AppServices(
     IFilePicker FilePicker,
     ScriptLibrary Library,
     IScriptRepositorySync RepositorySync,
-    AppPaths Paths);
+    AppPaths Paths)
+{
+    /// <summary>
+    /// Drop notifications, Notification Center, junk and Discord webhook (process-wide, created with the engine). Null
+    /// where the host did not create them: their pages are then not offered.
+    /// </summary>
+    public NotificationHub? Notifications { get; init; }
+}

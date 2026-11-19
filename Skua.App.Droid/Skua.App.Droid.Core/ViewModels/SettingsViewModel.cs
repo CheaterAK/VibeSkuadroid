@@ -6,8 +6,8 @@ using Skua.App.Droid.Core.Settings;
 
 namespace Skua.App.Droid.Core.ViewModels;
 
-/// <summary>App settings, permission state, engine restart and build information.</summary>
-public sealed partial class SettingsViewModel : ObservableObject
+/// <summary>App settings, permission state, engine restart and build information, and the Tools hub.</summary>
+public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 {
     private readonly AppServices _services;
     private readonly EngineHost _host;
@@ -18,7 +18,50 @@ public sealed partial class SettingsViewModel : ObservableObject
         _services = services;
         _host = services.Host;
         Load(_host.Settings.Current);
+        Tools = new ToolsViewModel();
+        _notificationTools = NotificationTools.AddTo(Tools, services);
     }
+
+    private readonly NotificationTools? _notificationTools;
+
+    /// <summary>The Tools hub (opened from this page).</summary>
+    public ToolsViewModel Tools { get; }
+
+    /// <summary>The Tools hub is shown instead of the settings.</summary>
+    [ObservableProperty]
+    private bool _showTools;
+
+    /// <summary>The Settings tab is shown.</summary>
+    [ObservableProperty]
+    private bool _isActive;
+
+    partial void OnShowToolsChanged(bool value) => UpdateToolsVisible();
+
+    partial void OnIsActiveChanged(bool value) => UpdateToolsVisible();
+
+    private void UpdateToolsVisible()
+    {
+        if (_notificationTools is not null)
+            _notificationTools.Visible = IsActive && ShowTools;
+    }
+
+    [RelayCommand]
+    private void OpenTools() => ShowTools = true;
+
+    [RelayCommand]
+    private void CloseTools() => ShowTools = false;
+
+    /// <summary>Back on this tab: closes an open tool page, then the Tools hub; false when the settings are shown.</summary>
+    public bool CloseSubPage()
+    {
+        if (!ShowTools)
+            return false;
+        if (!Tools.CloseSubPage())
+            ShowTools = false;
+        return true;
+    }
+
+    public void Dispose() => _notificationTools?.Dispose();
 
     [ObservableProperty]
     private bool _autoReconnect;
