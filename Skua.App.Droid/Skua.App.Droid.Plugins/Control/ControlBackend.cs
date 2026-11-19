@@ -602,7 +602,10 @@ public sealed partial class ControlBackend : IControlBackend
         if (!game.World.IsBankLoaded)
             throw new EngineException("Load the bank first.");
         ItemInfo item = game.World.GetBank().FirstOrDefault(i => i.ItemId == itemId) ?? throw new EngineException("That item is not in the bank.");
-        if (!bot.Bank.ToInventory(itemId))
+        // IScriptBank.ToInventory(int) always answers false; the InventoryItem overload reports the move.
+        if (!bot.Bank.TryGetItem(itemId, out InventoryItem? banked) || banked is null)
+            throw new EngineException($"{item.Name} is not in Skua's bank list; load the bank again.");
+        if (!bot.Bank.ToInventory(banked))
             throw new EngineException($"{item.Name} was not moved (no room in the backpack, or no reply).");
         return $"Moved {item.Name} to the backpack.";
     }

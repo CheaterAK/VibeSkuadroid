@@ -128,6 +128,96 @@ public class HeadlessUiTests
         Assert.True(problems.Count == 0, string.Join("\n", problems));
     }
 
+    /// <summary>
+    /// The Control page with a whole little world (tiles, pads, monsters, players, drops, skills), every action tab and
+    /// the confirmation with a quantity, rendered at phone size with no binding errors; a tile tapped through the UI
+    /// moves the character there.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task TheControlPageRendersItsMapCellAndActions()
+    {
+        CollectingSink sink = new();
+        Logger.Sink = sink;
+        FakePluginBackends plugins = new();
+        await using TestApp app = new(scripts: new PluginOnlyScriptHost(plugins));
+        using ShellViewModel shell = new(new AppServices(app.Host, new ImmediateUiDispatcher(), app.Picker, app.Services.Library, app.Services.RepositorySync, app.Paths));
+        Window window = new() { Width = 412, Height = 915, Content = new MainView { DataContext = shell } };
+        window.Show();
+
+        void Render()
+        {
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        shell.NavigateCommand.Execute("Control");
+        ControlViewModel page = shell.Control;
+        for (int i = 0; i < 300 && page.Tiles.Count == 0; i++)
+        {
+            await Task.Delay(10);
+            Render();
+        }
+        Render();
+        Control view = Assert.IsAssignableFrom<Control>(window.GetVisualDescendantOfType(nameof(ControlView)));
+        List<Button> tiles = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(view).OfType<Button>().Where(b => b.Classes.Contains("tile")).ToList();
+        Assert.Equal(3, tiles.Count);
+        Assert.Contains("current", tiles[0].Classes);
+        Assert.Contains("monsters", tiles[1].Classes);
+        Assert.Equal(2, page.Monsters.Count);
+
+        // The r2 tile's bound command and parameter go through the page to the backend.
+        Assert.Equal("r2", tiles[1].CommandParameter);
+        tiles[1].Command!.Execute(tiles[1].CommandParameter);
+        await page.LastAction;
+        Assert.Equal("jump r2 -", plugins.FakeControl.Calls[^1]);
+
+        foreach (string tab in new[] { "Shop", "Quest", "Bank", "Travel" })
+        {
+            page.SelectTabCommand.Execute(tab);
+            if (tab == "Quest")
+            {
+                page.QuestIdInput = "1000";
+                page.LoadQuestCommand.Execute(null);
+                await page.LastAction;
+            }
+            await page.RefreshNowAsync();
+            Render();
+        }
+        Assert.NotNull(page.Quest);
+
+        // The confirmation, with its quantity box, over the page.
+        page.SelectTabCommand.Execute("Shop");
+        await page.RefreshNowAsync();
+        page.BuyCommand.Execute(page.ShopItems[0].Item);
+        for (int i = 0; i < 100 && !page.IsConfirming; i++)
+        {
+            await Task.Delay(10);
+            Render();
+        }
+        Render();
+        NumericUpDown quantity = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(view).OfType<NumericUpDown>().Single();
+        Assert.True(quantity.IsEffectivelyVisible);
+        Assert.True(shell.GoBack()); // back cancels it
+        await page.LastAction;
+        Render();
+        Assert.False(page.IsConfirming);
+
+        // The World lists open from the page and Back returns to it.
+        page.OpenListsCommand.Execute(null);
+        Render();
+        Assert.NotNull(window.GetVisualDescendantOfType(nameof(WorldView)));
+        Assert.True(shell.GoBack());
+        Render();
+        Assert.NotNull(window.GetVisualDescendantOfType(nameof(ControlView)));
+
+        window.Close();
+        List<string> problems;
+        lock (sink.Messages)
+            problems = sink.Messages.Where(m => m.Contains("Binding", StringComparison.OrdinalIgnoreCase) || m.Contains("Error", StringComparison.Ordinal)).ToList();
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
     [AvaloniaFact]
     public async Task ARecreatedViewShowsTheSameState()
     {
