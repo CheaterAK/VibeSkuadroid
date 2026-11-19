@@ -72,7 +72,7 @@ public class EngineTests : IAsyncLifetime
         string everything = string.Join('\n', _engine.GetRecentLog().Select(l => l.Display))
             + string.Join('\n', _engine.GetRecentPackets().Select(p => p.Display));
         Assert.DoesNotContain(FakeAqw.Password, everything);
-        Assert.DoesNotContain(FakeAqwServer.Token, everything);
+        Assert.DoesNotContain(FakeAqwServer.TokenPrefix, everything);
         Assert.Contains(_engine.GetRecentPackets(), p => p.Direction == PacketDirection.In);
     }
 

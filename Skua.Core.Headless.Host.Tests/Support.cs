@@ -14,21 +14,27 @@ internal sealed class FakeHttp : HttpMessageHandler
 
     public Dictionary<string, int> Hits { get; } = new();
 
+    /// <summary>Per path: how long the reply takes after the route ran (the server acted at once, the answer arrives later).</summary>
+    public Dictionary<string, TimeSpan> Delays { get; } = new();
+
     public static HttpResponseMessage Json(string json)
     {
         return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         string path = request.RequestUri!.AbsolutePath.TrimStart('/');
         if (path.StartsWith("game/", StringComparison.Ordinal))
             path = path[5..];
         lock (Hits)
             Hits[path] = Hits.GetValueOrDefault(path) + 1;
-        if (Routes.TryGetValue(path, out Func<HttpRequestMessage, HttpResponseMessage>? route))
-            return Task.FromResult(route(request));
-        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("not found") });
+        if (!Routes.TryGetValue(path, out Func<HttpRequestMessage, HttpResponseMessage>? route))
+            return new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("not found") };
+        HttpResponseMessage response = route(request);
+        if (Delays.TryGetValue(path, out TimeSpan delay))
+            await Task.Delay(delay, cancellationToken);
+        return response;
     }
 }
 
@@ -47,7 +53,7 @@ internal sealed class FakeWorld : IAsyncDisposable
             if (!body.Contains("pass=" + Pass, StringComparison.Ordinal))
                 return FakeHttp.Json("""{"login":{"bSuccess":0,"sMsg":"Wrong password"}}""");
             return FakeHttp.Json($$"""
-                {"login":{"bSuccess":1,"unm":"{{User}}","userid":77,"iLevel":30,"iUpgDays":-1,"sToken":"{{FakeAqwServer.Token}}"},
+                {"login":{"bSuccess":1,"unm":"{{User}}","userid":77,"iLevel":30,"iUpgDays":-1,"sToken":"{{Server.IssueToken(User)}}"},
                  "servers":[{"sName":"Sandbox","sIP":"127.0.0.1","iPort":{{Server.Port}},"iCount":1,"iMax":1000,"bOnline":1,"bUpg":0,"iChat":2,"iLevel":0,"sLang":"xx"},
                             {"sName":"Offline","sIP":"127.0.0.2","iPort":5588,"iCount":0,"iMax":1000,"bOnline":0,"bUpg":0,"iChat":2,"iLevel":0,"sLang":"xx"}]}
                 """);

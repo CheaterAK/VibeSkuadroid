@@ -251,10 +251,22 @@ public class PacketsTests
     [Fact]
     public void HandshakeMatchesTheWireFormat()
     {
-        Assert.Equal("<msg t='sys'><body action='verChk' r='0'><ver v='166' /></body></msg>", Packets.VersionCheck());
+        // Game4000r9.swf SmartFoxClient.handleSocketConnection: majVersion 1, minVersion 5, subVersion 7.
+        Assert.Equal("<msg t='sys'><body action='verChk' r='0'><ver v='157' /></body></msg>", Packets.VersionCheck());
         Assert.Equal(
             "<msg t='sys'><body action='login' r='0'><login z='zone_master'><nick><![CDATA[SPIDER#0001~player1~5.31]]></nick><pword><![CDATA[tok]]></pword></login></body></msg>",
             Packets.Login("player1", "5.31", "tok"));
+    }
+
+    [Fact]
+    public void LoginNickIsTheLowercasedNameAsTheGameSendsIt()
+    {
+        // Game.onLoginComplete: loginInfo.strUsername = objLogin.unm.toLowerCase(); the nick is built from it.
+        Assert.Contains("<nick><![CDATA[SPIDER#0001~mixedcase name~5.33]]></nick>", Packets.Login("MixedCase Name", "5.33", "tok"));
+        // clientVersion = Number(vParam): AS3 prints the number, not the text.
+        Assert.Contains("~5.3]]></nick>", Packets.Login("u", "5.30", "tok"));
+        Assert.Equal("5.33", Packets.As3Number("5.33"));
+        Assert.Equal("beta-1", Packets.As3Number("beta-1"));
     }
 
     [Fact]

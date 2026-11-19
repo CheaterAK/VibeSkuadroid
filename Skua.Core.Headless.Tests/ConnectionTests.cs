@@ -87,13 +87,43 @@ public class ConnectionTests : IAsyncLifetime
         IReadOnlyList<string> commands = _fake.LastSession.Commands;
         Assert.Equal(new[] { "firstJoin", "moveToCell", "retrieveUserData", "retrieveInventory" }, commands.Take(4));
         string login = _fake.LastSession.Received.Select(r => r.Text).Single(t => t.Contains("action='login'"));
-        Assert.Contains("SPIDER#0001~Hero~5.32", login);
+        Assert.Contains("SPIDER#0001~hero~5.32", login); // the game lowercases the name (Game.onLoginComplete)
         Assert.Contains("z='zone_master'", login);
-        Assert.Contains("<ver v='166' />", _fake.LastSession.Received.First().Text);
+        Assert.Contains("<ver v='157' />", _fake.LastSession.Received.First().Text);
+        Assert.Equal(new[] { "157" }, _fake.ApiVersions.ToArray());
 
         // moveToArea, loadInventoryBig and sAct are over 400 chars, so the fake sent them compressed.
         Assert.True(c.GetStatistics().CompressedIn >= 2);
         Assert.Equal(0, c.GetStatistics().UndecodableIn);
+    }
+
+    [Fact]
+    public async Task TheFakeRefusesWhatTheRealClientWouldNotSend()
+    {
+        // The connection lowercases the name as the game does (the fake refuses any other case); a superseded token and
+        // a verChk version the fake is told to require are refused.
+        AqwConnection mixed = New();
+        string fresh = _fake.IssueToken("Hero");
+        _fake.RequiredApiVersion = "157";
+        await mixed.ConnectAsync(_fake.Server, "Hero", fresh, "5.32");
+        Assert.Equal("hero~5.32", _fake.LoginNicks.Last());
+
+        string superseded = fresh;
+        _fake.IssueToken("Hero");
+        AqwConnection stale = New();
+        AqwLoginException e = await Assert.ThrowsAsync<AqwLoginException>(() => stale.ConnectAsync(_fake.Server, "Hero", superseded, "5.32"));
+        Assert.Equal(LoginFailureKind.SocketRejected, e.Kind);
+        Assert.Contains(FakeAqwServer.CharacterDataRefusal, e.Message);
+
+        AqwConnection oldApi = New(WithApi(Fast(), "166"));
+        AqwLoginException api = await Assert.ThrowsAsync<AqwLoginException>(() => oldApi.ConnectAsync(_fake.Server, "Hero", superseded, "5.32"));
+        Assert.Equal(LoginFailureKind.ApiVersionRejected, api.Kind);
+    }
+
+    private static AqwConnectionOptions WithApi(AqwConnectionOptions options, string api)
+    {
+        options.ApiVersion = api;
+        return options;
     }
 
     [Fact]
@@ -407,7 +437,7 @@ public class SessionTests : IAsyncLifetime
             Interlocked.Increment(ref _logins);
             return FakeHttp.Json(new JsonObject
             {
-                ["login"] = new JsonObject { ["bSuccess"] = 1, ["sToken"] = FakeAqwServer.Token, ["unm"] = "Hero", ["userid"] = 1, ["iLevel"] = 30, ["iUpgDays"] = -1 },
+                ["login"] = new JsonObject { ["bSuccess"] = 1, ["sToken"] = _fake.IssueToken("Hero"), ["unm"] = "Hero", ["userid"] = 1, ["iLevel"] = 30, ["iUpgDays"] = -1 },
                 ["servers"] = new JsonArray(
                     new JsonObject { ["sName"] = "Sandbox", ["sIP"] = "127.0.0.1", ["iPort"] = _fake.Port, ["iCount"] = 1, ["iMax"] = 1000, ["bOnline"] = 1, ["bUpg"] = 0 },
                     new JsonObject { ["sName"] = "MembersOnly", ["sIP"] = "127.0.0.1", ["iPort"] = 1, ["iCount"] = 0, ["iMax"] = 1000, ["bOnline"] = 1, ["bUpg"] = 1 }),
@@ -441,7 +471,7 @@ public class SessionTests : IAsyncLifetime
         Assert.True(session.Connection!.IsReady);
         Assert.Equal("5.40", session.ClientVersion!.Version);
         Assert.Equal(ClientVersionSource.ServerRequired, session.ClientVersion.Source);
-        Assert.Equal(new[] { "Hero~" + ClientVersion.Fallback, "Hero~5.40" }, _fake.LoginNicks.ToArray());
+        Assert.Equal(new[] { "hero~" + ClientVersion.Fallback, "hero~5.4" }, _fake.LoginNicks.ToArray());
         Assert.Equal(2, _logins); // a fresh token for the retry
     }
 
@@ -494,7 +524,7 @@ public class SessionTests : IAsyncLifetime
         Assert.Contains(snapshot, c => c.Name == "packet" && (string)c.Args[0] == $"%xt%zm%moveToCell%{session.World.RoomId}%r2%Left%");
         Assert.DoesNotContain(snapshot, c => c.Name == "packet" && ((string)c.Args[0]).StartsWith('<'));
         Assert.Equal("connectionLost", snapshot.Last().Name);
-        Assert.DoesNotContain(snapshot, c => c.Args.OfType<string>().Any(s => s.Contains(FakeAqwServer.Token)));
+        Assert.DoesNotContain(snapshot, c => c.Args.OfType<string>().Any(s => s.Contains(FakeAqwServer.TokenPrefix)));
     }
 
     [Fact]
