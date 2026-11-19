@@ -22,6 +22,9 @@ public sealed class ButlerBackend : IButlerBackend, IDisposable
     private readonly ButlerLog _log = new();
     private readonly PlayerFollower _follower;
     private readonly object _gate = new();
+    // Start/stop are serialised on their own lock: the follow loop reports its state under _gate, and Stop waits for
+    // that loop, so holding _gate there would stall both.
+    private readonly object _followGate = new();
     private ButlerOptions _options = new();
     private ButlerStatus _status = ButlerStatus.Idle;
 
@@ -73,13 +76,13 @@ public sealed class ButlerBackend : IButlerBackend, IDisposable
             throw new EngineException("Can't start following: a script is running on this account. Stop it first.");
         if (name.Equals(bot.Player.Username, StringComparison.OrdinalIgnoreCase))
             throw new EngineException("That is this account. Enter another player's name.");
-        lock (_gate)
+        lock (_followGate)
             _follower.Start(bot, name);
     }
 
     public void StopFollow(bool park = false)
     {
-        lock (_gate)
+        lock (_followGate)
             _follower.Stop(park);
     }
 
