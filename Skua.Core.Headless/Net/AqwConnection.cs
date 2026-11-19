@@ -1,5 +1,6 @@
 using Skua.Core.Headless.Protocol;
 using Skua.Core.Headless.World;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -11,10 +12,12 @@ namespace Skua.Core.Headless.Net;
 /// sending, a single reader loop feeding the <see cref="WorldModel"/>, liveness probing and disconnect signalling.
 /// </summary>
 /// <remarks>
-/// <para>Login sequence (verified against Seraph and aqx, both MIT):</para>
+/// <para>Login sequence (the decompiled Game4000r9.swf: SmartFoxClient.handleSocketConnection, Game.onConnectionHandler;
+/// also Seraph and aqx, both MIT):</para>
 /// <list type="number">
-/// <item>verChk -> <c>apiOK</c></item>
-/// <item>login (<c>SPIDER#0001~user~clientVersion</c>, token, zone_master) -> <c>%xt%loginResponse%-1%true%uid%name%...</c></item>
+/// <item>verChk (<c>v='157'</c>) -> <c>apiOK</c></item>
+/// <item>login (<c>SPIDER#0001~user lowercased~clientVersion</c>, the newest web login's token, zone_master) ->
+/// <c>%xt%loginResponse%-1%true%uid%name%...</c></item>
 /// <item><c>firstJoin</c> -> <c>moveToArea</c> -> <c>moveToCell</c> + <c>retrieveUserData</c></item>
 /// <item><c>initUserData</c> -> <c>retrieveInventory</c> -> <c>loadInventoryBig</c>: ready.</item>
 /// </list>
@@ -55,6 +58,12 @@ public sealed partial class AqwConnection : IAsyncDisposable
     private int _closing;
     private string _username = string.Empty;
     private string _token = string.Empty;
+    private Func<SocketLogin> _login = null!;
+    private string? _loginOrigin;
+    private readonly object _redactGate = new();
+    private readonly List<(string Secret, string Placeholder)> _redactions = new();
+    private int _tracing;
+    private long _socketOpenedAt;
     private int _actionId;
     private bool _firstAreaEntered;
     private bool _inventoryRequested;
@@ -144,20 +153,33 @@ public sealed partial class AqwConnection : IAsyncDisposable
     /// </summary>
     /// <exception cref="AqwLoginException">The server refused the login, the character did not load in time, or the socket failed.</exception>
     /// <exception cref="OperationCanceledException">Cancelled; the connection is closed.</exception>
-    public async Task ConnectAsync(GameServer server, string username, string token, string clientVersion, CancellationToken cancellationToken = default)
+    public Task ConnectAsync(GameServer server, string username, string token, string clientVersion, CancellationToken cancellationToken = default)
+    {
+        SocketLogin login = new(username, token);
+        return ConnectAsync(server, () => login, clientVersion, cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens the socket and logs in with the name and token <paramref name="login"/> gives when the server accepts
+    /// the API version (apiOK). The game reads <c>loginInfo.strToken</c> at that moment too
+    /// (<c>Game.onConnectionHandler</c>), so a web login that finishes while the socket opens is the one used.
+    /// Completes when the character's inventory has loaded.
+    /// </summary>
+    public async Task ConnectAsync(GameServer server, Func<SocketLogin> login, string clientVersion, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(server);
-        ArgumentException.ThrowIfNullOrEmpty(username);
-        ArgumentException.ThrowIfNullOrEmpty(token);
+        ArgumentNullException.ThrowIfNull(login);
         ArgumentException.ThrowIfNullOrEmpty(clientVersion);
+        SocketLogin first = login();
         if (Interlocked.CompareExchange(ref _state, (int)ConnectionState.Connecting, (int)ConnectionState.Created) != (int)ConnectionState.Created)
             throw new InvalidOperationException("An AqwConnection can only connect once; create a new one to reconnect.");
         Raise(StateChanged, ConnectionState.Connecting);
 
         Server = server;
         ClientVersion = clientVersion;
-        _username = username;
-        _token = token;
+        _login = login;
+        UseLogin(first);
+        Volatile.Write(ref _tracing, Options.TraceHandshake ? 1 : 0);
         World.Reset();
 
         using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
@@ -190,7 +212,8 @@ public sealed partial class AqwConnection : IAsyncDisposable
             _livenessTask = Task.Run(() => LivenessLoopAsync(life), CancellationToken.None);
 
             SetState(ConnectionState.Handshaking);
-            RaiseLog(HeadlessLogLevel.Info, $"Connected to {server.Name} ({server.Host}:{server.Port}); client version {clientVersion}.");
+            _socketOpenedAt = Stopwatch.GetTimestamp();
+            RaiseLog(HeadlessLogLevel.Info, $"Connected to {server.Name} ({server.Host}:{server.Port}); client version {clientVersion}, verChk API version {Options.ApiVersion}.");
             Enqueue(Packets.VersionCheck(Options.ApiVersion), SendPriority.Immediate, wantCompletion: false);
 
             await _ready.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
@@ -352,8 +375,10 @@ public sealed partial class AqwConnection : IAsyncDisposable
         item.Complete(true);
 
         World.ApplyOutbound(item.Text);
-        bool redacted = _token.Length > 0 && item.Text.Contains(_token, StringComparison.Ordinal);
-        string shown = redacted ? item.Text.Replace(_token, "<token>", StringComparison.Ordinal) : item.Text;
+        string shown = Redact(item.Text);
+        bool redacted = !string.Equals(shown, item.Text, StringComparison.Ordinal);
+        if (Volatile.Read(ref _tracing) == 1)
+            TraceFrame(">>", shown, verbatim: item.Command is null);
         Raise(PacketSent, new PacketSentEventArgs(shown, redacted, now));
     }
 
@@ -408,6 +433,15 @@ public sealed partial class AqwConnection : IAsyncDisposable
             Interlocked.Increment(ref _undecodableIn);
             RaiseLog(HeadlessLogLevel.Warning, $"Undecodable message ({packet.DecodeError}): {Shorten(packet.Text)}");
         }
+        if (Volatile.Read(ref _tracing) == 1)
+        {
+            TraceFrame("<<", packet.Text, verbatim: packet.Kind is PacketKind.Xml || packet.Command == "loginResponse");
+            if (packet.Command == "moveToArea")
+            {
+                Volatile.Write(ref _tracing, 0);
+                RaiseLog(HeadlessLogLevel.Info, $"[handshake] First moveToArea after {ElapsedSinceSocketOpen()}; trace ends.");
+            }
+        }
 
         World.Apply(packet);
         try
@@ -450,6 +484,20 @@ public sealed partial class AqwConnection : IAsyncDisposable
         {
             case "apiOK" when State == ConnectionState.Handshaking:
                 SetState(ConnectionState.LoggingIn);
+                // Game.onConnectionHandler reads loginInfo now, so a web login that finished meanwhile wins.
+                string before = _token;
+                try
+                {
+                    UseLogin(_login());
+                }
+                catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+                {
+                    RaiseLog(HeadlessLogLevel.Warning, $"Could not read the current login ({e.Message}); using the one given at connect.");
+                }
+                if (!string.Equals(before, _token, StringComparison.Ordinal))
+                    RaiseLog(HeadlessLogLevel.Info, "A newer web login finished while the socket opened: its token is used, as the game reads it only now.");
+                RaiseLog(HeadlessLogLevel.Info, $"Socket login {ElapsedSinceSocketOpen()} after the socket opened: nick {Packets.ClientToken}~{Packets.LoginName(_username)}~{Packets.As3Number(ClientVersion!)}, "
+                    + $"password = token ({_loginOrigin ?? "origin not given"}), zone {Options.Zone}.");
                 Enqueue(Packets.Login(_username, ClientVersion!, _token, Options.Zone), SendPriority.Immediate, wantCompletion: false);
                 break;
 
@@ -872,9 +920,7 @@ public sealed partial class AqwConnection : IAsyncDisposable
         EventHandler<HeadlessLogEventArgs>? log = Log;
         if (log is null)
             return;
-        if (_token.Length > 0)
-            message = message.Replace(_token, "<token>", StringComparison.Ordinal);
-        HeadlessLogEventArgs args = new(level, message);
+        HeadlessLogEventArgs args = new(level, Redact(message));
         foreach (EventHandler<HeadlessLogEventArgs> single in log.GetInvocationList().Cast<EventHandler<HeadlessLogEventArgs>>())
         {
             try
@@ -893,8 +939,66 @@ public sealed partial class AqwConnection : IAsyncDisposable
         return text.Length > 300 ? text[..300] + "..." : text;
     }
 
+    /// <summary>
+    /// Replaces <paramref name="secret"/> by <paramref name="placeholder"/> in everything this connection logs or
+    /// reports (sent packets, the handshake trace). The login token is always replaced by <c>&lt;token&gt;</c>.
+    /// </summary>
+    public void AddRedaction(string? secret, string placeholder)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(placeholder);
+        // A very short value would blank out ordinary text everywhere (it is never sent on the socket anyway).
+        if (string.IsNullOrEmpty(secret) || secret.Length < 4)
+            return;
+        lock (_redactGate)
+        {
+            if (!_redactions.Exists(r => r.Secret == secret))
+                _redactions.Add((secret, placeholder));
+            // Longest first, so a secret containing another is replaced whole.
+            _redactions.Sort((a, b) => b.Secret.Length.CompareTo(a.Secret.Length));
+        }
+    }
+
+    private void UseLogin(SocketLogin login)
+    {
+        AddRedaction(login.Token, "<token>");
+        _username = login.Username;
+        _token = login.Token;
+        _loginOrigin = login.Origin;
+    }
+
+    private string Redact(string text)
+    {
+        lock (_redactGate)
+        {
+            foreach ((string secret, string placeholder) in _redactions)
+            {
+                if (text.Contains(secret, StringComparison.Ordinal))
+                    text = text.Replace(secret, placeholder, StringComparison.Ordinal);
+            }
+        }
+        return text;
+    }
+
+    // One handshake frame at Info level: secrets and e-mail addresses replaced; long game data shortened, the
+    // system messages and the loginResponse kept whole.
+    private void TraceFrame(string direction, string text, bool verbatim)
+    {
+        string clean = EmailRegex().Replace(Redact(text), "<email>");
+        if (!verbatim && clean.Length > 600)
+            clean = string.Concat(clean.AsSpan(0, 600), $"... ({clean.Length} chars)");
+        RaiseLog(HeadlessLogLevel.Info, $"[handshake] +{ElapsedSinceSocketOpen()} {direction} {clean}");
+    }
+
+    private string ElapsedSinceSocketOpen()
+    {
+        return _socketOpenedAt == 0 ? "0 ms" : $"{Stopwatch.GetElapsedTime(_socketOpenedAt).TotalMilliseconds:0} ms";
+    }
+
     [GeneratedRegex("slow down|too soon|spamming", RegexOptions.IgnoreCase)]
     private static partial Regex SlowDownRegex();
+
+    [GeneratedRegex(@"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")]
+    private static partial Regex EmailRegex();
 
     /// <summary>A NetworkStream that also disposes its TcpClient.</summary>
     private sealed class OwnedNetworkStream : Stream

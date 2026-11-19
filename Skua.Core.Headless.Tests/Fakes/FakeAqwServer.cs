@@ -19,12 +19,12 @@ namespace Skua.Core.Headless.Tests.Fakes;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Login rules, from what the real client (Game4000r9.swf) sends: the nick's name is the account name lowercased
-/// (Game.onLoginComplete), and the password is the <c>sToken</c> of the account's latest web login. Each web login
-/// a test serves through <see cref="IssueToken"/> supersedes the account's earlier tokens; a socket login with a
-/// superseded token, a nick in another case, or (with <see cref="MinTokenAge"/>) a token used too soon after its web
-/// login is refused with the live server's "Character data could not be retrieved" loginResponse.
-/// <see cref="Token"/> is the account's token until the first <see cref="IssueToken"/>.
+/// Login rules: the password is the <c>sToken</c> of the account's latest web login. Each web login a test serves
+/// through <see cref="IssueToken"/> supersedes the account's earlier tokens, and a socket login with a superseded
+/// token, or with a client version listed in <see cref="RefusedClientVersions"/>, is refused with the live server's
+/// "Character data could not be retrieved" loginResponse. The nick's name must be the token's account in any case
+/// (the game sends it lowercased, another client that gets in sends <c>unm</c> as it is). <see cref="Token"/> is the
+/// account's token until the first <see cref="IssueToken"/>.
 /// </para>
 /// </remarks>
 /// <remarks>
@@ -106,8 +106,17 @@ public sealed class FakeAqwServer : IAsyncDisposable
     /// <summary>verChk with another version is answered with apiKO. Null accepts any (as the live server did for 166).</summary>
     public string? RequiredApiVersion { get; set; }
 
-    /// <summary>A token used for a socket login sooner than this after its web login is refused. Null: no minimum.</summary>
-    public TimeSpan? MinTokenAge { get; set; }
+    /// <summary>
+    /// Client versions (as written in the nick) refused with <see cref="CharacterDataRefusal"/>, the way the live
+    /// server refused 5.33 while it let a client with 5.32 in.
+    /// </summary>
+    public HashSet<string> RefusedClientVersions { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Every token <see cref="IssueToken"/> handed out, oldest first.</summary>
+    public ConcurrentQueue<string> IssuedTokens { get; } = new();
+
+    /// <summary>The message field of a successful loginResponse.</summary>
+    public string LoginMessage { get; set; } = "Welcome to the test server";
 
     /// <summary>Every socket login's outcome, oldest first: the token it used and why it was refused (null when accepted).</summary>
     public ConcurrentQueue<(string Token, string? Refusal)> LoginOutcomes { get; } = new();
@@ -135,6 +144,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
             }
             string token = $"{TokenPrefix}r{Interlocked.Increment(ref _tokenCount)}-{Random.Shared.Next(100000, 999999)}";
             _tokens[token] = (account, true, Stopwatch.GetTimestamp());
+            IssuedTokens.Enqueue(token);
             return token;
         }
     }
@@ -148,9 +158,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 return ("Invalid login token.", null);
             if (!t.Current)
                 return (CharacterDataRefusal, null);
-            if (nickName != t.Account.ToLowerInvariant())
-                return (CharacterDataRefusal, null);
-            if (MinTokenAge is TimeSpan min && t.IssuedAt != 0 && Stopwatch.GetElapsedTime(t.IssuedAt) < min)
+            if (!nickName.Equals(t.Account, StringComparison.OrdinalIgnoreCase))
                 return (CharacterDataRefusal, null);
             return (null, t.Account);
         }
@@ -528,7 +536,9 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 Raw($"%xt%loginResponse%-1%0%-1%%Your game client is an older version. Server requires AQW game version {required} or higher. Please close the AQW game window and try again.%");
                 return;
             }
-            (string? refusal, string? account) = _server.CheckLogin(nickName, pword.Groups[1].Value);
+            (string? refusal, string? account) = _server.RefusedClientVersions.Contains(ClientVersion)
+                ? (CharacterDataRefusal, null)
+                : _server.CheckLogin(nickName, pword.Groups[1].Value);
             _server.LoginOutcomes.Enqueue((pword.Groups[1].Value, refusal));
             if (refusal is not null)
             {
@@ -537,7 +547,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
             }
             // The server spells the name as the account has it (initUserData strUsername), whatever the nick's case.
             Name = account!;
-            Str("loginResponse", "true", Uid, Name.ToLowerInvariant(), "Welcome to the test server", string.Empty);
+            Str("loginResponse", "true", Uid, Name.ToLowerInvariant(), _server.LoginMessage, string.Empty);
         }
 
         private static bool Older(string version, string required)

@@ -9,6 +9,17 @@ namespace Skua.Core.Headless.Tests.Fakes;
 /// </summary>
 public static class SyntheticSwf
 {
+    /// <summary>A CWS file whose string pool holds <c>vParam</c> = <paramref name="version"/> (what version discovery reads).</summary>
+    public static byte[] GameFile(string version)
+    {
+        byte[] content = Encoding.Latin1.GetBytes("junk\u0006vParam" + (char)version.Length + version + "\u0005ISWEB");
+        byte[] header = { (byte)'C', (byte)'W', (byte)'S', 10, 0, 0, 0, 0 };
+        using MemoryStream output = new();
+        using (ZLibStream z = new(output, CompressionLevel.Optimal, leaveOpen: true))
+            z.Write(content);
+        return header.Concat(output.ToArray()).ToArray();
+    }
+
     /// <param name="cells">Cell name and its pad instance names, in timeline order.</param>
     /// <param name="compression">"FWS", "CWS" or "ZWS" (ZWS only gets the signature: the reader must refuse it).</param>
     /// <param name="sceneTag">Also write DefineSceneAndFrameLabelData (tag 86).</param>

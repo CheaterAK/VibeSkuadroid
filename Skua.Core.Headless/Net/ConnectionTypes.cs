@@ -51,8 +51,43 @@ public sealed class AqwConnectionOptions
 
     public int MaxFrameBytes { get; set; } = PacketFramer.DefaultMaxFrameBytes;
 
+    /// <summary>
+    /// Log every frame in and out, at Info level and redacted (token, password, e-mail addresses), from the socket
+    /// opening until the first moveToArea; the loginResponse is logged in full. For diagnosing refused logins.
+    /// </summary>
+    public bool TraceHandshake { get; set; } = true;
+
     /// <summary>Opens the socket. Defaults to a TCP connection; tests or other transports may replace it.</summary>
     public Func<string, int, CancellationToken, ValueTask<Stream>>? Connector { get; set; }
+}
+
+/// <summary>
+/// What the SmartFox login sends: the account name (lowercased on the wire, as the game does) and the web login's
+/// <c>sToken</c>. <see cref="Origin"/> says where the token came from, for logs.
+/// </summary>
+public sealed class SocketLogin
+{
+    public SocketLogin(string username, string token, string? origin = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(username);
+        ArgumentException.ThrowIfNullOrEmpty(token);
+        Username = username;
+        Token = token;
+        Origin = origin;
+    }
+
+    public string Username { get; }
+
+    /// <summary>The socket password. Never logged.</summary>
+    public string Token { get; }
+
+    /// <summary>For logs, e.g. "web login #2, 0.4 s before". Must not contain secrets.</summary>
+    public string? Origin { get; }
+
+    public override string ToString()
+    {
+        return $"SocketLogin({Username}, token <redacted>{(Origin is null ? string.Empty : ", " + Origin)})";
+    }
 }
 
 /// <summary>Lifecycle of one socket session.</summary>

@@ -18,6 +18,12 @@ public enum ClientVersionSource
 
     /// <summary>Nothing could be discovered; the built-in fallback was used.</summary>
     Fallback,
+
+    /// <summary>
+    /// The discovered version was refused without the server naming another ("Character data could not be
+    /// retrieved"), so the version last seen working was sent (<see cref="AqwSessionOptions.KnownGoodClientVersion"/>).
+    /// </summary>
+    KnownGood,
 }
 
 /// <summary>A resolved client version and how it was found.</summary>
@@ -32,7 +38,8 @@ public static partial class ClientVersion
 {
     /// <summary>
     /// Last known good value. aqx (2026-11-13) defaults to 5.32; Seraph's fallback is 5.01 (Game4000r1). The newer
-    /// one is used. It is only a fallback: see <see cref="ClientVersionResolver"/>.
+    /// one is used. On 2026-11-19 another client sending 5.32 got in on the live servers. It is only a fallback: see
+    /// <see cref="ClientVersionResolver"/> and <see cref="AqwSessionOptions.FallBackToKnownGoodVersion"/>.
     /// </summary>
     public const string Fallback = "5.32";
 
