@@ -47,6 +47,13 @@ public sealed class HeadlessSkuaOptions
     /// <summary>Receives every log line (Skua's script/debug/flash logs, the headless client, dialogs). Called on any thread.</summary>
     public Action<HeadlessLogEntry>? Log { get; set; }
 
+    /// <summary>
+    /// Whether <see cref="Log"/> also gets the session's own lines (<see cref="AqwSession.Log"/>, as source "game" with
+    /// the level in front). Turn it off when the host subscribes to <c>Game.Session.Log</c> itself, or each of those
+    /// lines reaches it twice.
+    /// </summary>
+    public bool LogSessionLines { get; set; } = true;
+
     public TimeProvider? Time { get; set; }
 
     /// <summary>
@@ -336,7 +343,10 @@ public sealed class HeadlessSkuaSession : IAsyncDisposable
     private void Start()
     {
         Game.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
-        Game.Log += (_, m) => Options.Log?.Invoke(new HeadlessLogEntry("game", m, DateTimeOffset.UtcNow));
+        if (Options.LogSessionLines)
+            Game.Log += (_, m) => Options.Log?.Invoke(new HeadlessLogEntry("game", m, DateTimeOffset.UtcNow));
+        else
+            Game.OwnLog += (_, m) => Options.Log?.Invoke(new HeadlessLogEntry("game", m, DateTimeOffset.UtcNow));
         Flash.Log += m => Options.Log?.Invoke(new HeadlessLogEntry("game", m, DateTimeOffset.UtcNow));
 
         CommunityToolkit.Mvvm.Messaging.StrongReferenceMessenger m = CommunityToolkit.Mvvm.Messaging.StrongReferenceMessenger.Default;

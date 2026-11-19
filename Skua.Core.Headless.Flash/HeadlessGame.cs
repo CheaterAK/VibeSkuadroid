@@ -85,7 +85,7 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
         Session.Disconnected += OnDisconnected;
         Session.StateChanged += OnSessionState;
         Session.Log += (_, e) => Log?.Invoke(this, e.ToString());
-        Client.Log += (_, e) => Log?.Invoke(this, e.Message);
+        Client.Log += (_, e) => RaiseOwnLog(e.Message);
     }
 
     public HeadlessGameOptions Options { get; }
@@ -100,8 +100,14 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
 
     public WorldModel World => Session.World;
 
-    /// <summary>Lines worth logging (login progress, refused actions, failures).</summary>
+    /// <summary>Lines worth logging (login progress, refused actions, failures): <see cref="OwnLog"/> plus the session's <see cref="AqwSession.Log"/>.</summary>
     public event EventHandler<string>? Log;
+
+    /// <summary>
+    /// The game's and its client's own lines, without the session's (<see cref="AqwSession.Log"/>), for a host that
+    /// subscribes to the session itself.
+    /// </summary>
+    public event EventHandler<string>? OwnLog;
 
     /// <summary>A received packet after the model and the client rules applied it (in arrival order, on the reader thread).</summary>
     public event EventHandler<InboundPacket>? PacketProcessed;
@@ -276,7 +282,7 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
                         return;
                     _modal = e is AqwLoginException ? e.Message : "Login failed: " + e.Message;
                 }
-                Log?.Invoke(this, "Login failed: " + e.Message);
+                RaiseOwnLog("Login failed: " + e.Message);
                 SetState(HeadlessGameState.LoggedOut);
             }
         }, CancellationToken.None);
@@ -393,7 +399,7 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
             {
                 lock (_gate)
                     _connDetail = $"Connection closed: {e.Message}";
-                Log?.Invoke(this, $"Connect to {server.Name} failed: {e.Message}");
+                RaiseOwnLog($"Connect to {server.Name} failed: {e.Message}");
                 SetState(Session.Account is null ? HeadlessGameState.LoggedOut : HeadlessGameState.ServerList);
             }
             finally
@@ -482,7 +488,13 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
     {
         lock (_gate)
             _modal = text;
-        Log?.Invoke(this, text);
+        RaiseOwnLog(text);
+    }
+
+    private void RaiseOwnLog(string message)
+    {
+        OwnLog?.Invoke(this, message);
+        Log?.Invoke(this, message);
     }
 
     // ---------------------------------------------------------------- session events

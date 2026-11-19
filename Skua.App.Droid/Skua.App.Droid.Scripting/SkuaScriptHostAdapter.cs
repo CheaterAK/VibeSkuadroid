@@ -158,6 +158,9 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost
             ApplicationVersionOverride = ReportedSkuaVersion,
             Dialogs = Dialogs,
             Log = Forward,
+            // The engine subscribes to the returned session's Log (source "session", with its level): do not
+            // forward those lines a second time as "game".
+            LogSessionLines = false,
         };
         _configure?.Invoke(options);
         try
