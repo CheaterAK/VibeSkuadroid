@@ -355,6 +355,11 @@ public sealed partial class AqwConnection : IAsyncDisposable
     {
         byte[] bytes = new byte[Encoding.UTF8.GetByteCount(item.Text) + 1];
         Encoding.UTF8.GetBytes(item.Text, bytes);
+        string shown = Redact(item.Text);
+        // Traced before the bytes leave: once they do, the reader may handle the reply (the first moveToArea ends the
+        // trace) before this thread goes on, and the frame that asked for it would be missing from the trace.
+        if (Volatile.Read(ref _tracing) == 1)
+            TraceFrame(">>", shown, verbatim: item.Command is null);
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         DateTimeOffset now = _time.GetUtcNow();
@@ -375,10 +380,7 @@ public sealed partial class AqwConnection : IAsyncDisposable
         item.Complete(true);
 
         World.ApplyOutbound(item.Text);
-        string shown = Redact(item.Text);
         bool redacted = !string.Equals(shown, item.Text, StringComparison.Ordinal);
-        if (Volatile.Read(ref _tracing) == 1)
-            TraceFrame(">>", shown, verbatim: item.Command is null);
         Raise(PacketSent, new PacketSentEventArgs(shown, redacted, now));
     }
 
@@ -659,8 +661,7 @@ public sealed partial class AqwConnection : IAsyncDisposable
     private void FailLogin(AqwLoginException e)
     {
         RaiseLog(HeadlessLogLevel.Error, e.Message);
-        _ready.TrySetException(e);
-        Close(DisconnectReason.LoginFailed, e.Message, e.RequiredClientVersion);
+        Close(DisconnectReason.LoginFailed, e.Message, e.RequiredClientVersion, e);
     }
 
     // ---------------------------------------------------------------- waiting for replies
@@ -824,7 +825,10 @@ public sealed partial class AqwConnection : IAsyncDisposable
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
         if (State is ConnectionState.Closed)
+        {
+            await WhenClosedAsync(cancellationToken).ConfigureAwait(false);
             return;
+        }
         if (State is ConnectionState.Loading or ConnectionState.Ready)
         {
             // The server may close the socket on logout before this method does: either way it is our request.
@@ -840,9 +844,22 @@ public sealed partial class AqwConnection : IAsyncDisposable
             }
         }
         Close(DisconnectReason.Requested, "Disconnected by the client.");
+        await WhenClosedAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private void Close(DisconnectReason reason, string message, string? requiredClientVersion = null)
+    // A Close on another thread (the reader seeing the server close the socket after logout) may be the one that
+    // runs: return only once it has finished (DisconnectInfo set, Disconnected raised).
+    private Task WhenClosedAsync(CancellationToken cancellationToken)
+    {
+        return Volatile.Read(ref _closing) == 1 ? _closed.Task.WaitAsync(cancellationToken) : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Closes once; a second call (any thread) returns at once. The login (<see cref="_ready"/>) fails only at the
+    /// end, after <see cref="DisconnectInfo"/>, the state and <see cref="Disconnected"/>: ConnectAsync resumes on
+    /// another thread as soon as it fails, and its caller must find the connection fully closed.
+    /// </summary>
+    private void Close(DisconnectReason reason, string message, string? requiredClientVersion = null, AqwLoginException? loginFailure = null)
     {
         if (Interlocked.Exchange(ref _closing, 1) == 1)
             return;
@@ -855,11 +872,6 @@ public sealed partial class AqwConnection : IAsyncDisposable
         try { _stream?.Dispose(); } catch (Exception e) when (e is IOException or SocketException or ObjectDisposedException) { }
         _pacer.Clear();
         World.SetConnected(false);
-
-        _ready.TrySetException(reason == DisconnectReason.Cancelled
-            ? new OperationCanceledException(message)
-            : new AqwLoginException(reason == DisconnectReason.LoginFailed && requiredClientVersion is not null ? LoginFailureKind.ClientVersionRejected : reason == DisconnectReason.LoginTimeout ? LoginFailureKind.Timeout : LoginFailureKind.ConnectionLost, message, requiredClientVersion));
-        _ = _ready.Task.Exception; // observed: a caller that never awaited ConnectAsync must not see an unobserved exception
 
         Waiter[] waiters;
         lock (_waitGate)
@@ -874,6 +886,11 @@ public sealed partial class AqwConnection : IAsyncDisposable
         RaiseLog(reason is DisconnectReason.Requested ? HeadlessLogLevel.Info : HeadlessLogLevel.Warning, $"Disconnected ({reason}): {message}");
         Raise(StateChanged, ConnectionState.Closed);
         Raise(Disconnected, info);
+
+        _ready.TrySetException(reason == DisconnectReason.Cancelled
+            ? new OperationCanceledException(message)
+            : loginFailure ?? new AqwLoginException(reason == DisconnectReason.LoginFailed && requiredClientVersion is not null ? LoginFailureKind.ClientVersionRejected : reason == DisconnectReason.LoginTimeout ? LoginFailureKind.Timeout : LoginFailureKind.ConnectionLost, message, requiredClientVersion));
+        _ = _ready.Task.Exception; // observed: a caller that never awaited ConnectAsync must not see an unobserved exception
         _closed.TrySetResult(info);
     }
 

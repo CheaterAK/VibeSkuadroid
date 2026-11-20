@@ -154,10 +154,12 @@ public class ConnectionTests : IAsyncLifetime
         await c.ConnectAsync(_fake.Server, "Hero", FakeAqwServer.Token, "5.32");
         await new GameCommands(c).JumpAsync("r2", "Left");
 
-        string[] trace;
+        // The reader thread may still log (the cell move after the jump): read one snapshot.
+        (HeadlessLogLevel Level, string Message)[] lines;
         lock (log)
-            trace = log.Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)).Select(l => l.Message).ToArray();
-        Assert.All(log.Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)), l => Assert.Equal(HeadlessLogLevel.Info, l.Level));
+            lines = log.ToArray();
+        string[] trace = lines.Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)).Select(l => l.Message).ToArray();
+        Assert.All(lines.Where(l => l.Message.StartsWith("[handshake]", StringComparison.Ordinal)), l => Assert.Equal(HeadlessLogLevel.Info, l.Level));
         Assert.Contains(trace, l => l.Contains(">> <msg t='sys'><body action='verChk' r='0'><ver v='157' /></body></msg>"));
         Assert.Contains(trace, l => l.Contains("<< <msg t='sys'><body action='apiOK'"));
         Assert.Contains(trace, l => l.Contains(">> <msg t='sys'><body action='login' r='0'><login z='zone_master'><nick><![CDATA[SPIDER#0001~hero~5.32]]></nick><pword><![CDATA[<token>]]></pword>"));
@@ -166,13 +168,95 @@ public class ConnectionTests : IAsyncLifetime
         Assert.Contains(trace, l => l.Contains("<< {\"t\":\"xt\",\"b\":{\"r\":-1,\"o\":{\"cmd\":\"moveToArea\""));
         Assert.EndsWith("trace ends.", trace[^1]);
         Assert.DoesNotContain(trace, l => l.Contains("moveToCell%") && l.Contains("r2"));
-        string all;
-        lock (log)
-            all = string.Join('\n', log.Select(l => l.Message));
+        string all = string.Join('\n', lines.Select(l => l.Message));
         Assert.DoesNotContain(FakeAqwServer.Token, all);
         Assert.DoesNotContain(password, all);
         Assert.DoesNotContain("hero@example.com", all);
         Assert.Contains("Socket login", all);
+    }
+
+    /// <summary>
+    /// The server answers firstJoin with moveToArea (which ends the trace) before the writer thread goes on after
+    /// sending it: the firstJoin frame is still in the trace, which follows the wire order.
+    /// </summary>
+    [Fact]
+    public async Task ASentFrameIsTracedEvenWhenItsReplyIsHandledFirst()
+    {
+        TaskCompletionSource traceEnded = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        AqwConnectionOptions options = Fast();
+        options.Connector = async (host, port, ct) =>
+        {
+            System.Net.Sockets.TcpClient client = new() { NoDelay = true };
+            await client.ConnectAsync(host, port, ct);
+            return new ReplyFirstStream(client, traceEnded.Task);
+        };
+        AqwConnection c = New(options);
+        List<string> trace = new();
+        c.Log += (_, e) =>
+        {
+            lock (trace)
+            {
+                if (e.Message.StartsWith("[handshake]", StringComparison.Ordinal))
+                    trace.Add(e.Message);
+            }
+            if (e.Message.EndsWith("trace ends.", StringComparison.Ordinal))
+                traceEnded.TrySetResult();
+        };
+        await c.ConnectAsync(_fake.Server, "Hero", FakeAqwServer.Token, "5.32");
+        string[] lines;
+        lock (trace)
+            lines = trace.ToArray();
+        int join = Array.FindIndex(lines, l => l.Contains(">> %xt%zm%firstJoin%1%"));
+        int area = Array.FindIndex(lines, l => l.Contains("\"cmd\":\"moveToArea\""));
+        Assert.InRange(join, 0, area - 1);
+        Assert.EndsWith("trace ends.", lines[^1]);
+    }
+
+    /// <summary>A socket whose write of firstJoin returns only after the reader has handled the reply (the trace ended).</summary>
+    private sealed class ReplyFirstStream : Stream
+    {
+        private readonly System.Net.Sockets.TcpClient _client;
+        private readonly System.Net.Sockets.NetworkStream _inner;
+        private readonly Task _replyHandled;
+
+        public ReplyFirstStream(System.Net.Sockets.TcpClient client, Task replyHandled)
+        {
+            _client = client;
+            _inner = client.GetStream();
+            _replyHandled = replyHandled;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() => _inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) => _inner.ReadAsync(buffer, cancellationToken);
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await _inner.WriteAsync(buffer, cancellationToken);
+            if (System.Text.Encoding.UTF8.GetString(buffer.Span).Contains("%firstJoin%", StringComparison.Ordinal))
+                await _replyHandled.WaitAsync(cancellationToken);
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => _inner.FlushAsync(cancellationToken);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+                _client.Dispose();
+            }
+            base.Dispose(disposing);
+        }
     }
 
     [Fact]
@@ -296,6 +380,58 @@ public class ConnectionTests : IAsyncLifetime
         Assert.Equal(ConnectionState.Closed, c.State);
         Assert.Equal(DisconnectReason.LoginFailed, info!.Reason);
         Assert.True(info.ShouldReconnect);
+    }
+
+    /// <summary>
+    /// The reader thread fails the login and closes: ConnectAsync (resumed on another thread) must not throw before
+    /// that close has finished, or its caller finds no DisconnectInfo and no Disconnected yet.
+    /// </summary>
+    [Fact]
+    public async Task AFailedLoginThrowsOnlyOnceTheConnectionIsClosed()
+    {
+        _fake.RequiredClientVersion = "5.40";
+        AqwConnection c = New();
+        using ManualResetEventSlim inHandler = new();
+        using ManualResetEventSlim release = new();
+        c.Disconnected += (_, _) =>
+        {
+            inHandler.Set();
+            release.Wait(TimeSpan.FromSeconds(10));
+        };
+        Task connect = c.ConnectAsync(_fake.Server, "Hero", FakeAqwServer.Token, "5.32");
+        await Task.Run(() => inHandler.Wait(TimeSpan.FromSeconds(10)));
+        Assert.True(inHandler.IsSet);
+        await Task.Delay(50); // room for a premature completion to show
+        Assert.False(connect.IsCompleted);
+        release.Set();
+        AqwLoginException e = await Assert.ThrowsAsync<AqwLoginException>(() => connect);
+        Assert.Equal(LoginFailureKind.ClientVersionRejected, e.Kind);
+    }
+
+    /// <summary>The server closed the socket and the reader is closing: DisconnectAsync returns once that close has finished.</summary>
+    [Fact]
+    public async Task DisconnectWaitsForACloseInProgress()
+    {
+        AqwConnection c = await LoggedIn();
+        using ManualResetEventSlim inHandler = new();
+        using ManualResetEventSlim release = new();
+        int raised = 0;
+        c.Disconnected += (_, _) =>
+        {
+            inHandler.Set();
+            release.Wait(TimeSpan.FromSeconds(10));
+            Interlocked.Increment(ref raised);
+        };
+        _fake.LastSession!.Close();
+        await Task.Run(() => inHandler.Wait(TimeSpan.FromSeconds(10)));
+        Assert.True(inHandler.IsSet);
+        Task disconnect = c.DisconnectAsync();
+        await Task.Delay(50);
+        Assert.False(disconnect.IsCompleted);
+        release.Set();
+        await disconnect;
+        Assert.Equal(1, Volatile.Read(ref raised));
+        Assert.Equal(DisconnectReason.RemoteClosed, c.DisconnectInfo!.Reason);
     }
 
     [Fact]
