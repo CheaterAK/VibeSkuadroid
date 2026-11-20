@@ -68,6 +68,14 @@ public sealed class HeadlessSkuaOptions
     /// off what a host does itself, such as the skill-set download of AdvancedSkillContainer).
     /// </summary>
     public Action<ISettingsService>? ConfigureSettings { get; set; }
+
+    /// <summary>
+    /// Skua's auto relogin goes to its Relogin Server option, "Twilly" unless someone sets it. When true (the default)
+    /// and nobody has set that option, the session sets it to the server of the last successful login after each one,
+    /// so a relogin goes back where the user was; Skua's own rules still pick another server when that one is full or
+    /// offline (Relogin Fallback, Relogin Any). A Relogin Server a host or script sets is kept and followed.
+    /// </summary>
+    public bool ReloginToLastLoginServer { get; set; } = true;
 }
 
 /// <summary>DI registration of Skua.Core on the headless client.</summary>
@@ -347,8 +355,56 @@ public sealed class HeadlessSkuaSession : IAsyncDisposable
             File.WriteAllText(path, "[]");
     }
 
+    /// <summary>Skua's own default Relogin Server (ScriptOption).</summary>
+    public const string SkuaDefaultReloginServer = "Twilly";
+
+    private int _reloginServerExplicit;
+    private int _followingLogin;
+
+    /// <summary>
+    /// True once a host or script has chosen Skua's Relogin Server (it was anything but Skua's default when the session
+    /// started, or was set after that); the session then stops pointing it at the last login's server.
+    /// </summary>
+    public bool ReloginServerChosen => Volatile.Read(ref _reloginServerExplicit) != 0;
+
+    // Skua's Relogin Server follows the last successful login unless someone chose one (HeadlessSkuaOptions.ReloginToLastLoginServer).
+    private void TrackReloginServer()
+    {
+        IScriptOption options = Bot.Options;
+        if (!string.IsNullOrWhiteSpace(options.ReloginServer) && options.ReloginServer != SkuaDefaultReloginServer)
+            Volatile.Write(ref _reloginServerExplicit, 1);
+        if (options is System.ComponentModel.INotifyPropertyChanged observable)
+        {
+            observable.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName != nameof(IScriptOption.ReloginServer) || Volatile.Read(ref _followingLogin) != 0)
+                    return;
+                // Cleared: back to following the login; anything else is a choice.
+                Volatile.Write(ref _reloginServerExplicit, string.IsNullOrWhiteSpace(Bot.Options.ReloginServer) ? 0 : 1);
+            };
+        }
+        Game.StateChanged += (_, state) =>
+        {
+            if (state != HeadlessGameState.InGame || !Options.ReloginToLastLoginServer || ReloginServerChosen)
+                return;
+            if (Game.LastLoginServer?.Name is not { Length: > 0 } name || name == Bot.Options.ReloginServer)
+                return;
+            Volatile.Write(ref _followingLogin, 1);
+            try
+            {
+                Bot.Options.ReloginServer = name;
+            }
+            finally
+            {
+                Volatile.Write(ref _followingLogin, 0);
+            }
+            Options.Log?.Invoke(new HeadlessLogEntry("game", $"Relogin server: {name} (the server of the last login; set Skua's Relogin Server to choose another).", DateTimeOffset.UtcNow));
+        };
+    }
+
     private void Start()
     {
+        TrackReloginServer();
         Game.StateChanged += (_, s) => StateChanged?.Invoke(this, s);
         if (Options.LogSessionLines)
             Game.Log += (_, m) => Options.Log?.Invoke(new HeadlessLogEntry("game", m, DateTimeOffset.UtcNow));

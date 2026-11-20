@@ -123,7 +123,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
     /// <summary>Cooldown of the auto attack in the skill bar (ms); shorter makes end-to-end fights quicker.</summary>
     public int AutoAttackCooldownMs { get; set; } = 2000;
 
-    public GameServer Server => new("Sandbox", "127.0.0.1", Port, 1, 1000, true, false, 0, 0, "en", null);
+    public GameServer Server => new(Name, "127.0.0.1", Port, 1, 1000, true, false, 0, 0, "en", null);
 
     public IReadOnlyList<Session> Sessions => _sessions.ToArray();
 
@@ -182,8 +182,19 @@ public sealed class FakeAqwServer : IAsyncDisposable
     }
 
     /// <summary>Why a socket login with this nick name and token is refused, or null with the account's display name.</summary>
+    /// <summary>
+    /// Another fake whose web logins this one accepts (the live game servers share one account database): a token
+    /// <see cref="Accounts"/> issued logs in here too. Null: this fake's own tokens.
+    /// </summary>
+    public FakeAqwServer? Accounts { get; init; }
+
+    /// <summary>The name this fake has in the server lists a test builds (<see cref="Server"/>).</summary>
+    public string Name { get; init; } = "Sandbox";
+
     private (string? Refusal, string? Account) CheckLogin(string nickName, string token)
     {
+        if (Accounts is not null)
+            return Accounts.CheckLogin(nickName, token);
         lock (_tokenGate)
         {
             if (!_tokens.TryGetValue(token, out (string Account, bool Current, long IssuedAt) t))
