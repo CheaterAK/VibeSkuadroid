@@ -14,7 +14,7 @@ public enum SwfCompression
     /// <summary>"CWS": zlib (SWF 6+).</summary>
     Zlib,
 
-    /// <summary>"ZWS": LZMA (SWF 13+). Not decoded by this reader.</summary>
+    /// <summary>"ZWS": LZMA (SWF 13+).</summary>
     Lzma,
 }
 
@@ -47,9 +47,9 @@ public sealed class SwfFormatException : Exception
 /// (<c>currentScene.labels</c> are the cells; pads are the clips skua.swf's World.getValidCellPads finds).
 /// </summary>
 /// <remarks>
-/// <para>Handles "FWS" (plain) and "CWS" (zlib). "ZWS" (LZMA) is detected and refused with
-/// <see cref="NotSupportedException"/>: .NET has no LZMA decoder and none is shipped here; a caller falls back to
-/// the cells the server and scripts name.</para>
+/// <para>Handles "FWS" (plain), "CWS" (zlib) and "ZWS" (LZMA: "ZWS", version, uncompressed file length, compressed
+/// length, 5 LZMA property bytes, then the raw LZMA stream without the usual 8-byte size field; decoded by
+/// <see cref="LzmaDecoder"/>). Every body is bounded by the header's length and <see cref="MaxInflatedBytes"/>.</para>
 /// <para>Labels come from DefineSceneAndFrameLabelData (tag 86) when present, else from the root FrameLabel tags (43).
 /// Pads: on each labelled frame, the named instances on the root display list (PlaceObject2/3, RemoveObject/2)
 /// whose symbol class (SymbolClass, tag 76) ends in <c>Pad_&lt;n&gt;</c>, as skua.swf's <c>/::Pad_\d+$/</c> test.
@@ -93,7 +93,7 @@ public static partial class SwfReader
     }
 
     /// <summary>The uncompressed body (everything after the 8-byte header).</summary>
-    /// <exception cref="NotSupportedException">The SWF is LZMA compressed (ZWS).</exception>
+    /// <exception cref="SwfFormatException">Corrupt, or the body would pass its declared length or the cap.</exception>
     public static byte[] Decompress(byte[] swf, out SwfCompression compression, out int version)
     {
         compression = DetectCompression(swf);
@@ -117,7 +117,33 @@ public static partial class SwfReader
                 }
 
             default:
-                throw new NotSupportedException("LZMA-compressed SWF (ZWS) is not supported by this reader.");
+                return InflateLzmaBounded(swf, length, MaxInflatedBytes)
+                    ?? throw new SwfFormatException($"The LZMA body has no usable length or would pass {MaxInflatedBytes / (1024 * 1024)} MB.");
+        }
+    }
+
+    /// <summary>
+    /// Decodes a ZWS body: bytes 8-11 are the compressed length, 12-16 the LZMA properties, the stream follows. The
+    /// size comes from the header's file length (which counts the 8-byte header), so it must be given and within
+    /// <paramref name="cap"/>; null otherwise. The output grows as it is produced (a small file claiming the cap does
+    /// not get the cap allocated before it decodes that much).
+    /// </summary>
+    /// <exception cref="SwfFormatException">The stream is corrupt or truncated.</exception>
+    internal static byte[]? InflateLzmaBounded(byte[] swf, uint headerFileLength, long cap)
+    {
+        long declared = headerFileLength - 8L;
+        if (declared <= 0 || declared > cap || declared > int.MaxValue)
+            return null;
+        if (swf.Length < 17)
+            throw new SwfFormatException("Too short for an LZMA SWF header.");
+        try
+        {
+            // The stream runs to the end of the file; the compressed-length field (bytes 8-11) is not trusted for that.
+            return LzmaDecoder.Decode(swf.AsSpan(12, 5), swf, 17, (int)declared);
+        }
+        catch (InvalidDataException e)
+        {
+            throw new SwfFormatException("Corrupt LZMA body.", e);
         }
     }
 
@@ -146,7 +172,6 @@ public static partial class SwfReader
 
     /// <summary>Reads the root timeline's scenes, labels and pads.</summary>
     /// <exception cref="SwfFormatException">Malformed file.</exception>
-    /// <exception cref="NotSupportedException">LZMA (ZWS) file.</exception>
     public static SwfTimeline Read(byte[] swf)
     {
         byte[] body = Decompress(swf, out SwfCompression compression, out int version);

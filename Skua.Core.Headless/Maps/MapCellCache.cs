@@ -86,7 +86,7 @@ public sealed class MapCellCache
         }
     }
 
-    /// <summary>Reads cells from SWF bytes. LZMA files come back with no cells and Source "unsupported: lzma".</summary>
+    /// <summary>Reads cells from SWF bytes (FWS, CWS or ZWS); a file that cannot be read comes back with no cells and an "error: ..." Source.</summary>
     public static MapCells FromSwf(string mapFile, byte[] swf)
     {
         try

@@ -37,6 +37,11 @@ and app/lib/skua/mapcells.js, which follow the decompiled AQW client (World.as, 
 skua.swf's own semantics (Skills.as, Shop.as, Auras.as, Inventory.as, Monster.as) come from this repository's
 Skua.AS3 sources.
 
+The LZMA decoder for "ZWS" SWF files (Skua.Core.Headless/Maps/LzmaDecoder.cs) is an independent C#
+implementation of the LZMA algorithm as specified by Igor Pavlov's LZMA SDK (LzmaSpec.cpp and lzma-specification.txt,
+https://www.7-zip.org/sdk.html), which the author has placed in the public domain. No SDK code is included and no
+package is referenced.
+
 The lenient base64 decoding of Z packets is copied from this repository's own
 Skua.Core/GameProxy/CaptureProxy.cs.
 

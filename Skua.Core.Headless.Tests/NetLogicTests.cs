@@ -1,3 +1,4 @@
+using Skua.Core.Headless.Tests.Fakes;
 using Skua.Core.Headless.Net;
 using System.IO.Compression;
 using System.Net;
@@ -172,6 +173,8 @@ public class ClientVersionTests
     private static byte[] Swf(string signature, string body)
     {
         byte[] content = Encoding.Latin1.GetBytes(body);
+        if (signature == "ZWS")
+            return LiteralLzmaEncoder.Zws(10, content);
         byte[] header = new byte[8];
         Encoding.ASCII.GetBytes(signature).CopyTo(header, 0);
         header[3] = 10;
@@ -186,6 +189,7 @@ public class ClientVersionTests
     [Theory]
     [InlineData("FWS")]
     [InlineData("CWS")]
+    [InlineData("ZWS")]
     public void ReadsVParamFromTheStringPool(string signature)
     {
         string pool = "\u0006vParam\u00045.32\u0005ISWEB";
@@ -193,9 +197,10 @@ public class ClientVersionTests
     }
 
     [Fact]
-    public void LzmaAndUnknownFilesGiveNull()
+    public void BrokenLzmaAndUnknownFilesGiveNull()
     {
         Assert.Null(ClientVersion.FromSwf(Encoding.ASCII.GetBytes("ZWS\u000aaaaaaaaaaaaaaaa")));
+        Assert.Null(ClientVersion.FromSwf(Encoding.ASCII.GetBytes("ZWS\u000a\u0020\u0000\u0000\u0000aaaaaaaaaaaaaaaaaaaaaaaa")));
         Assert.Null(ClientVersion.FromSwf(Encoding.ASCII.GetBytes("hello world")));
         Assert.Null(ClientVersion.FromSwf(Swf("FWS", "no version here")));
     }

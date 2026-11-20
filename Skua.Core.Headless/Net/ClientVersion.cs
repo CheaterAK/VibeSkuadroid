@@ -52,8 +52,8 @@ public static partial class ClientVersion
 
     /// <summary>
     /// Reads Game.as <c>vParam</c> from a game SWF. In the SWF's ABC string pool the constant name is followed by
-    /// its value's length byte and the value ("vParam", len, "5.32"). FWS (plain) and CWS (zlib) are read; ZWS
-    /// (LZMA) is not supported and returns null. Approach from Seraph's updater (MIT, Ezzeldeen2006).
+    /// its value's length byte and the value ("vParam", len, "5.32"). FWS (plain), CWS (zlib) and ZWS (LZMA) are
+    /// read, each bounded by the header's length and an absolute cap. Approach from Seraph's updater (MIT, Ezzeldeen2006).
     /// </summary>
     public static string? FromSwf(ReadOnlySpan<byte> swf)
     {
@@ -76,6 +76,20 @@ public static partial class ClientVersion
                 body = inflated;
             }
             catch (InvalidDataException)
+            {
+                return null;
+            }
+        }
+        else if (swf[0] == (byte)'Z' && swf[1] == (byte)'W' && swf[2] == (byte)'S' && swf.Length >= 17)
+        {
+            try
+            {
+                byte[]? decoded = Maps.SwfReader.InflateLzmaBounded(swf.ToArray(), System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(swf.Slice(4, 4)), MaxInflatedBytes);
+                if (decoded is null)
+                    return null;
+                body = decoded;
+            }
+            catch (Maps.SwfFormatException)
             {
                 return null;
             }
