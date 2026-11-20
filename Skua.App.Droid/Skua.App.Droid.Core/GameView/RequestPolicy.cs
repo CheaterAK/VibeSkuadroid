@@ -9,9 +9,14 @@ public enum RequestAction
     PassThrough,
     /// <summary>Answer with an empty 403 and record it.</summary>
     Block,
+    /// <summary>
+    /// One of the few cross-origin requests the client makes by itself (<see cref="RequestPolicy.ExtraRequests"/>): the
+    /// app performs it (GET only, no cookies) and answers with CORS headers for the page's origin only.
+    /// </summary>
+    AppFetch,
 }
 
-public readonly record struct RequestDecision(RequestAction Action, string? LocalPath = null, string? Reason = null);
+public readonly record struct RequestDecision(RequestAction Action, string? LocalPath = null, string? Reason = null, Uri? FetchUri = null);
 
 /// <summary>
 /// Decides every request the game view's WebView makes (WebViewClient.shouldInterceptRequest).
@@ -21,8 +26,9 @@ public readonly record struct RequestDecision(RequestAction Action, string? Loca
 /// are needed (game.aq.com sends none), the Referer is the game's site, and POSTs (the login) keep their bodies
 /// (shouldInterceptRequest never sees request bodies, so the app could not forward them itself).
 ///
-/// Allowed: https://game.aq.com/__vibeskua__/{bundled file} (local) and https://game.aq.com/game/... (network).
-/// Everything else is blocked: other paths on game.aq.com, every other host, plain http, other ports.
+/// Allowed: https://game.aq.com/__vibeskua__/{bundled file} (local), https://game.aq.com/game/... (network), and
+/// the exact cross-origin requests in <see cref="ExtraRequests"/> (fetched by the app). Everything else is blocked:
+/// other paths on game.aq.com, every other host, plain http, other ports.
 /// WebSockets never reach shouldInterceptRequest; the page tunnels game sockets through the private channel (see ChannelBridge).
 /// </summary>
 public static class RequestPolicy
@@ -32,7 +38,33 @@ public static class RequestPolicy
     public const string GamePrefix = "/game/";
     public const string PageUrl = "https://" + GameHost + LocalPrefix + "index.html";
 
-    public static RequestDecision Decide(string url)
+    /// <summary>The page's origin: the only origin the app's CORS answers allow.</summary>
+    public const string PageOrigin = "https://" + GameHost;
+
+    /// <summary>
+    /// The requests the game client makes outside https://game.aq.com/game/ (searched in the decompiled client,
+    /// 2026-11: every URLRequest/URLLoader/Loader with an absolute URL). Everything relative goes to
+    /// params.sURL = https://game.aq.com/game/ (skua.swf sets it), so this list is all the live game needs:
+    /// <list type="bullet">
+    /// <item>GET https://www.aq.com/game/quest.asp?userid=N&amp;qvalue=N: ExternalCalls.logQuestProgress, the client's
+    /// funnel tracking (Game.showTracking("1".."7"): login screen shown, server list, joined, ...), and showIt("signup").
+    /// The spike blocked it (cross-origin, host not allowed).</item>
+    /// </list>
+    /// Not allowed (not needed by the game, or opened in a browser with navigateToURL, which Ruffle's openUrlMode
+    /// "deny" refuses anyway): www.aq.com/gamedesignnotes/ (test client only), content.aq.com (only when the client
+    /// runs from a file), graph.facebook.com and the Facebook policy file (Facebook login), account.aq.com, the wiki,
+    /// SmartFox's HTTP upload and BlueBox (unused).
+    /// </summary>
+    public static readonly IReadOnlyList<string> ExtraRequests = ["https://www.aq.com/game/quest.asp?userid={digits}&qvalue={digits}"];
+
+    public const string SiteHost = "www.aq.com";
+    public const string QuestTrackingPath = "/game/quest.asp";
+
+    public static RequestDecision Decide(string url) => Decide(url, "GET");
+
+    /// <param name="url">The request's URL.</param>
+    /// <param name="method">Its HTTP method (shouldInterceptRequest reports it); only matters for the app-fetched requests.</param>
+    public static RequestDecision Decide(string url, string method)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
             return new(RequestAction.Block, Reason: "unparsable url");
@@ -41,6 +73,8 @@ public static class RequestPolicy
             return new(RequestAction.PassThrough);
         if (uri.Scheme != Uri.UriSchemeHttps)
             return new(RequestAction.Block, Reason: $"scheme {uri.Scheme}");
+        if (string.Equals(uri.IdnHost, SiteHost, StringComparison.OrdinalIgnoreCase))
+            return DecideSite(uri, method);
         if (!string.Equals(uri.IdnHost, GameHost, StringComparison.OrdinalIgnoreCase))
             return new(RequestAction.Block, Reason: "host not allowed");
         if (!uri.IsDefaultPort)
@@ -59,6 +93,30 @@ public static class RequestPolicy
         if (path.StartsWith(GamePrefix, StringComparison.Ordinal))
             return new(RequestAction.PassThrough);
         return new(RequestAction.Block, Reason: "path not allowed");
+    }
+
+    private static RequestDecision DecideSite(Uri uri, string method)
+    {
+        if (!uri.IsDefaultPort || !string.IsNullOrEmpty(uri.UserInfo) || uri.Fragment.Length > 0)
+            return new(RequestAction.Block, Reason: "host not allowed");
+        if (!string.Equals(uri.AbsolutePath, QuestTrackingPath, StringComparison.Ordinal) || !IsQuestTrackingQuery(uri.Query))
+            return new(RequestAction.Block, Reason: "host not allowed");
+        if (method is not ("GET" or "OPTIONS"))
+            return new(RequestAction.Block, Reason: "method not allowed");
+        // Rebuilt from the checked parts: nothing else of the page's URL reaches the network.
+        return new(RequestAction.AppFetch, FetchUri: new Uri("https://" + SiteHost + QuestTrackingPath + uri.Query));
+    }
+
+    /// <summary>Exactly "?userid=DIGITS&amp;qvalue=DIGITS" (the client's order; userid up to 12 digits, qvalue up to 3).</summary>
+    internal static bool IsQuestTrackingQuery(string query)
+    {
+        if (!query.StartsWith("?userid=", StringComparison.Ordinal))
+            return false;
+        string[] parts = query[1..].Split('&');
+        if (parts.Length != 2 || !parts[1].StartsWith("qvalue=", StringComparison.Ordinal))
+            return false;
+        string user = parts[0]["userid=".Length..], value = parts[1]["qvalue=".Length..];
+        return user.Length is > 0 and <= 12 && user.All(char.IsAsciiDigit) && value.Length is > 0 and <= 3 && value.All(char.IsAsciiDigit);
     }
 
     /// <summary>

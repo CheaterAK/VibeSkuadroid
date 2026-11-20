@@ -481,13 +481,15 @@ public sealed class GameViewActivity : Activity
         public override WebResourceResponse? ShouldInterceptRequest(WebView? view, IWebResourceRequest? request)
         {
             string url = request?.Url?.ToString() ?? string.Empty;
-            RequestDecision d = RequestPolicy.Decide(url);
+            RequestDecision d = RequestPolicy.Decide(url, request?.Method ?? "GET");
             switch (d.Action)
             {
                 case RequestAction.PassThrough:
                     return null;
                 case RequestAction.ServeLocal:
                     return _owner.Local(d.LocalPath!);
+                case RequestAction.AppFetch:
+                    return _owner.AppFetch(d.FetchUri!, request?.Method ?? "GET");
                 default:
                     _owner._rec.Blocked(RequestPolicy.BlockKey(url) + " (" + d.Reason + ")");
                     return Empty(403, "Forbidden");
@@ -571,6 +573,32 @@ public sealed class GameViewActivity : Activity
         {
             return Empty(404, "Not Found");
         }
+    }
+
+    /// <summary>
+    /// A cross-origin request the client makes by itself (quest tracking on www.aq.com): fetched by the app here, on
+    /// the WebView's request thread, and answered with CORS headers for the page's origin only.
+    /// </summary>
+    private WebResourceResponse AppFetch(System.Uri uri, string method)
+    {
+        Dictionary<string, string> headers = new()
+        {
+            ["Cache-Control"] = "no-store",
+            ["Access-Control-Allow-Origin"] = RequestPolicy.PageOrigin,
+            ["Access-Control-Allow-Credentials"] = "true",
+            ["Vary"] = "Origin",
+        };
+        if (method == "OPTIONS")
+        {
+            headers["Access-Control-Allow-Methods"] = "GET";
+            return new WebResourceResponse("text/plain", "utf-8", 204, "No Content", headers, new MemoryStream());
+        }
+        using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(10));
+        (int status, string type, byte[] body) = GameApi.FetchAllowedAsync(_http, uri, timeout.Token).GetAwaiter().GetResult();
+        _rec.Event("app_fetch", $"{RequestPolicy.BlockKey(uri.AbsoluteUri)} {status}");
+        if (status is < 100 or > 599 or (>= 300 and < 400))
+            status = 502; // WebResourceResponse refuses redirects and invalid codes
+        return new WebResourceResponse(type, null, status, status is >= 200 and < 300 ? "OK" : "Error", headers, new MemoryStream(body));
     }
 
     private static WebResourceResponse Empty(int status, string reason) =>
