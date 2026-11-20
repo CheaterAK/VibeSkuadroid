@@ -257,6 +257,12 @@ There is no game rendering, so the Control tab (bottom bar: Home, Scripts, **Con
 shows the game schematically and lets you act by hand. It took World's place in the bar: the World lists (inventory,
 temp, bank, quests, drops, monsters) open from Control's *Lists* button, and Back returns to Control.
 
+**Reputation** (a tab of the World lists): every faction of Skua's `IScriptFaction.FactionList` (the headless client's
+rank math) with name, ID, rank, reputation in the rank, the rank's span, what remains and the total; highest rank
+first, searchable by name or ID with the lists' filter, a progress bar to the next rank and MAX at rank 10
+(`Core/World/Reputation.cs`). It is read on a worker thread when the world changed, at most every 400 ms (the Control
+page's interval), only while the tab is shown and the app is in the foreground.
+
 * **Map**: map and room, server, and the map's cells as tiles in map order: the frame labels of the map file
   (`Skua.Core.Headless/Maps`, downloaded once and cached); when the file cannot be read (LZMA) the cells seen in the
   room data (monsters' and players' cells, Enter). Each tile shows live/total monsters and other players; yours is lit,
