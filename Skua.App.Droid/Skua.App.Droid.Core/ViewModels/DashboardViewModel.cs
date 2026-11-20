@@ -64,6 +64,10 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     private string? _scriptMessage;
 
+    /// <summary>"Queue 2/5: Gold farm (run 1/3)" while the script queue runs.</summary>
+    [ObservableProperty]
+    private string? _queueLine;
+
     /// <summary>Kills, deaths, quests and drops (Skua's bot stats) while logged in.</summary>
     [ObservableProperty]
     private string? _scriptCounters;
@@ -71,6 +75,16 @@ public sealed partial class DashboardViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StopScriptCommand))]
     private bool _scriptBusy;
+
+    /// <summary>A script runs and is not paused: Pause is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseScriptCommand))]
+    private bool _canPause;
+
+    /// <summary>The running script is paused: Resume is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResumeScriptCommand))]
+    private bool _isPaused;
 
     [ObservableProperty]
     private string _memoryText = string.Empty;
@@ -132,9 +146,12 @@ public sealed partial class DashboardViewModel : ObservableObject
         }
 
         ScriptBusy = s.Script.IsBusy;
+        IsPaused = s.Script.IsPaused;
+        CanPause = s.Script.State == ScriptRunState.Running && !s.Script.Paused && _host.Engine.CanPauseScript;
         ScriptName = s.Script.ScriptName ?? "No script loaded";
         ScriptState = Formatting.ScriptLine(s.Script);
         ScriptMessage = s.Script.State == ScriptRunState.Faulted ? s.Script.Message : null;
+        QueueLine = _host.Scheduler?.Status.NotificationLine;
         ScriptCounters = s.ScriptCounters?.Display;
         MemoryText = Formatting.Memory(s.Memory);
         MemoryDetail = s.Memory.RssBytes < 0
@@ -153,6 +170,12 @@ public sealed partial class DashboardViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(ScriptBusy))]
     private Task StopScriptAsync() => RunAsync(() => _host.Engine.StopScriptAsync());
+
+    [RelayCommand(CanExecute = nameof(CanPause))]
+    private Task PauseScriptAsync() => RunAsync(() => _host.Engine.PauseScriptAsync());
+
+    [RelayCommand(CanExecute = nameof(IsPaused))]
+    private Task ResumeScriptAsync() => RunAsync(() => _host.Engine.ResumeScriptAsync());
 
     [RelayCommand(CanExecute = nameof(IsOnline))]
     private Task LogoutAsync() => RunAsync(() => _host.LogoutAsync());

@@ -48,19 +48,29 @@ public partial class ToolsTests
         Assert.Equal("Settings", shell.Title);
         shell.Settings.OpenToolsCommand.Execute(null);
         ToolsViewModel tools = shell.Settings.Tools;
-        Assert.True(tools.IsOpen);
+        GameToolPages pages = shell.Settings.GamePages;
+        Assert.True(shell.Settings.ShowTools);
         Assert.Equal("Tools", shell.Title);
+        Assert.Equal(["Fast Travel", "Loader", "Grabber"], tools.Entries.Select(e => e.Title).Take(3));
         ToolEntry entry = Assert.Single(tools.Entries, e => e.Title == "Fast Travel");
         Assert.False(string.IsNullOrWhiteSpace(entry.Description));
-        entry.Open.Execute(null);
-        Assert.Same(tools.FastTravel, tools.CurrentPage);
+        tools.OpenCommand.Execute(entry);
+        Assert.Same(pages.FastTravel, tools.CurrentPage);
         Assert.Equal("Fast Travel", shell.Title);
+        Assert.Equal(2, pages.FastTravel.Destinations.Count); // refreshed when shown
 
+        // Back: an open question first, then the page, then the hub, then Home.
+        Task delete = pages.FastTravel.Destinations[0].DeleteCommand.ExecuteAsync(null);
+        Assert.True(pages.FastTravel.Confirm.IsOpen);
         Assert.True(shell.GoBack());
-        Assert.True(tools.IsOpen);
+        await delete;
+        Assert.False(pages.FastTravel.Confirm.IsOpen);
+        Assert.Same(pages.FastTravel, tools.CurrentPage);
+        Assert.True(shell.GoBack());
+        Assert.True(shell.Settings.ShowTools);
         Assert.Null(tools.CurrentPage);
         Assert.True(shell.GoBack());
-        Assert.False(tools.IsOpen);
+        Assert.False(shell.Settings.ShowTools);
         Assert.Equal("Settings", shell.Title);
         Assert.True(shell.GoBack());
         Assert.Equal(AppPage.Home, shell.CurrentPage);
@@ -207,41 +217,42 @@ public partial class ToolsTests
         Render();
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(ToolsView)));
         ToolsViewModel tools = shell.Settings.Tools;
+        GameToolPages pages = shell.Settings.GamePages;
         foreach (ToolEntry entry in tools.Entries.ToList())
         {
-            entry.Open.Execute(null);
+            tools.OpenCommand.Execute(entry);
             Render();
             tools.CloseCommand.Execute(null);
             Render();
         }
 
-        tools.OpenPage(tools.FastTravel);
+        tools.Show(pages.FastTravel, "Fast Travel");
         Render();
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(FastTravelView)));
-        Assert.Equal(2, tools.FastTravel.Destinations.Count);
-        Task delete = tools.FastTravel.Destinations[0].DeleteCommand.ExecuteAsync(null);
+        Assert.Equal(2, pages.FastTravel.Destinations.Count);
+        Task delete = pages.FastTravel.Destinations[0].DeleteCommand.ExecuteAsync(null);
         Render();
         Control overlay = Assert.IsAssignableFrom<Control>(window.GetVisualDescendantOfType(nameof(ConfirmOverlay)));
         Assert.True(overlay.IsEffectivelyVisible);
-        tools.FastTravel.Confirm.CancelCommand.Execute(null);
+        pages.FastTravel.Confirm.CancelCommand.Execute(null);
         await delete;
         Render();
         Assert.False(overlay.IsEffectivelyVisible);
 
         // The Grabber with rows, its actions and a quantity question; the Loader with its list.
-        tools.OpenPage(tools.Grabber);
-        await tools.Grabber.GrabCommand.ExecuteAsync(null);
+        tools.Show(pages.Grabber, "Grabber");
+        await pages.Grabber.GrabCommand.ExecuteAsync(null);
         Render();
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(GrabberView)));
-        tools.Grabber.Rows[0].IsSelected = true;
-        Task buy = tools.Grabber.Actions[0].Command.ExecuteAsync(null);
+        pages.Grabber.Rows[0].IsSelected = true;
+        Task buy = pages.Grabber.Actions[0].Command.ExecuteAsync(null);
         Render();
-        Assert.True(tools.Grabber.Confirm.HasQuantity);
-        tools.Grabber.Confirm.CancelCommand.Execute(null);
+        Assert.True(pages.Grabber.Confirm.HasQuantity);
+        pages.Grabber.Confirm.CancelCommand.Execute(null);
         await buy;
         Render();
-        tools.OpenPage(tools.Loader);
-        await Sandbox.Until(() => tools.Loader.Quests.Count == 3);
+        tools.Show(pages.Loader, "Loader");
+        await Sandbox.Until(() => pages.Loader.Quests.Count == 3);
         Render();
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(LoaderView)));
 

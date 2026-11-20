@@ -127,13 +127,15 @@ public partial class ToolsTests
         await using TestApp _ = app;
         using ShellViewModel shell = new(app.Services);
         ToolsViewModel hub = shell.Settings.Tools;
-        hub.OpenPage(hub.Loader);
-        hub.Loader.InputIds = "77";
-        await hub.Loader.LoadCommand.ExecuteAsync(null);
-        hub.Loader.ViewInGrabberCommand.Execute(null);
-        Assert.Same(hub.Grabber, hub.CurrentPage);
-        await Sandbox.Until(() => hub.Grabber.Rows.Count == 2);
-        Assert.Equal(GrabberCategory.ShopItems, hub.Grabber.SelectedTab.Category);
+        GameToolPages pages = shell.Settings.GamePages;
+        hub.Show(pages.Loader, "Loader");
+        pages.Loader.InputIds = "77";
+        await pages.Loader.LoadCommand.ExecuteAsync(null);
+        pages.Loader.ViewInGrabberCommand.Execute(null);
+        Assert.Same(pages.Grabber, hub.CurrentPage);
+        Assert.Equal("Grabber", hub.CurrentTitle);
+        await Sandbox.Until(() => pages.Grabber.Rows.Count == 2);
+        Assert.Equal(GrabberCategory.ShopItems, pages.Grabber.SelectedTab.Category);
         Assert.Contains("grab ShopItems", tools.FakeGrabber.Calls);
     }
 }

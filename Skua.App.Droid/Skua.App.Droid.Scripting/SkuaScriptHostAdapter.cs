@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.Extensions.DependencyInjection;
 using Skua.App.Droid.Core.Engine;
+using Skua.App.Droid.Core.Notifications;
 using Skua.App.Droid.Core.Plugins;
 using Skua.App.Droid.Plugins;
 using Skua.Core.Headless;
@@ -32,7 +33,7 @@ namespace Skua.App.Droid.Scripting;
 /// <c>LoadContextFactory</c>), so an unchanged CoreBots is loaded once per process.
 /// </para>
 /// </remarks>
-public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource
+public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource, IGameEventSource
 {
     /// <summary>
     /// The version Skua reports to scripts (bot.Version and the "ApplicationVersion" setting). CoreBots'
@@ -55,6 +56,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     private readonly Dictionary<string, IScriptOptionContainer> _optionContainers = new(StringComparer.Ordinal);
     private HeadlessSkuaSession? _skua;
     private DroidPluginBackends? _plugins;
+    private SkuaGameEvents? _gameEvents;
     private ScriptStatus _status = ScriptStatus.Idle;
     private string? _loaded;
     private string? _runError;
@@ -102,6 +104,12 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     /// current session's IScriptInterface, so they keep working across logouts (the session object is kept).
     /// </summary>
     public IPluginBackends? PluginBackends => _plugins;
+
+    /// <summary>
+    /// Skua's game and script messages, drop actions and junk list on this host's session (drop notifications,
+    /// Notification Center, junk, Discord webhook). Created with the session.
+    /// </summary>
+    public IGameEvents? GameEvents => _gameEvents;
 
     /// <summary>Unattended answers to scripts' message boxes (logged as "dialog" lines).</summary>
     public HeadlessDialogPolicy Dialogs { get; } = DefaultDialogPolicy();
@@ -180,6 +188,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
             skua.Services.GetRequiredService<ScriptManager>().LoadContextFactory = _loadContext.BeginCompile;
             skua.ScriptRunningChanged += OnScriptRunningChanged;
             skua.ScriptError += OnScriptError;
+            skua.Scripts.PropertyChanged += OnScriptManagerPropertyChanged;
             StrongReferenceMessenger.Default.Register<object, ReloginTriggeredMessage, int>(_recipient, (int)MessageChannels.GameEvents,
                 (_, m) =>
                 {
@@ -188,6 +197,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
                 });
             _skua = skua;
             _plugins = new DroidPluginBackends(() => _skua?.Bot, () => _skua?.Services);
+            _gameEvents = new SkuaGameEvents(() => _skua?.Bot, () => _skua?.Services, warning => Emit(EngineLogLevel.Warning, "drops", warning));
             return skua.Game.Session;
         }
         catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or TypeInitializationException)
@@ -267,8 +277,18 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         }
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken) => StartAsync(ScriptStartOptions.Default, cancellationToken);
+
+    /// <summary>
+    /// Starts the loaded script. <see cref="ScriptStartOptions.OptionStorage"/> becomes Skua's OverrideStorage and
+    /// <see cref="ScriptStartOptions.Silent"/> its SilentConfig, and both stay set until the next start: Skua's relogin
+    /// restarts the script by itself (ScriptManager.StartScript reads them again), and that restart must read the same
+    /// option profile. A manual start clears them. (The desktop scheduler clears OverrideStorage when the script stops, so
+    /// its relogin restart falls back to the script's own options; here the entry keeps its profile.)
+    /// </summary>
+    public async Task StartAsync(ScriptStartOptions options, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(options);
         if (!Support.Available)
             throw new EngineException(Support.Reason ?? "Scripts are not available.");
         HeadlessSkuaSession s = RequireSkua();
@@ -293,6 +313,8 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         try
         {
             ReloadSkillSetsIfUpdated(s);
+            s.Scripts.OverrideStorage = string.IsNullOrWhiteSpace(options.OptionStorage) ? null : options.OptionStorage;
+            s.Scripts.SilentConfig = options.Silent;
             failure = await s.StartScriptAsync(path).ConfigureAwait(false);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -312,6 +334,26 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         throw new EngineException(message, failure);
     }
 
+    public bool CanPause => _skua is not null;
+
+    /// <summary>
+    /// Skua's own pause (ScriptManager.SetPausedAsync, the desktop's Pause button and hotkey): the skill timer pauses and
+    /// the script thread blocks on ScriptPauseEvent at its next Bot.Sleep or Bot.Wait call; resuming stops Skua's auto
+    /// attack and releases the thread. Nothing in it needs Flash or a window, so it is used as is. Skua's timer thread
+    /// (relogin watchdog, handlers) and the session (keepalive, AFK clearing) keep running.
+    /// </summary>
+    public async Task<bool> SetPausedAsync(bool paused, CancellationToken cancellationToken)
+    {
+        HeadlessSkuaSession s = RequireSkua();
+        if (Status.State != ScriptRunState.Running || !s.ScriptRunning)
+            throw new EngineException("No script is running.");
+        bool applied = await s.Scripts.SetPausedAsync(paused).WaitAsync(cancellationToken).ConfigureAwait(false);
+        SyncPaused(s);
+        if (applied && !paused)
+            Emit(EngineLogLevel.Info, "scripts", $"{Path.GetFileName(Status.ScriptPath)} resumed.");
+        return applied;
+    }
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         HeadlessSkuaSession? s = _skua;
@@ -320,7 +362,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         lock (_gate)
         {
             if (_status.State is ScriptRunState.Running)
-                _status = _status with { State = ScriptRunState.Stopping, Message = "Stopping..." };
+                _status = _status with { State = ScriptRunState.Stopping, Message = "Stopping...", Paused = false };
         }
         StatusChanged?.Invoke(this, Status);
         await s.StopScriptAsync().WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -335,7 +377,15 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         }
     }
 
-    public async Task<ScriptOptionSet> GetOptionsAsync(string scriptPath, CancellationToken cancellationToken)
+    public Task<ScriptOptionSet> GetOptionsAsync(string scriptPath, CancellationToken cancellationToken) =>
+        GetOptionsAsync(scriptPath, null, cancellationToken);
+
+    /// <summary>
+    /// As the desktop scheduler's "edit options" of a queue entry: Skua's OverrideStorage is set to
+    /// <paramref name="optionStorage"/> while the script's option container is built, so the options are read from (and
+    /// saved to) that storage. Null reads the script's own storage.
+    /// </summary>
+    public async Task<ScriptOptionSet> GetOptionsAsync(string scriptPath, string? optionStorage, CancellationToken cancellationToken)
     {
         HeadlessSkuaSession s = RequireSkua();
         if (!Support.Available)
@@ -350,12 +400,14 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
                 throw new EngineException("Stop the script before editing options.");
             IScriptManager manager = s.Scripts;
             string previous = manager is ScriptManager { LoadedScript: { Length: > 0 } p } ? p : path;
+            string? previousStorage = manager.OverrideStorage;
             object? script;
             try
             {
                 manager.SetLoadedScript(path);
                 string source = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
                 script = await Task.Run(() => manager.Compile(source), cancellationToken).ConfigureAwait(false);
+                manager.OverrideStorage = string.IsNullOrWhiteSpace(optionStorage) ? null : optionStorage;
                 manager.LoadScriptConfig(script);
             }
             catch (Exception e) when (e is not OperationCanceledException and not EngineException)
@@ -364,13 +416,14 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
             }
             finally
             {
+                manager.OverrideStorage = previousStorage;
                 manager.SetLoadedScript(previous);
             }
             IScriptOptionContainer? container = manager.Config;
             if (script is null || container is null)
                 throw new EngineException("The script has no options.");
             lock (_optionContainers)
-                _optionContainers[path] = container;
+                _optionContainers[ContainerKey(path, container.Storage)] = container;
             return ToOptionSet(path, container);
         }
         finally
@@ -382,14 +435,16 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     public async Task SaveOptionsAsync(ScriptOptionSet options, CancellationToken cancellationToken)
     {
         string path = Path.GetFullPath(options.ScriptPath);
+        string key = ContainerKey(path, options.Storage);
         IScriptOptionContainer? container;
         lock (_optionContainers)
-            _optionContainers.TryGetValue(path, out container);
+            _optionContainers.TryGetValue(key, out container);
         if (container is null)
         {
-            await GetOptionsAsync(path, cancellationToken).ConfigureAwait(false);
+            // Overriding with the script's own storage name reads the same file as no override.
+            await GetOptionsAsync(path, options.Storage, cancellationToken).ConfigureAwait(false);
             lock (_optionContainers)
-                container = _optionContainers[path];
+                container = _optionContainers[key];
         }
         List<string> problems = new();
         foreach (ScriptOptionItem item in options.Items)
@@ -417,15 +472,43 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         HeadlessSkuaSession? s = Interlocked.Exchange(ref _skua, null);
         StrongReferenceMessenger.Default.UnregisterAll(_recipient);
         Interlocked.Exchange(ref _plugins, null)?.Dispose();
+        Interlocked.Exchange(ref _gameEvents, null)?.Dispose();
         if (s is null)
             return;
         s.ScriptRunningChanged -= OnScriptRunningChanged;
         s.ScriptError -= OnScriptError;
+        s.Scripts.PropertyChanged -= OnScriptManagerPropertyChanged;
         s.Services.GetRequiredService<ScriptManager>().LoadContextFactory = null;
         await s.DisposeAsync().ConfigureAwait(false);
     }
 
+    private static string ContainerKey(string path, string storage) => path + "\n" + storage;
+
     // ------------------------------------------------------------------ Skua events
+
+    private void OnScriptManagerPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(IScriptManager.ScriptPaused) && _skua is HeadlessSkuaSession s)
+            SyncPaused(s);
+    }
+
+    // Mirrors Skua's applied pause state into the status (only while running; a stop resets Skua's pause itself).
+    private void SyncPaused(HeadlessSkuaSession s)
+    {
+        bool paused = s.Scripts.ScriptPaused;
+        ScriptStatus status;
+        lock (_gate)
+        {
+            if (_status.State != ScriptRunState.Running || _status.Paused == paused)
+                return;
+            _status = _status with { Paused = paused };
+            status = _status;
+        }
+        StatusChanged?.Invoke(this, status);
+        // Skua also clears its pause when a paused script stops: only the pause is logged here, a resume by SetPausedAsync.
+        if (paused)
+            Emit(EngineLogLevel.Info, "scripts", $"{Path.GetFileName(status.ScriptPath)} paused.");
+    }
 
     private void OnScriptRunningChanged(object? sender, bool running)
     {

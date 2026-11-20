@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.JunkItemsView"
+             x:DataType="vm:JunkItemsViewModel">
+  <Panel>
+    <TextBlock Classes="muted" Margin="14" TextWrapping="Wrap" IsVisible="{Binding !IsAvailable}"
+               Text="Junk items need the Skua script host, which is not available in this engine." />
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="12,8" IsVisible="{Binding IsAvailable}">
+      <Border Grid.Row="0" Classes="card">
+        <StackPanel Spacing="6">
+          <ToggleSwitch IsChecked="{Binding AutoRejectJunk}" OnContent="Reject junk drops automatically" OffContent="Reject junk drops automatically" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="A junk drop is rejected as soon as it is offered, unless the running script asked for it or it is on the drop watch list." />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock VerticalAlignment="Center" Text="{Binding TotalJunk, StringFormat='{}{0} items marked as junk'}" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+              <Button Classes="small" Content="Unmark all" Command="{Binding UnmarkAllJunkCommand}" />
+              <Button Classes="small danger" Content="{Binding SellText}" Command="{Binding SellAllJunkCommand}" />
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+      </Border>
+      <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,4">
+        <TextBox Text="{Binding SearchText}" PlaceholderText="Search name, id or category" TextInputOptions.AutoCapitalization="False" />
+        <CheckBox Grid.Column="1" Margin="8,0,0,0" IsChecked="{Binding JunkOnly}" Content="Junk only" />
+        <Button Grid.Column="2" Classes="small" Margin="4,0,0,0" Content="Refresh" Command="{Binding RefreshCommand}" />
+      </Grid>
+      <TextBlock Grid.Row="2" Classes="muted" TextWrapping="Wrap" Margin="2,0,0,6" Text="{Binding Message}"
+                 IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      <ListBox Grid.Row="3" ItemsSource="{Binding FilteredItems}" Background="Transparent">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:JunkItemEntry">
+            <Grid ColumnDefinitions="Auto,*">
+              <CheckBox VerticalAlignment="Center" IsChecked="{Binding IsJunk}" />
+              <StackPanel Grid.Column="1">
+                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                <TextBlock Classes="muted" FontSize="11">
+                  <Run Text="{Binding Category}" />
+                  <Run Text="·" />
+                  <Run Text="{Binding QuantityDisplay}" />
+                </TextBlock>
+              </StackPanel>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+  </Panel>
+</UserControl>

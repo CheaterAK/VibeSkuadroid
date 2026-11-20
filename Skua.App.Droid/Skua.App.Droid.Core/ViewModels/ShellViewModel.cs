@@ -166,8 +166,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             return true;
         if (CurrentPage == AppPage.Plugins && Plugins.CloseSubPage())
             return true;
-        if (CurrentPage == AppPage.Settings && Settings.GoBack())
-            return true;
         if (CurrentPage == AppPage.Control && Control.CloseOverlay())
             return true;
         if (CurrentPage == AppPage.World)
@@ -175,6 +173,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             CurrentPage = AppPage.Control;
             return true;
         }
+        if (CurrentPage == AppPage.Settings && Settings.CloseSubPage())
+            return true;
         if (CurrentPage != AppPage.Home)
         {
             CurrentPage = AppPage.Home;
@@ -219,6 +219,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Control.IsActive = value == AppPage.Control;
         Console.IsActive = value == AppPage.Console;
         Plugins.IsActive = value == AppPage.Plugins;
+        Settings.IsActive = value == AppPage.Settings;
         if (value == AppPage.Scripts)
             Scripts.Refresh();
     }
@@ -233,6 +234,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _uiVisible = visible;
         Console.SetUiVisible(visible);
         Control.SetUiVisible(visible);
+        Scripts.Queue?.SetUiVisible(visible);
         if (visible)
             PostSnapshot();
     }
@@ -312,5 +314,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _host.MemoryVerdictChanged -= OnMemoryVerdictChanged;
         Console.Dispose();
         Plugins.Dispose();
+        Settings.Dispose();
+        Scripts.Queue?.Dispose();
     }
 }

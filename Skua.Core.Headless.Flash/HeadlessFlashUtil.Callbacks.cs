@@ -151,7 +151,13 @@ public sealed partial class HeadlessFlashUtil
             return null;
         });
         Add("gender", _ => $"\"{(JsonUtil.AsString(Game.World.GetPlayer()?.ObjData["strGender"]) ?? string.Empty).ToUpperInvariant()}\"");
-        Add("rejectExcept", _ => "true");   // no drop windows: unwanted drops expire on their own
+        // Player.rejectExcept: every offered drop whose lower-case name is not in the comma-separated whitelist has its
+        // drop window closed (client-side only, as in the game); here it leaves the model's drop list.
+        Add("rejectExcept", a =>
+        {
+            Game.World.RejectDropsExcept(As3.Str(a, 0).Split(','));
+            return "true";
+        });
 
         // ---- World.as (skua)
         Add("jumpCorrectRoom", a =>

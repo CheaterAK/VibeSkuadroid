@@ -8,25 +8,30 @@
     <DataTemplate DataType="vm:FastTravelViewModel"><v:FastTravelView /></DataTemplate>
     <DataTemplate DataType="vm:LoaderViewModel"><v:LoaderView /></DataTemplate>
     <DataTemplate DataType="vm:GrabberViewModel"><v:GrabberView /></DataTemplate>
+    <DataTemplate DataType="vm:NotificationCenterViewModel"><v:NotificationCenterView /></DataTemplate>
+    <DataTemplate DataType="vm:NotifyDropViewModel"><v:NotifyDropView /></DataTemplate>
+    <DataTemplate DataType="vm:JunkItemsViewModel"><v:JunkItemsView /></DataTemplate>
+    <DataTemplate DataType="vm:DiscordWebhookViewModel"><v:DiscordWebhookView /></DataTemplate>
   </UserControl.DataTemplates>
 
-  <Grid RowDefinitions="Auto,*">
-    <Button Grid.Row="0" Classes="small" HorizontalAlignment="Left" Margin="12,8,12,0"
-            Content="{Binding BackText}" Command="{Binding CloseCommand}" />
-
+  <Panel>
     <!-- The list of tools -->
-    <ScrollViewer Grid.Row="1" IsVisible="{Binding IsListVisible}">
-      <StackPanel Margin="12">
+    <ScrollViewer IsVisible="{Binding IsListVisible}">
+      <StackPanel Margin="12,4,12,12">
         <ItemsControl ItemsSource="{Binding Entries}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:ToolEntry">
-              <Border Classes="card">
-                <StackPanel Spacing="6">
-                  <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Title}" />
-                  <TextBlock TextWrapping="Wrap" Classes="muted" Text="{Binding Description}" />
-                  <Button Classes="small primary" HorizontalAlignment="Left" Content="Open" Command="{Binding Open}" />
-                </StackPanel>
-              </Border>
+              <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="0,0,0,10" Padding="14"
+                      CornerRadius="12" BorderThickness="1" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushMain}"
+                      Command="{Binding $parent[ItemsControl].((vm:ToolsViewModel)DataContext).OpenCommand}" CommandParameter="{Binding}">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="2">
+                    <TextBlock FontWeight="Bold" FontSize="16" Text="{Binding Title}" />
+                    <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Description}" />
+                  </StackPanel>
+                  <TextBlock Grid.Column="1" Classes="muted" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="20" Text="›" />
+                </Grid>
+              </Button>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -34,6 +39,12 @@
     </ScrollViewer>
 
     <!-- An open tool -->
-    <ContentControl Grid.Row="1" IsVisible="{Binding !IsListVisible}" Content="{Binding CurrentPage}" />
-  </Grid>
+    <Grid RowDefinitions="Auto,*" IsVisible="{Binding !IsListVisible}">
+      <Grid Grid.Row="0" ColumnDefinitions="Auto,*" Margin="12,8,12,0">
+        <Button Classes="small" Content="‹ Tools" Command="{Binding CloseCommand}" />
+        <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold" Text="{Binding CurrentTitle}" />
+      </Grid>
+      <ContentControl Grid.Row="1" Content="{Binding CurrentPage}" />
+    </Grid>
+  </Panel>
 </UserControl>

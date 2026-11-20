@@ -1,6 +1,7 @@
 using Avalonia;
 using Skua.App.Droid.Core.Engine;
 using Skua.App.Droid.Core.Hosting;
+using Skua.App.Droid.Core.Notifications;
 using Skua.App.Droid.Core.Platform;
 using Skua.App.Droid.Core.Scripts;
 using Skua.App.Droid.Core.Security;
@@ -29,7 +30,16 @@ internal static class Program
         // Deliberately no secret store on desktop: the desktop CryptoUtils key is derived from machine/user name.
         EngineHost host = new(engine, settings, new CredentialVault(new UnavailableSecretStore()), new ResumeStore(paths.ResumeFile), new NullPlatformServices());
         ScriptLibrary library = new(paths.ScriptsDir);
-        AppBootstrap.Factory = () => new AppServices(host, new AvaloniaUiDispatcher(), new AvaloniaFilePicker(), library, new ScriptRepositorySync(library, paths.SkuaDir), paths);
+        host.AttachScheduler(new Skua.App.Droid.Core.Scheduler.ScriptScheduler(engine,
+            new Skua.App.Droid.Core.Scheduler.QueueStore(paths.QueueFile, paths.PlaylistsDir), paths.ScriptsDir, paths.SkuaOptionsDir));
+        // No secret store here either, so no webhook URL can be stored; drop alerts are only listed.
+        NotificationHub notifications = new(engine, new NotificationSettingsStore(paths.NotificationSettingsFile),
+            new NotificationHistory(paths.NotificationHistoryFile), new RecordingDropAlertSink(),
+            new WebhookUrlVault(new UnavailableSecretStore()), new DiscordWebhookSender());
+        AppBootstrap.Factory = () => new AppServices(host, new AvaloniaUiDispatcher(), new AvaloniaFilePicker(), library, new ScriptRepositorySync(library, paths.SkuaDir), paths)
+        {
+            Notifications = notifications,
+        };
 
         try
         {
@@ -37,6 +47,7 @@ internal static class Program
         }
         finally
         {
+            notifications.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
             host.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
         }
     }
