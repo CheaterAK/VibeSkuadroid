@@ -46,7 +46,7 @@ public class NotificationUiTests
         shell.Settings.OpenToolsCommand.Execute(null);
         Render();
         Assert.True(window.GetVisualDescendantOfType(nameof(ToolsView))!.IsEffectivelyVisible);
-        Assert.Equal(["Fast Travel", "Loader", "Grabber", "Notification Center", "Notify Drop", "Junk Items", "Discord Webhook", "Advanced Skills", "CoreBots options"], shell.Settings.Tools.Entries.Select(e => e.Title));
+        Assert.Equal(["Fast Travel", "Loader", "Grabber", "Notification Center", "Notify Drop", "Junk Items", "Discord Webhook", "Advanced Skills", "CoreBots options", "Diagnostics", "Packet Spammer", "Packet Interceptor", "Calendar"], shell.Settings.Tools.Entries.Select(e => e.Title));
 
         foreach (ToolEntry entry in shell.Settings.Tools.Entries.ToList())
         {

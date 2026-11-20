@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.CalendarView"
+             x:DataType="vm:CalendarViewModel">
+  <UserControl.Resources>
+    <DataTemplate x:Key="BoostRowTemplate" x:DataType="vm:CalendarBoostRow">
+      <Border Background="{StaticResource SurfaceBrush}" CornerRadius="8" Padding="10,8" Margin="0,3">
+        <StackPanel Spacing="4">
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+            <TextBlock Grid.Column="1" Margin="8,0,0,0" FontWeight="SemiBold" Text="{Binding Status}"
+                       Foreground="{StaticResource GoldBrush}" />
+          </Grid>
+          <TextBlock Classes="muted" Text="{Binding Detail}" />
+          <ProgressBar Minimum="0" Maximum="100" Value="{Binding ProgressPercent}" Height="6" MinHeight="6" IsVisible="{Binding Active}" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <ScrollViewer>
+    <StackPanel Margin="12,8">
+      <Border Classes="card">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel>
+            <TextBlock Classes="caption" Text="SERVER TIME (US EASTERN)" />
+            <TextBlock FontSize="20" FontWeight="SemiBold" Text="{Binding ServerTime}" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="small" VerticalAlignment="Center" Content="Refresh" Command="{Binding RefreshCommand}" />
+        </Grid>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="DAILY RESET" />
+          <TextBlock FontSize="26" FontWeight="SemiBold" Text="{Binding DailyText}" Classes.error="{Binding DailyUrgent}" />
+          <ProgressBar Minimum="0" Maximum="100" Value="{Binding DailyProgress}" Height="7" MinHeight="7" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="WEEKLY RESET (THURSDAY TO FRIDAY)" />
+          <TextBlock FontSize="26" FontWeight="SemiBold" Text="{Binding WeeklyText}" Classes.error="{Binding WeeklyUrgent}" />
+          <ProgressBar Minimum="0" Maximum="100" Value="{Binding WeeklyProgress}" Height="7" MinHeight="7" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="BOOSTS" />
+          <TextBlock Classes="muted" Text="{Binding UpdatedText}" IsVisible="{Binding UpdatedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <TextBlock Classes="error" TextWrapping="Wrap" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+          <TextBlock Classes="muted" Text="No boosts running or announced." IsVisible="{Binding HasNoBoosts}" />
+          <TextBlock FontWeight="SemiBold" Margin="0,4,0,0" Text="Running now" IsVisible="{Binding HasActive}" />
+          <ItemsControl ItemsSource="{Binding ActiveBoosts}" ItemTemplate="{StaticResource BoostRowTemplate}" />
+          <TextBlock FontWeight="SemiBold" Margin="0,4,0,0" Text="Coming" IsVisible="{Binding HasUpcoming}" />
+          <ItemsControl ItemsSource="{Binding UpcomingBoosts}" ItemTemplate="{StaticResource BoostRowTemplate}" />
+        </StackPanel>
+      </Border>
+      <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,4,2,12" Text="{Binding SourceText}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

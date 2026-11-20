@@ -273,6 +273,12 @@ There is no game rendering, so the Control tab (bottom bar: Home, Scripts, **Con
 shows the game schematically and lets you act by hand. It took World's place in the bar: the World lists (inventory,
 temp, bank, quests, drops, monsters) open from Control's *Lists* button, and Back returns to Control.
 
+**Reputation** (a tab of the World lists): every faction of Skua's `IScriptFaction.FactionList` (the headless client's
+rank math) with name, ID, rank, reputation in the rank, the rank's span, what remains and the total; highest rank
+first, searchable by name or ID with the lists' filter, a progress bar to the next rank and MAX at rank 10
+(`Core/World/Reputation.cs`). It is read on a worker thread when the world changed, at most every 400 ms (the Control
+page's interval), only while the tab is shown and the app is in the foreground.
+
 * **Map**: map and room, server, and the map's cells as tiles in map order: the frame labels of the map file
   (`Skua.Core.Headless/Maps`, downloaded once and cached); when the file cannot be read (LZMA) the cells seen in the
   room data (monsters' and players' cells, Enter). Each tile shows live/total monsters and other players; yours is lit,
@@ -338,6 +344,107 @@ questions), the bank moves, Equip and Register ask first; deleting, clearing and
 the quest list update asks. While a script runs every action first asks "A script is running; do it anyway?". One
 action at a time per page; long Grabber tasks (Kill) and the quest update can be cancelled. Actions go through Skua's
 API and the client's own throttles (`world.lock`).
+## Packet Spammer (Settings > Tools)
+
+Port of the desktop's Packet Spammer (`PacketToolPages`, `PacketSpammerViewModel`, `Core/Packets/PacketSpammer.cs`):
+a list of game packets sent in turn, one every interval, Start/Stop, add, remove, clear, send once; the list and its
+options are kept in `files/droid/tools.json`. The desktop's "send to client" is left out (no client to show them).
+
+Limits, because spamming is what gets accounts flagged (the page says so, and every Start asks with that warning):
+
+* only one-line client game packets (`%xt%zm%command%room%...`, at most 2000 characters); SmartFox system messages,
+  JSON and `login`/`firstJoin` are refused; at most 50 packets in the list;
+* the interval is at least 1 s, and never below twice the send pacer's "slow down" gap or four times its normal gap
+  (`SpammerLimits.MinimumFor`, from `IBotEngine.GetConnectionDetails`); a shorter one is raised and the question says so;
+* a run sends at most 500 packets (the page's "at most" can only lower it);
+* packets go through the engine's paced send queue like any other (no "Raw packet sent" line each; the run is logged
+  once at its start and end, source `spammer`);
+* a run stops by itself before the next packet when the account is not online, when the connection changed or dropped
+  during the run (even if the engine already reconnected), when a packet was not sent, or when the server sent a
+  "slow down" warning (the connection's counter of them went up).
+
+## Packet Interceptor (Settings > Tools)
+
+Port of the desktop's Packet Interceptor (`PacketInterceptorViewModel`, `Core/Packets/PacketInterception.cs`). The
+desktop redirects the Flash socket through Skua's localhost `CaptureProxy` and runs `IInterceptor`s on each message;
+headless there is no separate client, so the interceptor chain sits in `AqwConnection` itself
+(`AqwConnectionOptions.Interceptor`, `Skua.Core.Headless/Net/PacketInterception.cs`): outbound game packets are offered
+in the writer just before they are written, inbound messages in the reader after framing and decompression and before
+the world model applies them. The engine sets its one `PacketInterception` on its session's connection options, so
+every connection (reconnects included) uses it.
+
+* **Rules** (at most 30, applied in order, kept in `tools.json`): direction (out, in, both), an optional command
+  (matched against every command the message carries, the desktop's `PacketCommands.Parse`, compiled in through
+  `Skua.App.Droid.Linked`), an optional text to find (case-sensitive), and either *replace* (every occurrence) or
+  *block* (drop). A block rule needs a command or a text; each rule has its own switch; Up reorders.
+* **Master switch**: off by default and at every start of the app (never saved); turning it on asks with the warning;
+  the Console logs on/off (source `interceptor`). While off, or on without an enabled rule, each message costs one check.
+* **Log**: every message a rule changed or dropped (time, direction OUT / IN / BLOCK as on the desktop, the rules,
+  the desktop's categories, before and after, scrubbed with the engine's secret scrubber), newest first, at most 300,
+  searchable, cleared, shared as the desktop's export lines (`[OUT] packet`). It refreshes every 0.5 s only while
+  the page is shown. Diagnostics shows the switch and counters; the connection counts changed and dropped messages.
+
+Safety limits, enforced by the connection, not by the rules:
+
+* nothing is offered before the connection's character has loaded (after the first `moveToArea`, the character data
+  and the inventory): the SmartFox handshake, the login with its token, the login response and the character load
+  are never seen, changed or dropped; every reconnect starts over;
+* SmartFox system (XML) messages are never offered, only `%xt%` and JSON game messages;
+* a message that contains a redacted secret (the login token) is passed on untouched and not offered;
+* the messages the connection's own safety depends on are never offered: outbound `login`, `firstJoin`,
+  `retrieveUserData` (the liveness probe); inbound `loginResponse`, `warning` and `server` (the "slow down" warnings
+  the send pacer reacts to), `multiLoginWarning`, `logoutWarning`, `logout`;
+* a changed outbound message must still be one `%xt%` packet without NUL whose command is not protected, a changed
+  inbound one must still parse as a game message; otherwise the original is used (logged). An interceptor that throws
+  is logged and the original is used. A dropped outbound packet completes as "not sent" and does not move the pacer.
+
+## Calendar (Settings > Tools)
+
+Port of the desktop's Calendar window (`CalendarToolPages`, `CalendarViewModel`): server time (US Eastern), the daily
+reset (server midnight) and weekly reset (Thursday to Friday) countdowns with their progress, and the AQW boosts of
+artix.com's calendar, running now (time left, progress) and coming (at most 14). The rules and the fetch moved from
+the desktop ViewModel into Skua.Core (`Skua.Core/Services/AqwCalendar.cs`), which the desktop window now calls with
+its signatures unchanged.
+
+* Source: `https://www.artix.com/calendar/` (the script array of the page), then, for boosts that began in the last ten
+  days or begin today, their event pages' meta description (how long they run, whether they are another Artix game's).
+  Hosts: `www.artix.com` (and `artix.com` for event pages). The app reads event pages only over https:// on those two
+  hosts (`AqwCalendar.IsArtixHttps`); others keep the default length (Double ALL 72 h, other Double boosts 48 h, else
+  one day). Android's network security policy refuses plain http anyway.
+* Time is the phone's clock corrected by the `Date` header of the calendar's answer, as on the desktop.
+* The countdowns tick every second only while the page is open and the app is in the foreground; the calendar is
+  read when the page opens and the last read is 30 minutes old, or with Refresh; a failed read keeps the last list.
+* Not verified against the live page: artix.com is not reachable from the container this was built in (the network
+  proxy refuses the host). The tests use a synthetic sample in the shape the desktop's parser reads
+  (`Skua.App.Droid.Tests/Fixtures/artix-calendar.sample.html`), not a recording.
+
+## Diagnostics (Settings > Tools)
+
+Port of the desktop's Diagnostics, Runtime helpers and log windows (`DiagnosticsToolPages`, `DiagnosticsViewModel`,
+`Core/Diagnostics/DiagnosticsReport.cs`). Read on a worker thread once a second, only while the page is open, the
+Settings tab shows the hub and the app is in the foreground.
+
+* **Engine**: connection phase and status, script and its state, run time, Skua's counters, background work, whether
+  packet capture and the packet interceptor are on.
+* **Connection** (`IBotEngine.GetConnectionDetails`): server and host:port, state, client version, latency (the time
+  from writing a request the server always answers, such as character data, quests, a shop or the bank, to reading
+  its answer, measured in `AqwConnection`; last and moving average), packets per minute in and out over the last
+  minute (from the connection's counters), totals, the send queue and drops, the pacer's gaps, slow-down warnings,
+  liveness probes, time since the server last sent anything.
+* **Memory**: RSS and peak, PSS (`/proc/self/smaps_rollup`, read on demand), managed heap and total allocated, GC
+  collections, loaded script assemblies, thread pool, the watchdog's threshold, mode and current verdict.
+* **Flash gaps**: `HeadlessFlashUtil`'s gap log (Missing / Impossible / Approximated, name and argument shape, count,
+  what was answered instead), most frequent first.
+* **Process exits**: the exits Android reported (the `previous exit (...)` lines the crash reporting writes to the
+  events log), newest first, and whether a crash report waits.
+* **Runtime helpers** (desktop Runtime window, read only): Skua's registered quests, the drop grabber's list, the
+  boosts chosen; an opt-in switch for Skua's own event recorder (`IDiagnosticsService`: script starts and stops,
+  waits, relogins) whose events are listed.
+* **Share / Copy**: one text bundle of every section, the gap log, the exits, the last 150 events log lines and the last
+  150 engine log lines, scrubbed: the engine's registered secrets (password, login tokens, webhook URL), the
+  scrubber's credential-like key/value patterns, Discord webhook URLs, e-mail addresses, and the account and
+  character names (replaced by `<account>`).
+
 ## Pause and resume
 
 *Pause* (Scripts page, Dashboard, notification action) uses Skua's own pause unchanged

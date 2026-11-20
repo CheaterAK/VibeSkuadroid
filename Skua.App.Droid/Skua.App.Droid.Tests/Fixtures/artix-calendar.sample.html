@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!--
+  Synthetic sample in the shape the desktop Calendar's parser reads (the script array of
+  https://www.artix.com/calendar/: {title: '...', url: '...', start: 'yyyy-mm-dd'}). artix.com is not reachable from
+  the container these tests were written in (the network proxy refuses it), so this is not a recording of the live
+  page: titles, URLs and dates are made up, around Friday 20 Nov 2026.
+-->
+<html>
+<head><title>Calendar | Artix Entertainment</title></head>
+<body>
+<div id="calendar"></div>
+<script>
+  var calendarEvents = [
+    {title: 'Friday the 13th', url: 'https://www.artix.com/news/friday-13th', start: '2026-11-13'},
+    {title: 'Double Rep Boost 11.18.26', url: 'https://www.artix.com/news/aq3d-double-rep', start: '2026-11-18'},
+    {title: 'Double ALL Boost 11.19.26', url: 'https://www.artix.com/news/double-all-boost', start: '2026-11-19'},
+    {title: 'Double ALL Boost 11.19.26', url: 'https://www.artix.com/news/double-all-boost', start: '2026-11-19'},
+    {title: 'Double Class Points Boost 11.20.26', url: 'http://www.artix.com/news/plain-http-page', start: '2026-11-20'},
+    {title: 'Weekend Boost 11.21.26', url: 'https://www.artix.com/news/weekend' + '?ref=cal', start: '2026-11-21'},
+    {title: 'Elsewhere Boost 11.21.26', url: 'https://example.com/news/elsewhere', start: '2026-11-21'},
+    {title: 'Double Gold Boost 11.22.26', url: 'https://www.artix.com/news/double-gold', start: '2026-11-22'},
+  ];
+</script>
+</body>
+</html>

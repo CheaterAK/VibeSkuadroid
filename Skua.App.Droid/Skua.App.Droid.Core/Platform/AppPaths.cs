@@ -70,6 +70,9 @@ public sealed record AppPaths(string FilesDir, string NoBackupDir, string CacheD
 
     public string SecretsDir => Path.Combine(NoBackupDir, "secrets");
 
+    /// <summary>Crash report, events log and startup marker (<see cref="Diagnostics.DiagnosticsStore"/>; the Android head writes them).</summary>
+    public string DiagnosticsDir => Path.Combine(FilesDir, "diagnostics");
+
     /// <summary>For a desktop host or tests: everything under one root.</summary>
     public static AppPaths UnderRoot(string root) =>
         new(Path.Combine(root, "files"), Path.Combine(root, "no_backup"), Path.Combine(root, "cache"));

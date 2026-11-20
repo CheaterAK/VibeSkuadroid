@@ -7,9 +7,9 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using Skua.Core.Services;
 
 namespace Skua.App.Avalonia.ViewModels;
 
@@ -18,10 +18,10 @@ namespace Skua.App.Avalonia.ViewModels;
 /// Dailies reset at 12 AM server time; weeklies at 12 AM server time when Thursday turns into Friday. AQW's server time is US Eastern
 /// (with daylight saving). The game's own "server time" chat line is the PC's clock, so time is the PC clock corrected by the
 /// <c>Date</c> header of the artix.com answer. The boosts are read from the script array of https://www.artix.com/calendar/.
+/// The rules and the fetch are shared with the Android app (<see cref="AqwCalendar"/>); this window keeps its signatures.
 /// </summary>
 public partial class CalendarViewModel : BotControlViewModelBase
 {
-    private const string CalendarUrl = "https://www.artix.com/calendar/";
     private static readonly TimeSpan RefreshAfter = TimeSpan.FromMinutes(30);
     // artix.com answers 403 to a request without a User-Agent.
     private static readonly HttpClient Http = CreateHttp();
@@ -29,21 +29,10 @@ public partial class CalendarViewModel : BotControlViewModelBase
     private static HttpClient CreateHttp()
     {
         HttpClient http = new() { Timeout = TimeSpan.FromSeconds(12) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) VibeSkuffle");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd(AqwCalendar.UserAgent);
         return http;
     }
-    private static readonly TimeZoneInfo Eastern = FindEastern();
-
-    private static TimeZoneInfo FindEastern()
-    {
-        foreach (string id in new[] { "Eastern Standard Time", "America/New_York" })
-        {
-            try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
-            catch (TimeZoneNotFoundException) { }
-            catch (InvalidTimeZoneException) { }
-        }
-        return TimeZoneInfo.CreateCustomTimeZone("US Eastern", TimeSpan.FromHours(-5), "US Eastern", "US Eastern");
-    }
+    private static readonly TimeZoneInfo Eastern = AqwCalendar.Eastern;
 
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly List<CalendarBoost> _rows = new();
@@ -124,55 +113,25 @@ public partial class CalendarViewModel : BotControlViewModelBase
 
     private DateTimeOffset ServerUtc => DateTimeOffset.UtcNow + _skew;
 
-    private static DateTimeOffset ToUtc(DateTime easternLocalMidnight) =>
-        new(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(easternLocalMidnight, DateTimeKind.Unspecified), Eastern), TimeSpan.Zero);
-
-    private static DateTime EasternDate(DateTimeOffset utc) => TimeZoneInfo.ConvertTime(utc, Eastern).Date;
+    private static DateTimeOffset ToUtc(DateTime easternLocalMidnight) => AqwCalendar.ToUtc(easternLocalMidnight);
 
     /// <summary>The next daily reset (server midnight) after <paramref name="utc"/>.</summary>
-    public static DateTimeOffset NextDaily(DateTimeOffset utc) => ToUtc(EasternDate(utc).AddDays(1));
+    public static DateTimeOffset NextDaily(DateTimeOffset utc) => AqwCalendar.NextDaily(utc);
 
     /// <summary>The daily reset that last happened.</summary>
-    public static DateTimeOffset PrevDaily(DateTimeOffset utc) => ToUtc(EasternDate(utc));
+    public static DateTimeOffset PrevDaily(DateTimeOffset utc) => AqwCalendar.PrevDaily(utc);
 
     /// <summary>The next weekly reset (server midnight at the start of Friday) after <paramref name="utc"/>.</summary>
-    public static DateTimeOffset NextWeekly(DateTimeOffset utc)
-    {
-        DateTime day = EasternDate(utc).AddDays(1);
-        while (day.DayOfWeek != DayOfWeek.Friday)
-            day = day.AddDays(1);
-        return ToUtc(day);
-    }
+    public static DateTimeOffset NextWeekly(DateTimeOffset utc) => AqwCalendar.NextWeekly(utc);
 
     /// <summary>The weekly reset that last happened.</summary>
-    public static DateTimeOffset PrevWeekly(DateTimeOffset utc)
-    {
-        DateTime day = EasternDate(utc);
-        while (day.DayOfWeek != DayOfWeek.Friday)
-            day = day.AddDays(-1);
-        return ToUtc(day);
-    }
+    public static DateTimeOffset PrevWeekly(DateTimeOffset utc) => AqwCalendar.PrevWeekly(utc);
 
     /// <summary>"6d 3h 12m", "3h 12m 05s", "12m 05s", "5s".</summary>
-    public static string FormatSpan(TimeSpan span)
-    {
-        long s = Math.Max(0, (long)span.TotalSeconds);
-        long d = s / 86400, h = s / 3600 % 24, m = s / 60 % 60, sec = s % 60;
-        if (d > 0) return $"{d}d {h}h {m:00}m";
-        if (h > 0) return $"{h}h {m:00}m {sec:00}s";
-        if (m > 0) return $"{m}m {sec:00}s";
-        return $"{sec}s";
-    }
+    public static string FormatSpan(TimeSpan span) => AqwCalendar.FormatSpan(span);
 
     /// <summary>The same without seconds.</summary>
-    public static string FormatShort(TimeSpan span)
-    {
-        long s = Math.Max(0, (long)span.TotalSeconds);
-        long d = s / 86400, h = s / 3600 % 24, m = s / 60 % 60;
-        if (d > 0) return $"{d}d {h}h";
-        if (h > 0) return $"{h}h {m:00}m";
-        return $"{m}m";
-    }
+    public static string FormatShort(TimeSpan span) => AqwCalendar.FormatShort(span);
 
     private void Tick()
     {
@@ -189,8 +148,7 @@ public partial class CalendarViewModel : BotControlViewModelBase
         RefreshRows(now);
     }
 
-    private static double Fraction(DateTimeOffset prev, DateTimeOffset next, DateTimeOffset now) =>
-        Math.Clamp((now - prev).TotalSeconds / Math.Max(1, (next - prev).TotalSeconds), 0, 1);
+    private static double Fraction(DateTimeOffset prev, DateTimeOffset next, DateTimeOffset now) => AqwCalendar.Fraction(prev, next, now);
 
     // ------------------------------------------------------------------------------------------------ boosts
 
@@ -253,100 +211,25 @@ public partial class CalendarViewModel : BotControlViewModelBase
 
     private static async Task<(List<CalendarBoost> Rows, TimeSpan Skew)> FetchAsync()
     {
-        TimeSpan skew = TimeSpan.Zero;
-        string html;
-        try
-        {
-            using HttpResponseMessage response = await Http.GetAsync(CalendarUrl);
-            response.EnsureSuccessStatusCode();
-            if (response.Headers.Date is DateTimeOffset date)
-                skew = date - DateTimeOffset.UtcNow;
-            html = await response.Content.ReadAsStringAsync();
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Could not reach artix.com ({ex.Message})");
-        }
-        List<CalendarBoost> rows = ParseBoosts(html);
-        if (rows.Count == 0)
-            throw new InvalidOperationException("The calendar page had no boosts (its layout may have changed)");
-        // The pages of boosts that began in the last ten days (or begin today) say how long they run and which game they are for.
-        DateTime today = EasternDate(DateTimeOffset.UtcNow + skew);
-        foreach (CalendarBoost row in rows.Where(r => r.Day <= today.AddDays(1) && r.Day >= today.AddDays(-10)))
-        {
-            try
-            {
-                string page = await Http.GetStringAsync(row.Url);
-                Match meta = DescriptionRegex.Match(page);
-                if (!meta.Success)
-                    continue;
-                string text = System.Net.WebUtility.HtmlDecode(meta.Groups[1].Value);
-                if (IsOtherGame(text))
-                    row.Hours = 0;
-                else if (HoursFromDescription(text) is int hours)
-                    row.Hours = hours;
-            }
-            catch (Exception)
-            {
-                // The default length stays.
-            }
-        }
-        rows.RemoveAll(r => r.Hours == 0);
-        return (rows, skew);
+        (List<CalendarEvent> events, TimeSpan skew) = await AqwCalendar.FetchAsync(Http);
+        return (events.Select(e => new CalendarBoost(e.Title, e.Url, e.Day, e.Hours)).ToList(), skew);
     }
-
-    private static readonly Regex EventRegex = new(@"\{title: '(?<t>[^']*)',\s*url: '(?<u>[^']*)'(?:\s*\+\s*'[^']*')?\s*,\s*start: '(?<s>\d{4}-\d{2}-\d{2})'", RegexOptions.Compiled);
-    private static readonly Regex DescriptionRegex = new("name=\"description\"[^>]*?content=\"([^\"]*)\"", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-    private static readonly Regex TrailingDate = new(@"\s\d+\.\d+\.\d+$", RegexOptions.Compiled);
 
     /// <summary>The boosts of the calendar page: every entry whose title says Boost.</summary>
-    public static List<CalendarBoost> ParseBoosts(string html)
-    {
-        List<CalendarBoost> rows = new();
-        foreach (Match m in EventRegex.Matches(html))
-        {
-            string title = Regex.Unescape(m.Groups["t"].Value);
-            if (!title.Contains("boost", StringComparison.OrdinalIgnoreCase))
-                continue;
-            if (!DateTime.TryParseExact(m.Groups["s"].Value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime day))
-                continue;
-            if (rows.Any(r => r.Title == title && r.Day == day))
-                continue;
-            rows.Add(new CalendarBoost(title, m.Groups["u"].Value, day, DefaultHours(title)));
-        }
-        rows.Sort((a, b) => a.Day.CompareTo(b.Day));
-        return rows;
-    }
+    public static List<CalendarBoost> ParseBoosts(string html) =>
+        AqwCalendar.ParseBoosts(html).Select(e => new CalendarBoost(e.Title, e.Url, e.Day, e.Hours)).ToList();
 
     /// <summary>How long a boost runs when the page does not say: Double ALL is posted for 72 hours, the other Double boosts for 48.</summary>
-    public static int? DefaultHours(string title)
-    {
-        if (title.StartsWith("double all", StringComparison.OrdinalIgnoreCase)) return 72;
-        if (title.StartsWith("double ", StringComparison.OrdinalIgnoreCase)) return 48;
-        return null;
-    }
+    public static int? DefaultHours(string title) => AqwCalendar.DefaultHours(title);
 
     /// <summary>Reads "72 hour" or "available for a week" out of an event page's description.</summary>
-    public static int? HoursFromDescription(string text)
-    {
-        Match m = Regex.Match(text, @"(\d+)\s*hour", RegexOptions.IgnoreCase);
-        if (m.Success && int.TryParse(m.Groups[1].Value, out int hours))
-            return hours;
-        if (text.Contains("available for a week", StringComparison.OrdinalIgnoreCase) || text.Contains("for one week", StringComparison.OrdinalIgnoreCase))
-            return 168;
-        return null;
-    }
+    public static int? HoursFromDescription(string text) => AqwCalendar.HoursFromDescription(text);
 
     /// <summary>A description that names another Artix game: that boost is not an AQW one.</summary>
-    public static bool IsOtherGame(string text)
-    {
-        bool Has(string s) => text.Contains(s, StringComparison.OrdinalIgnoreCase);
-        return !Has("aqworlds") && !Has("adventurequest worlds") && !Has("artix entertainment develops")
-            && new[] { "adventurequest 3d", "aq3d", "dragonfable", "mechquest", "epic", "battleon" }.Any(Has);
-    }
+    public static bool IsOtherGame(string text) => AqwCalendar.IsOtherGame(text);
 
     /// <summary>The title without the date the site puts at its end ("Double ALL Boost 10.30.26" becomes "Double ALL Boost").</summary>
-    public static string PlainTitle(string title) => TrailingDate.Replace(title, "");
+    public static string PlainTitle(string title) => AqwCalendar.PlainTitle(title);
 }
 
 /// <summary>One boost of the list.</summary>
