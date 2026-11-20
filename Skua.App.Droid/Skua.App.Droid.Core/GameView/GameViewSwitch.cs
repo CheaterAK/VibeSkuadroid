@@ -107,7 +107,7 @@ public sealed record GameViewSwitchOptions
 /// </summary>
 /// <remarks>
 /// Platform neutral: the view itself is behind <see cref="IGameViewLauncher"/>, and the platform's link to it calls
-/// <see cref="Connect"/>, <see cref="ReportStage"/>, <see cref="ViewClosing"/> and
+/// <see cref="Connect"/>, <see cref="TakeCredentials"/>, <see cref="ReportStage"/>, <see cref="ViewClosing"/> and
 /// <see cref="ViewGone"/>. Every callback names the switch's session id; anything for another session is ignored.
 /// Thread-safe; events are raised on the caller's thread.
 /// </remarks>
@@ -285,6 +285,29 @@ public sealed class GameViewSwitch : IDisposable
         }
         Publish();
         return new GameViewHello(Options.ToJson(), _host.RememberedAccount);
+    }
+
+    /// <summary>
+    /// The stored login for the view's auto-login (decrypted from the Keystore vault now). Only for the open view of
+    /// <paramref name="session"/>, only when a password is remembered, at most
+    /// <see cref="GameViewSwitchOptions.MaxCredentialRequests"/> times per view. Never logged.
+    /// </summary>
+    public GameViewCredentials? TakeCredentials(string session)
+    {
+        lock (_gate)
+        {
+            if (!IsCurrent(session) || _state != GameViewState.Open || _credentialRequests >= _options.MaxCredentialRequests)
+                return null;
+            _credentialRequests++;
+        }
+        string? account = _host.RememberedAccount;
+        if (account is null)
+            return null;
+        string? password = _host.Vault.Load(account, out _);
+        if (string.IsNullOrEmpty(password))
+            return null;
+        Log(EngineLogLevel.Info, $"Auto-login in the game view as {account}.");
+        return new GameViewCredentials(account, password);
     }
 
     /// <summary>A milestone of the view (login screen, in game, left the game).</summary>

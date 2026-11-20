@@ -283,10 +283,33 @@ public sealed class GameViewActivity : Activity
         }
     }
 
-    /// <summary>Messages beyond the basic hand-shake (auto-login).</summary>
+    /// <summary>Messages beyond the basic hand-shake: the stored login for auto-login.</summary>
     private void OnEngineMessage(Message msg)
     {
+        switch (msg.What)
+        {
+            case GameViewLinkProtocol.CredentialsOk:
+                string? user = msg.Data?.GetString(GameViewLinkProtocol.KeyUser);
+                string? password = msg.Data?.GetString(GameViewLinkProtocol.KeyPassword);
+                msg.Data?.Clear();
+                if (string.IsNullOrEmpty(user) || string.IsNullOrEmpty(password) || _appPort is null || _closing)
+                {
+                    Toast.MakeText(this, "Auto-login is not possible right now; log in on the game's screen.", ToastLength.Long)?.Show();
+                    return;
+                }
+                // Redacted from everything the report keeps from now on; handed to the page only over its private port.
+                _rec.AddSecret(password);
+                _rec.Event("autologin_requested");
+                SendToPage("L|" + Base64(user) + "|" + Base64(password));
+                break;
+            case GameViewLinkProtocol.NoCredentials:
+                _loginButton.Visibility = ViewStates.Gone;
+                Toast.MakeText(this, "No stored login for auto-login; log in on the game's screen.", ToastLength.Long)?.Show();
+                break;
+        }
     }
+
+    private static string Base64(string s) => Convert.ToBase64String(Encoding.UTF8.GetBytes(s));
 
     private void SendToEngine(int what, Bundle data)
     {
@@ -326,12 +349,20 @@ public sealed class GameViewActivity : Activity
         OnStageForLogin(stage);
     }
 
+    /// <summary>"Log in as ACCOUNT" is offered on the login screen when a password is remembered (the app's vault).</summary>
     private void OnStageForLogin(string stage)
     {
+        if (_autoLoginAccount is null)
+            return;
+        _loginButton.Text = "Log in as " + _autoLoginAccount;
+        _loginButton.Visibility = stage == "login_screen" ? ViewStates.Visible : ViewStates.Gone;
     }
 
+    /// <summary>Asks the engine process for the stored login (decrypted there, sent back over the private link).</summary>
     private void RequestAutoLogin()
     {
+        _loginButton.Visibility = ViewStates.Gone;
+        SendToEngine(GameViewLinkProtocol.Credentials, new Bundle());
     }
 
     // ---------------- Startup: server list, bridge, WebView ----------------

@@ -20,12 +20,22 @@ internal static class GameViewLinkProtocol
 
     // View -> engine process (replyTo = the view's Messenger).
     public const int Hello = 1;
+
+    /// <summary>Asks for the stored login (auto-login); answered with <see cref="CredentialsOk"/> or <see cref="NoCredentials"/>.</summary>
+    public const int Credentials = 2;
     public const int Stage = 3;
     public const int Closing = 4;
 
     // Engine process -> view.
     public const int HelloOk = 101;
     public const int Rejected = 102;
+
+    /// <summary>
+    /// The stored login, in the reply's Bundle (<see cref="KeyUser"/>, <see cref="KeyPassword"/>): parcelled in memory
+    /// from this app's process to this app's process over the non-exported link; never in an Intent, a file or a log.
+    /// </summary>
+    public const int CredentialsOk = 103;
+    public const int NoCredentials = 104;
     public const int Close = 201;
 
     public const string KeySession = "session";
@@ -35,6 +45,8 @@ internal static class GameViewLinkProtocol
     public const string KeyReason = "reason";
     public const string KeyClosed = "closed";
     public const string KeySummary = "summary";
+    public const string KeyUser = "user";
+    public const string KeyPassword = "password";
 
     public static Message Make(int what, Bundle? data = null)
     {
@@ -131,6 +143,9 @@ public sealed class GameViewLinkService : Service
                 case GameViewLinkProtocol.Hello:
                     OnHello(sw, session, msg.ReplyTo);
                     break;
+                case GameViewLinkProtocol.Credentials:
+                    OnCredentials(sw, session, msg.ReplyTo);
+                    break;
                 case GameViewLinkProtocol.Stage:
                     sw.ReportStage(session, msg.Data!.GetString(GameViewLinkProtocol.KeyStage) ?? string.Empty);
                     break;
@@ -171,6 +186,25 @@ public sealed class GameViewLinkService : Service
             if (hello.AutoLoginAccount is string account)
                 b.PutString(GameViewLinkProtocol.KeyAccount, account);
             Reply(view, GameViewLinkProtocol.HelloOk, b);
+        }
+
+        private static void OnCredentials(GameViewSwitch sw, string session, Messenger? view)
+        {
+            // Only the connected view of this session gets them (the switch checks the session and its state too).
+            bool connected;
+            lock (s_lock)
+                connected = view is not null && s_view is { } v && v.Session == session && v.View.Binder?.Equals(view.Binder) == true;
+            GameViewCredentials? login = connected ? sw.TakeCredentials(session) : null;
+            if (login is null)
+            {
+                Reply(view, GameViewLinkProtocol.NoCredentials, null);
+                return;
+            }
+            Bundle b = new();
+            b.PutString(GameViewLinkProtocol.KeyUser, login.Account);
+            b.PutString(GameViewLinkProtocol.KeyPassword, login.Password);
+            Reply(view, GameViewLinkProtocol.CredentialsOk, b);
+            b.Clear();
         }
 
         private static void Reply(Messenger? to, int what, Bundle? data)
