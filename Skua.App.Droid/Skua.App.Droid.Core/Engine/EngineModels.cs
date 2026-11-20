@@ -20,6 +20,13 @@ public enum ConnectionPhase
 
     /// <summary>The last login or connection failed; <see cref="EngineSnapshot.StatusText"/> says why.</summary>
     Failed,
+
+    /// <summary>
+    /// The game view has the account (AQW allows one session per account): the engine logged out on purpose, keeps
+    /// the login for afterwards, and neither it nor Skua's relogin reconnects until the view closes
+    /// (<see cref="IBotEngine.HoldForGameViewAsync"/>, <see cref="IBotEngine.EndGameViewHoldAsync"/>).
+    /// </summary>
+    GameView,
 }
 
 /// <summary>Lifecycle of the script runner.</summary>

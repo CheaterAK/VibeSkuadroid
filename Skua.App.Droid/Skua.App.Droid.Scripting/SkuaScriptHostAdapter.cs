@@ -294,6 +294,24 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         }
     }
 
+    /// <summary>
+    /// The game view takes the account: Skua's own logout (an intentional one, so no relogin starts) with Skua's
+    /// relogin option off, keeping the login info (Skua's and the game's) for <see cref="ReconnectAsync"/> afterwards.
+    /// </summary>
+    public async Task ReleaseSessionAsync(CancellationToken cancellationToken)
+    {
+        HeadlessSkuaSession? s = _skua;
+        if (s is null)
+            return;
+        s.Bot.Options.AutoRelogin = false;
+        Interlocked.Exchange(ref _reloginTriggeredTicks, long.MinValue);
+        if (s.Game.IsConnected || s.ScriptRunning)
+            await s.LogoutAsync().WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        DateTime end = DateTime.UtcNow.AddSeconds(5);
+        while (s.Game.IsConnected && DateTime.UtcNow < end)
+            await Task.Delay(50, cancellationToken).ConfigureAwait(false);
+    }
+
     public Task StartAsync(CancellationToken cancellationToken) => StartAsync(ScriptStartOptions.Default, cancellationToken);
 
     /// <summary>

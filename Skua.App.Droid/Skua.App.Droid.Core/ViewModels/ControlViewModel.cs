@@ -77,6 +77,9 @@ public sealed partial class ControlViewModel : ObservableObject
 
     public bool IsAvailable { get; }
 
+    /// <summary>The Game view card (shared with the other page).</summary>
+    public GameViewViewModel? GameView { get; init; }
+
     [ObservableProperty]
     private bool _isActive;
 

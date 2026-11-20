@@ -16,6 +16,9 @@ public sealed partial class DashboardViewModel : ObservableObject
         _host = services.Host;
     }
 
+    /// <summary>The Game view card (shared with the other page).</summary>
+    public GameViewViewModel? GameView { get; init; }
+
     [ObservableProperty]
     private string _characterName = "-";
 

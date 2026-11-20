@@ -35,10 +35,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _services = services;
         _host = services.Host;
         Login = new LoginViewModel(services);
-        Dashboard = new DashboardViewModel(services);
+        GameView = new GameViewViewModel(services);
+        Dashboard = new DashboardViewModel(services) { GameView = GameView };
         Scripts = new ScriptsViewModel(services);
         World = new WorldViewModel(services);
-        Control = new ControlViewModel(services);
+        Control = new ControlViewModel(services) { GameView = GameView };
         Control.OpenListsRequested += (_, _) => CurrentPage = AppPage.World;
         Console = new ConsoleViewModel(services);
         Plugins = new PluginsViewModel(services);
@@ -63,6 +64,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public LoginViewModel Login { get; }
 
     public DashboardViewModel Dashboard { get; }
+
+    /// <summary>The Game view card, shared by the Dashboard and the Control page.</summary>
+    public GameViewViewModel GameView { get; }
 
     public ScriptsViewModel Scripts { get; }
 
@@ -162,6 +166,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>System back: returns to the home page first; false when already there (the activity then goes to the background).</summary>
     public bool GoBack()
     {
+        if (CurrentPage is AppPage.Home or AppPage.Control && GameView.CloseOverlay())
+            return true;
         if (CurrentPage == AppPage.Scripts && (Scripts.CloseOverlay() || Scripts.GoUp()))
             return true;
         if (CurrentPage == AppPage.Plugins && Plugins.CloseSubPage())
@@ -270,7 +276,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         else if (s.Connection is ConnectionPhase.Offline or ConnectionPhase.Failed)
             _wasOnline = false;
 
-        ShowDashboard = s.Connection is ConnectionPhase.Online or ConnectionPhase.Reconnecting
+        ShowDashboard = s.Connection is ConnectionPhase.Online or ConnectionPhase.Reconnecting or ConnectionPhase.GameView
             || (s.Connection == ConnectionPhase.Connecting && _wasOnline);
         IsOnline = s.IsOnline;
         IsBusy = s.IsBusy;
@@ -282,6 +288,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             ConnectionPhase.Connecting => "Connecting",
             ConnectionPhase.Reconnecting => "Reconnecting",
             ConnectionPhase.Failed => "Error",
+            ConnectionPhase.GameView => "Game view",
             _ => "Offline",
         };
         MemoryText = Formatting.Memory(s.Memory);
@@ -315,6 +322,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _host.Engine.SnapshotChanged -= OnSnapshotChanged;
         _host.MemoryVerdictChanged -= OnMemoryVerdictChanged;
         Console.Dispose();
+        GameView.Dispose();
         Plugins.Dispose();
         Settings.Dispose();
         Scripts.Queue?.Dispose();
