@@ -99,14 +99,33 @@ public class GameStateChannel : IDisposable
         if (_processingTask is not null)
             await _processingTask.ConfigureAwait(false);
 
-        _cts.Dispose();
+        DisposeCts();
     }
 
     public void Dispose()
     {
         _stateChannel.Writer.TryComplete();
-        _cts.Cancel();
-        _cts.Dispose();
+        // ScriptInterface.Dispose calls StopAsync (which disposes the token source) and then Dispose: cancelling a
+        // disposed source threw ObjectDisposedException out of the bot's Dispose.
+        if (Volatile.Read(ref _ctsDisposed) == 0)
+        {
+            try
+            {
+                _cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+        DisposeCts();
+    }
+
+    private int _ctsDisposed;
+
+    private void DisposeCts()
+    {
+        if (Interlocked.Exchange(ref _ctsDisposed, 1) == 0)
+            _cts.Dispose();
     }
 }
 

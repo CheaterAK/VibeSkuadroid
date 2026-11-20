@@ -44,6 +44,28 @@ public sealed record ScriptStatus(ScriptRunState State, string? ScriptPath, Date
     public string? ScriptName => ScriptPath is null ? null : Path.GetFileNameWithoutExtension(ScriptPath);
 
     public bool IsBusy => State is ScriptRunState.Compiling or ScriptRunState.Running or ScriptRunState.Stopping;
+
+    /// <summary>
+    /// The running script is paused (Skua's pause: its thread waits at its next Sleep or Wait). Only meaningful while
+    /// <see cref="State"/> is <see cref="ScriptRunState.Running"/>: a paused script is still busy (the memory watchdog
+    /// does not restart, the session and its keepalive stay up).
+    /// </summary>
+    public bool Paused { get; init; }
+
+    /// <summary>Running and paused.</summary>
+    public bool IsPaused => Paused && State == ScriptRunState.Running;
+}
+
+/// <summary>How a script run is started (the defaults are a manual start).</summary>
+/// <param name="OptionStorage">
+/// Skua's option storage to read the script's options from instead of the one the script names (Skua's
+/// <c>IScriptManager.OverrideStorage</c>, as the desktop scheduler uses for each queue entry); null for the script's own.
+/// It stays in effect for that script until the next start, so Skua's relogin restart of the script reads the same options.
+/// </param>
+/// <param name="Silent">Unattended (Skua's <c>SilentConfig</c>): option windows are never shown; reset notices are logged.</param>
+public sealed record ScriptStartOptions(string? OptionStorage = null, bool Silent = false)
+{
+    public static ScriptStartOptions Default { get; } = new();
 }
 
 /// <summary>Whether this build can run scripts.</summary>

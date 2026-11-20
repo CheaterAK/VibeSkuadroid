@@ -10,6 +10,7 @@
     <DataTemplate DataType="vm:LoginViewModel"><v:LoginView /></DataTemplate>
     <DataTemplate DataType="vm:DashboardViewModel"><v:DashboardView /></DataTemplate>
     <DataTemplate DataType="vm:ScriptsViewModel"><v:ScriptsView /></DataTemplate>
+    <DataTemplate DataType="vm:ControlViewModel"><v:ControlView /></DataTemplate>
     <DataTemplate DataType="vm:WorldViewModel"><v:WorldView /></DataTemplate>
     <DataTemplate DataType="vm:ConsoleViewModel"><v:ConsoleView /></DataTemplate>
     <DataTemplate DataType="vm:PluginsViewModel"><v:PluginsView /></DataTemplate>
@@ -77,10 +78,11 @@
             <TextBlock Text="Scripts" HorizontalAlignment="Center" />
           </StackPanel>
         </Button>
-        <Button Classes="nav" Classes.active="{Binding IsWorldPage}" Command="{Binding NavigateCommand}" CommandParameter="World">
+        <!-- Control replaces World here; the World lists open from the Control page (Lists) and Back returns to it. -->
+        <Button Classes="nav" Classes.active="{Binding IsControlPage}" Command="{Binding NavigateCommand}" CommandParameter="Control">
           <StackPanel HorizontalAlignment="Center" Spacing="2">
-            <PathIcon Data="{StaticResource IconWorld}" Width="22" Height="22" />
-            <TextBlock Text="World" HorizontalAlignment="Center" />
+            <PathIcon Data="{StaticResource IconControl}" Width="22" Height="22" />
+            <TextBlock Text="Control" HorizontalAlignment="Center" />
           </StackPanel>
         </Button>
         <Button Classes="nav" Classes.active="{Binding IsConsolePage}" Command="{Binding NavigateCommand}" CommandParameter="Console">

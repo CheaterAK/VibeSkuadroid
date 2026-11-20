@@ -59,6 +59,7 @@
     <!-- One class: its rotations -->
     <ScrollViewer IsVisible="{Binding IsClassVisible}">
       <StackPanel Margin="12,8">
+        <Button Classes="small" HorizontalAlignment="Left" Margin="0,0,0,8" Content="‹ All classes" Command="{Binding BackCommand}" />
         <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,0,0,8" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
         <Border Classes="banner" Margin="0,0,0,10" IsVisible="{Binding PendingDelete, Converter={x:Static ObjectConverters.IsNotNull}}">
           <StackPanel Spacing="6">

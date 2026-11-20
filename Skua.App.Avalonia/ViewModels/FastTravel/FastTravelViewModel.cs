@@ -5,6 +5,7 @@ using Skua.App.Avalonia.ViewModels.Dialogs;
 using Skua.Core.Interfaces;
 using Skua.Core.Interfaces.ViewModels;
 using Skua.Core.Messaging;
+using Skua.Core.Models;
 using Skua.Shared.Avalonia.ViewModels;
 using System;
 using System.Collections.Generic;
@@ -30,11 +31,8 @@ public partial class FastTravelViewModel : BotControlViewModelBase
         {
             foreach (string? item in savedTravels)
             {
-                if (string.IsNullOrWhiteSpace(item))
-                    continue;
-                string[] values = item.Split(',');
-                if (values.Length >= 4)
-                    defaultFastTravels.Add(new FastTravelItemViewModel(values[0], values[1], values[2], values[3], _travelCommand));
+                if (FastTravelEntry.TryParse(item, out FastTravelEntry? entry))
+                    defaultFastTravels.Add(new FastTravelItemViewModel(entry!.Name, entry.Map, entry.Cell, entry.Pad, _travelCommand));
             }
         }
         FastTravelItems = new(defaultFastTravels);
@@ -108,10 +106,7 @@ public partial class FastTravelViewModel : BotControlViewModelBase
         FilteredFastTravelItems.Clear();
         foreach (IFastTravelItemViewModel item in FastTravelItems)
         {
-            if (string.IsNullOrEmpty(filter) ||
-                item.DescriptionName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                item.MapName.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
-                item.Cell.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            if (FastTravelEntry.Matches(item.DescriptionName, item.MapName, item.Cell, filter))
             {
                 FilteredFastTravelItems.Add(item);
             }

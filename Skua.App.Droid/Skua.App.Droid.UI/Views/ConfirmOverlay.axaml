@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.ConfirmOverlay"
+             x:DataType="vm:ConfirmHost"
+             IsVisible="{Binding IsOpen}">
+  <!-- The app's own confirmation for the Tools pages (anything that spends or moves, and any action while a script runs). -->
+  <Border Background="#CC000000">
+    <Border Classes="card" VerticalAlignment="Center" Margin="20" BorderBrush="{StaticResource BorderStrongBrush}">
+      <StackPanel Spacing="10">
+        <TextBlock Classes="title" TextWrapping="Wrap" Text="{Binding Title}" />
+        <TextBlock TextWrapping="Wrap" Text="{Binding Text}" />
+        <StackPanel Spacing="4" IsVisible="{Binding HasQuantity}">
+          <TextBlock Classes="muted" Text="{Binding QuantityLabel}" />
+          <NumericUpDown Value="{Binding Quantity}" Minimum="{Binding QuantityMin}" Maximum="{Binding QuantityMax}" Increment="1" FormatString="0" />
+        </StackPanel>
+        <Grid ColumnDefinitions="*,*">
+          <Button HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Cancel" Command="{Binding CancelCommand}" />
+          <Button Grid.Column="1" HorizontalAlignment="Stretch" Margin="4,0,0,0" Classes="primary" Classes.danger="{Binding Danger}"
+                  Content="{Binding Button}" Command="{Binding ConfirmCommand}" />
+        </Grid>
+      </StackPanel>
+    </Border>
+  </Border>
+</UserControl>

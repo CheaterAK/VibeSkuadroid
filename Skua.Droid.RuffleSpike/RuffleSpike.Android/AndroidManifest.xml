@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Permissions: INTERNET only (game.aq.com over HTTPS, the game server sockets).
+  The activities are declared with [Activity] attributes in C#.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" android:installLocation="internalOnly">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <application
+      android:label="Game View Spike"
+      android:icon="@android:drawable/sym_def_app_icon"
+      android:allowBackup="false"
+      android:usesCleartextTraffic="false"
+      android:hardwareAccelerated="true"
+      android:largeHeap="false"
+      android:supportsRtl="true" />
+</manifest>

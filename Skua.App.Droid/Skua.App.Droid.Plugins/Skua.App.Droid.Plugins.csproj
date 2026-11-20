@@ -16,6 +16,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Skua.App.Droid.Core\Skua.App.Droid.Core.csproj" />
     <ProjectReference Include="..\..\Skua.Core\Skua.Core.csproj" />
+    <!-- The Control page reads the headless game (world model, client rules, map cells) of the same session. -->
+    <ProjectReference Include="..\..\Skua.Core.Headless.Flash\Skua.Core.Headless.Flash.csproj" />
     <!-- UI-free logic extracted from the desktop plugins (the desktop plugins compile the same files in). -->
     <ProjectReference Include="..\..\Skua.Plugins.Shared\Skua.Plugins.Shared.csproj" />
   </ItemGroup>

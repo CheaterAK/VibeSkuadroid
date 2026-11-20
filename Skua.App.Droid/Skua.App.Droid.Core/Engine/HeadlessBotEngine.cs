@@ -90,12 +90,17 @@ public sealed class HeadlessBotEngine : IBotEngine
 
     public event EventHandler<PacketEntry>? PacketLogged;
 
+    public event EventHandler<EngineStopRequest>? StopRequested;
+
     public ScriptSupport ScriptSupport => _scripts.Support;
 
     /// <summary>The built-in plugins' game-side halves, from the script host (null without a Skua host).</summary>
     public Plugins.IPluginBackends? Plugins => (_scripts as Plugins.IPluginBackendSource)?.PluginBackends;
 
     public IServiceProvider? SkuaServices => (_scripts as ISkuaServicesSource)?.SkuaServices;
+
+    /// <summary>Game events and drop actions from the script host (null without a Skua host).</summary>
+    public Notifications.IGameEvents? GameEvents => (_scripts as Notifications.IGameEventSource)?.GameEvents;
 
     public bool AutoReconnect
     {
@@ -120,6 +125,12 @@ public sealed class HeadlessBotEngine : IBotEngine
     public IReadOnlyList<LogEntry> GetRecentLog() => _log.Snapshot();
 
     public void ClearLog() => _log.Clear();
+
+    public void WriteLog(EngineLogLevel level, string source, string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        AddLog(level, source, message ?? string.Empty);
+    }
 
     public IReadOnlyList<PacketEntry> GetRecentPackets() => _packets.Snapshot();
 
@@ -278,10 +289,11 @@ public sealed class HeadlessBotEngine : IBotEngine
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
+        RaiseStopRequested(EngineStopRequest.Logout);
         CancelReconnect();
         _wantOnline = false;
         if (_scripts.Status.IsBusy)
-            await StopScriptAsync(cancellationToken).ConfigureAwait(false);
+            await StopScriptCoreAsync(cancellationToken).ConfigureAwait(false);
 
         await _opLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -415,7 +427,17 @@ public sealed class HeadlessBotEngine : IBotEngine
         MarkDirty();
     }
 
-    public async Task StartScriptAsync(string? scriptPath = null, CancellationToken cancellationToken = default)
+    public Task StartScriptAsync(string? scriptPath = null, CancellationToken cancellationToken = default) =>
+        StartScriptCoreAsync(scriptPath, ScriptStartOptions.Default, cancellationToken);
+
+    public Task StartScriptAsync(string scriptPath, ScriptStartOptions options, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
+        ArgumentNullException.ThrowIfNull(options);
+        return StartScriptCoreAsync(scriptPath, options, cancellationToken);
+    }
+
+    private async Task StartScriptCoreAsync(string? scriptPath, ScriptStartOptions options, CancellationToken cancellationToken)
     {
         if (!_scripts.Support.Available)
             throw new EngineException(_scripts.Support.Reason ?? "Scripts are not available.");
@@ -427,12 +449,53 @@ public sealed class HeadlessBotEngine : IBotEngine
             _scripts.Load(scriptPath);
         if (_scripts.Status.ScriptPath is null)
             throw new EngineException("Choose a script first.");
-        AddLog(EngineLogLevel.Info, "scripts", $"Starting {Path.GetFileName(_scripts.Status.ScriptPath)}.");
-        await _scripts.StartAsync(cancellationToken).ConfigureAwait(false);
-        MarkDirty();
+        AddLog(EngineLogLevel.Info, "scripts", $"Starting {Path.GetFileName(_scripts.Status.ScriptPath)}{(options.OptionStorage is string storage ? $" (options {storage})" : string.Empty)}.");
+        if (ReferenceEquals(options, ScriptStartOptions.Default))
+            await _scripts.StartAsync(cancellationToken).ConfigureAwait(false);
+        else
+            await _scripts.StartAsync(options, cancellationToken).ConfigureAwait(false);
+        PublishNow();
     }
 
-    public async Task StopScriptAsync(CancellationToken cancellationToken = default)
+    public Task StopScriptAsync(CancellationToken cancellationToken = default)
+    {
+        RaiseStopRequested(EngineStopRequest.Script);
+        return StopScriptCoreAsync(cancellationToken);
+    }
+
+    private void RaiseStopRequested(EngineStopRequest request)
+    {
+        try
+        {
+            StopRequested?.Invoke(this, request);
+        }
+        catch (Exception e) when (e is InvalidOperationException or IOException or EngineException)
+        {
+            AddLog(EngineLogLevel.Warning, "engine", $"Stop request handler failed: {e.Message}");
+        }
+    }
+
+    public bool CanPauseScript => _scripts.CanPause;
+
+    public Task PauseScriptAsync(CancellationToken cancellationToken = default) => SetPausedAsync(true, cancellationToken);
+
+    public Task ResumeScriptAsync(CancellationToken cancellationToken = default) => SetPausedAsync(false, cancellationToken);
+
+    private async Task SetPausedAsync(bool paused, CancellationToken cancellationToken)
+    {
+        if (!_scripts.CanPause)
+            throw new EngineException("Pausing scripts is not available in this engine.");
+        if (_scripts.Status.State != ScriptRunState.Running)
+            throw new EngineException("No script is running.");
+        if (_scripts.Status.Paused == paused)
+            return;
+        bool applied = await _scripts.SetPausedAsync(paused, cancellationToken).ConfigureAwait(false);
+        PublishNow();
+        if (!applied)
+            throw new EngineException(paused ? "The script could not be paused (it is stopping)." : "The script could not be resumed (it stopped or was paused again).");
+    }
+
+    private async Task StopScriptCoreAsync(CancellationToken cancellationToken)
     {
         if (!_scripts.Status.IsBusy)
             return;
@@ -447,16 +510,19 @@ public sealed class HeadlessBotEngine : IBotEngine
         {
             AddLog(EngineLogLevel.Warning, "scripts", "The script did not stop in time.");
         }
-        MarkDirty();
+        PublishNow();
     }
 
-    public async Task<ScriptOptionSet> GetScriptOptionsAsync(string scriptPath, CancellationToken cancellationToken = default)
+    public Task<ScriptOptionSet> GetScriptOptionsAsync(string scriptPath, CancellationToken cancellationToken = default) =>
+        GetScriptOptionsAsync(scriptPath, null, cancellationToken);
+
+    public async Task<ScriptOptionSet> GetScriptOptionsAsync(string scriptPath, string? optionStorage, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(scriptPath);
         ISessionScriptHost host = _sessionHost ?? throw new EngineException(_scripts.Support.Reason ?? "Script options are not available.");
         if (_scripts.Status.IsBusy)
             throw new EngineException("Stop the script before editing options.");
-        return await host.GetOptionsAsync(scriptPath, cancellationToken).ConfigureAwait(false);
+        return await host.GetOptionsAsync(scriptPath, optionStorage, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task SaveScriptOptionsAsync(ScriptOptionSet options, CancellationToken cancellationToken = default)
@@ -738,7 +804,12 @@ public sealed class HeadlessBotEngine : IBotEngine
         _scriptStatus = status;
         if (status.State == ScriptRunState.Faulted && status.Message is string message)
             AddLog(EngineLogLevel.Error, "scripts", message);
-        MarkDirty();
+        // Script state changes are rare (a few per run): publish at once, so the snapshot never lags a start, a stop
+        // or a pause (the script queue and the notification read it).
+        if (Volatile.Read(ref _disposed) == 0 && _session is not null)
+            PublishNow();
+        else
+            MarkDirty();
     }
 
     private void OnScriptLog(object? sender, LogEntry entry)
@@ -926,7 +997,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         try
         {
             if (_scripts.Status.IsBusy)
-                await StopScriptAsync().ConfigureAwait(false);
+                await StopScriptCoreAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception e) when (e is EngineException or InvalidOperationException)
         {

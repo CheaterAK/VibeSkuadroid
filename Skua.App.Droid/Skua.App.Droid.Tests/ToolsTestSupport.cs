@@ -1,153 +1,183 @@
-using Microsoft.Extensions.DependencyInjection;
 using Skua.App.Droid.Core.Engine;
-using Skua.Core.Headless;
-using Skua.Core.Interfaces;
-using Skua.Core.Models.Items;
-using Skua.Core.Models.Skills;
-using System.ComponentModel;
-using System.Reflection;
+using Skua.App.Droid.Core.Tools;
+using Skua.Core.Models.Quests;
 
 namespace Skua.App.Droid.Tests;
 
-/// <summary>A script host without scripts that hands the engine Skua services (fakes) for the Tools pages.</summary>
-internal sealed class ToolsScriptHost : IScriptHost, ISkuaServicesSource
+/// <summary>The Tools pages' backends as fakes that record every call.</summary>
+internal sealed class FakeGameTools : IGameTools
 {
-    private readonly UnavailableScriptHost _inner = new();
+    public FakeFastTravel FakeFastTravel { get; } = new();
 
-    public ToolsScriptHost(IServiceProvider services)
-    {
-        SkuaServices = services;
-    }
+    public IFastTravelBackend FastTravel => FakeFastTravel;
 
-    public IServiceProvider? SkuaServices { get; }
+    public FakeLoader FakeLoader { get; } = new();
 
-    public ScriptSupport Support => _inner.Support;
+    public ILoaderBackend Loader => FakeLoader;
 
-    public ScriptStatus Status => _inner.Status;
+    public FakeGrabber FakeGrabber { get; } = new();
 
-    public int LoadedAssemblyCount => 0;
-
-    public event EventHandler<ScriptStatus>? StatusChanged
-    {
-        add => _inner.StatusChanged += value;
-        remove => _inner.StatusChanged -= value;
-    }
-
-    public event EventHandler<LogEntry>? Log
-    {
-        add { }
-        remove { }
-    }
-
-    public void Attach(AqwSession session)
-    {
-    }
-
-    public void Load(string scriptPath) => _inner.Load(scriptPath);
-
-    public Task StartAsync(CancellationToken cancellationToken) => _inner.StartAsync(cancellationToken);
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public IGrabberBackend Grabber => FakeGrabber;
 }
 
-/// <summary>A Skua interface whose properties answer from a table (everything else: default).</summary>
-public class SkuaStub : DispatchProxy
+internal sealed class FakeFastTravel : IFastTravelBackend
 {
-    public Dictionary<string, object?> Values { get; } = new();
+    public List<TravelDestination> Saved { get; } =
+    [
+        new("Nulgath", "tercessuinotlim", "Boss2", "Right"),
+        new("Shop", "shopmap", "Enter", "Spawn"),
+    ];
 
-    public static T Create<T>(Dictionary<string, object?> values) where T : class
+    public List<string> Calls { get; } = new();
+
+    public TravelLocation? Here { get; set; } = new("testmap", "r2", "Left");
+
+    public IReadOnlyList<TravelDestination> Load() => Saved.ToList();
+
+    public void Save(IReadOnlyList<TravelDestination> destinations)
     {
-        T proxy = Create<T, SkuaStub>();
-        foreach ((string key, object? value) in values)
-            ((SkuaStub)(object)proxy).Values[key] = value;
-        return proxy;
+        Calls.Add($"save {destinations.Count}");
+        Saved.Clear();
+        Saved.AddRange(destinations);
     }
 
-    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    public IReadOnlyList<TravelDestination> Presets { get; } =
+    [
+        new("Tercessuinotlim", "tercessuinotlim", "Enter", "Spawn"),
+        new("Nulgath", "tercessuinotlim", "Boss2", "Right"),
+    ];
+
+    public TravelLocation? CurrentLocation() => Here;
+
+    public void Travel(TravelDestination destination, bool usePrivateRoom, int roomNumber)
     {
-        if (targetMethod is null)
-            return null;
-        if (targetMethod.Name.StartsWith("get_", StringComparison.Ordinal) && Values.TryGetValue(targetMethod.Name[4..], out object? value))
-            return value;
-        Type returnType = targetMethod.ReturnType;
-        return returnType != typeof(void) && returnType.IsValueType ? Activator.CreateInstance(returnType) : null;
+        Calls.Add($"travel {destination.Map} {destination.Cell} {destination.Pad} {(usePrivateRoom ? roomNumber.ToString() : "public")}");
+        if (destination.Map == "nowhere")
+            throw new EngineException("Log in first.");
     }
 }
 
-/// <summary>Skill sets in memory (what the CoreBots class page reads the modes from).</summary>
-internal sealed class FakeSkillContainer : IAdvancedSkillContainer
+internal sealed class FakeLoader : ILoaderBackend
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
+    public List<string> Calls { get; } = new();
 
-    public List<AdvancedSkill> LoadedSkills { get; set; } = new();
+    public List<QuestListEntry> List { get; } =
+    [
+        new(1000, "Pixie Problem", 1, false, false),
+        new(1001, "Map item", 1, false, false),
+        new(2000, "Member Quest", 50, true, true),
+    ];
 
-    public List<AdvancedSkill> Added { get; } = new();
+    public bool IsIdList(string input) => LoaderText.IsIdList(input);
 
-    public void Add(AdvancedSkill skill)
+    public string Load(LoaderKind kind, string input)
     {
-        Added.Add(skill);
-        LoadedSkills.Add(skill);
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(LoadedSkills)));
+        Calls.Add($"load {kind} {input}");
+        if (input.Trim() == "404")
+            throw new EngineException("Shop 404 did not load.");
+        return $"loaded {kind} {input}";
     }
 
-    public void TryOverride(AdvancedSkill skill) => Add(skill);
-
-    public void LoadSkills()
+    public string LoadQuests(IReadOnlyList<int> questIds)
     {
+        Calls.Add($"quests {string.Join(",", questIds)}");
+        return "loaded quests";
     }
 
-    public void ResetSkillsSets()
+    public Task<IReadOnlyList<QuestListEntry>> GetQuestListAsync() => Task.FromResult<IReadOnlyList<QuestListEntry>>(List.ToList());
+
+    public bool Matches(QuestListEntry quest, string query) => LoaderText.QuestMatches(quest.Id, quest.Name, query);
+
+    public string CopyText(IReadOnlyList<QuestListEntry> quests, QuestCopyFormat format) => format switch
     {
+        QuestCopyFormat.Names => LoaderText.Names(quests.Select(q => q.Name)),
+        QuestCopyFormat.Ids => LoaderText.Ids(quests.Select(q => q.Id)),
+        _ => LoaderText.NamesAndIds(quests.Select(q => (q.Name, q.Id))),
+    };
+
+    public string FakeComplete(int questId)
+    {
+        Calls.Add($"fake {questId}");
+        return "faked";
     }
 
-    public void SyncSkills()
+    public async Task<IReadOnlyList<QuestListEntry>> UpdateAsync(IProgress<string> progress, CancellationToken cancellationToken)
     {
+        Calls.Add("update");
+        progress.Report("Loading Quests 2001-2029...");
+        await Task.Yield();
+        List.Add(new(2001, "New Quest", 1, false, false));
+        return List.ToList();
     }
 
-    public void Remove(AdvancedSkill skill) => LoadedSkills.Remove(skill);
+    public string? ParseRange(string input, out int startId, out int endId) => LoaderText.ParseRange(input, out startId, out endId);
 
-    public void Save()
+    public ManualResetEventSlim? Gate { get; set; }
+
+    public async Task<IReadOnlyList<QuestListEntry>> UpdateRangeAsync(int startId, int endId, IProgress<string> progress, CancellationToken cancellationToken)
     {
+        Calls.Add($"range {startId}-{endId}");
+        progress.Report($"Loading Quests {startId}-{endId}...");
+        while (Gate is { IsSet: false } && !cancellationToken.IsCancellationRequested)
+            await Task.Delay(10);
+        return List.ToList();
     }
-
-    public Dictionary<string, List<string>> GetAvailableClassModes() => LoadedSkills
-        .GroupBy(s => s.ClassName)
-        .ToDictionary(g => g.Key, g => g.Select(s => s.ClassUseMode.ToString()).ToList());
-
-    public AdvancedSkill? GetClassModeSkills(string className, string mode) =>
-        LoadedSkills.FirstOrDefault(s => s.ClassName == className && s.ClassUseMode.ToString() == mode);
 }
 
-/// <summary>A character's inventory and skill sets for the CoreBots pages.</summary>
-internal static class FakeCharacter
+internal sealed class FakeGrabber : IGrabberBackend
 {
-    public static InventoryItem Item(string name, string category, int enhancement = 1, string? group = null) =>
-        new() { Name = name, CategoryString = category, EnhancementLevel = enhancement, ItemGroup = group ?? string.Empty };
+    public List<string> Calls { get; } = new();
 
-    public static IServiceProvider Services(out FakeSkillContainer skills, string currentClass = "Void Highlord")
+    /// <summary>When set, RunAsync waits for it (or for cancellation).</summary>
+    public ManualResetEventSlim? Gate { get; set; }
+
+    public IReadOnlyList<GrabbedItem> Grab(GrabberCategory category)
     {
-        List<InventoryItem> items =
-        [
-            Item("Void Highlord", "Class"),
-            Item("ArchPaladin", "Class"),
-            Item("Unenhanced Class", "Class", enhancement: 0),
-            Item("Sample Helm", "Helm"),
-            Item("Sample Armor", "Armor", enhancement: 0),
-            Item("Sample Cape", "Cape"),
-            Item("Sample Sword", "Sword", group: "Weapon"),
-            Item("Sample Pet", "Pet", enhancement: 0),
-            Item("Sample Ground", "Misc", enhancement: 0),
-        ];
-        skills = new FakeSkillContainer();
-        skills.LoadedSkills.Add(new AdvancedSkill("Void Highlord", "1 | 2 | 3 | 4", 100, ClassUseMode.Base, SkillUseMode.UseIfAvailable));
-        skills.LoadedSkills.Add(new AdvancedSkill("Void Highlord", "4 | 3", 100, ClassUseMode.Solo, SkillUseMode.WaitForCooldown));
-        skills.LoadedSkills.Add(new AdvancedSkill("ArchPaladin", "1 | 2", 100, ClassUseMode.Farm, SkillUseMode.UseIfAvailable));
-        return new ServiceCollection()
-            .AddSingleton(SkuaStub.Create<IScriptInventory>(new() { ["Items"] = items }))
-            .AddSingleton(SkuaStub.Create<IScriptPlayer>(new() { ["CurrentClass"] = items.First(i => i.Name == currentClass) }))
-            .AddSingleton<IAdvancedSkillContainer>(skills)
-            .BuildServiceProvider();
+        Calls.Add($"grab {category}");
+        return category switch
+        {
+            GrabberCategory.ShopItems =>
+            [
+                new(40, "Health Potion", "[40] Health Potion | Cost: 10 Gold", false, "potion"),
+                new(41, "Fancy Hat", "[41] Fancy Hat | Cost: 1,000 Gold", false, "hat"),
+            ],
+            GrabberCategory.Inventory =>
+            [
+                new(1, "Default Sword", "[1] Default Sword x1 | Category: Sword", false, "sword"),
+                new(30, "Old Boots", "[30] Old Boots x3 | Category: Misc", true, "boots"),
+            ],
+            GrabberCategory.MapMonsters => [new(5, "Pixie", "[5] Pixie | Cell: r2 | HP: 100/100", false, "pixie")],
+            _ => [],
+        };
     }
+
+    public GrabberPlan Plan(GrabberAction action, IReadOnlyList<GrabbedItem> items)
+    {
+        if (items.Count == 0)
+            return GrabberPlan.Refuse("Select at least one item.");
+        return action switch
+        {
+            GrabberAction.Buy when items.Count == 1 => new(null, $"Buy {items[0].Name}?", new QuantityAsk("Buy quantity", 1, 99, 1)),
+            GrabberAction.Buy => new(null, $"Buy {items.Count} items?", null),
+            GrabberAction.Sell when items.Count > 1 => GrabberPlan.Refuse("ATTENTION - 2 items selected!"),
+            GrabberAction.Sell => new(null, $"Sell {items[0].Name}?", new QuantityAsk("Sell quantity", 1, 3, 1)),
+            _ => new(null, null, null),
+        };
+    }
+
+    public async Task<string> RunAsync(GrabberAction action, IReadOnlyList<GrabbedItem> items, int quantity, IProgress<string> progress, CancellationToken cancellationToken)
+    {
+        Calls.Add($"{action} {string.Join(",", items.Select(i => i.Id))} x{quantity}");
+        progress.Report("working");
+        while (Gate is { IsSet: false })
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(10, CancellationToken.None);
+        }
+        return $"{action} done";
+    }
+
+    public string CopyText(string title, IReadOnlyList<GrabbedItem> items) => $"=== {title} ({items.Count} items) ===\n" + string.Join("\n", items.Select(i => i.Text));
+
+    public string DetailedText(string title, IReadOnlyList<GrabbedItem> items) => "details of " + string.Join(",", items.Select(i => i.Id));
 }

@@ -38,7 +38,7 @@ public class CoreBotsOptionsTests
 
         public FakeSkillContainer Skills { get; }
 
-        public CoreBotsOptionsViewModel Vm => Shell.Settings.Tools.CoreBots;
+        public CoreBotsOptionsViewModel Vm => Shell.Settings.SkillPages.CoreBots;
 
         public string OptionsDir => Path.Combine(App.Paths.SkuaDir, "options");
 
@@ -202,11 +202,12 @@ public class CoreBotsOptionsTests
     public async Task WithoutALoginOrSkuaThePageSaysWhy()
     {
         await using TestApp app = new();
-        ToolsViewModel tools = new(app.Services);
+        ToolsViewModel tools = new();
+        CoreBotsOptionsViewModel page = SkillToolPages.AddTo(tools, app.Services).CoreBots;
         tools.OpenCommand.Execute(tools.Entries.Single(e => e.Title == "CoreBots options"));
-        Assert.False(tools.CoreBots.IsReady);
-        Assert.False(tools.CoreBots.SaveCommand.CanExecute(null));
-        Assert.Contains("Log in first", tools.CoreBots.AccountText);
+        Assert.False(page.IsReady);
+        Assert.False(page.SaveCommand.CanExecute(null));
+        Assert.Contains("Log in first", page.AccountText);
     }
 
     /// <summary>The option lists are the desktop window's (Skua.App.Avalonia/AppStartup/CoreBots.cs): keys, order, defaults.</summary>

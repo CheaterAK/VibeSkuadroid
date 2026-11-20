@@ -6,8 +6,8 @@ using Skua.App.Droid.Core.Settings;
 
 namespace Skua.App.Droid.Core.ViewModels;
 
-/// <summary>App settings, permission state, engine restart and build information.</summary>
-public sealed partial class SettingsViewModel : ObservableObject
+/// <summary>App settings, permission state, engine restart and build information, and the Tools hub.</summary>
+public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 {
     private readonly AppServices _services;
     private readonly EngineHost _host;
@@ -18,30 +18,74 @@ public sealed partial class SettingsViewModel : ObservableObject
         _services = services;
         _host = services.Host;
         Load(_host.Settings.Current);
-        Tools = new ToolsViewModel(services);
+        Tools = new ToolsViewModel();
+        GamePages = GameToolPages.AddTo(Tools, services);
+        _notificationTools = NotificationTools.AddTo(Tools, services);
+        SkillPages = SkillToolPages.AddTo(Tools, services);
+        Tools.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ToolsViewModel.CurrentTitle) || e.PropertyName == nameof(ToolsViewModel.CurrentPage))
+                OnPropertyChanged(nameof(Title));
+        };
     }
 
-    /// <summary>The Tools hub (Advanced Skills, CoreBots options), opened from this page.</summary>
+    /// <summary>The game tool pages of the hub (Fast Travel, Loader, Grabber).</summary>
+    public GameToolPages GamePages { get; }
+
+    /// <summary>The skill tool pages of the hub (Advanced Skills, CoreBots options).</summary>
+    public SkillToolPages SkillPages { get; }
+
+    /// <summary>"Settings", "Tools", or the open tool's title.</summary>
+    public string Title => !ShowTools ? "Settings" : Tools.CurrentPage is null ? "Tools" : Tools.CurrentTitle;
+
+    private readonly NotificationTools? _notificationTools;
+
+    /// <summary>The Tools hub (opened from this page).</summary>
     public ToolsViewModel Tools { get; }
 
+    /// <summary>The Tools hub is shown instead of the settings.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSettingsVisible))]
-    private bool _isToolsOpen;
+    private bool _showTools;
 
-    public bool IsSettingsVisible => !IsToolsOpen;
+    /// <summary>The Settings tab is shown.</summary>
+    [ObservableProperty]
+    private bool _isActive;
+
+    partial void OnShowToolsChanged(bool value)
+    {
+        UpdateToolsVisible();
+        OnPropertyChanged(nameof(Title));
+    }
+
+    partial void OnIsActiveChanged(bool value) => UpdateToolsVisible();
+
+    private void UpdateToolsVisible()
+    {
+        if (_notificationTools is not null)
+            _notificationTools.Visible = IsActive && ShowTools;
+    }
 
     [RelayCommand]
-    private void OpenTools() => IsToolsOpen = true;
+    private void OpenTools() => ShowTools = true;
 
-    /// <summary>System back on this tab: inside Tools first, then back to the settings; false when they are shown.</summary>
-    public bool GoBack()
+    [RelayCommand]
+    private void CloseTools() => ShowTools = false;
+
+    /// <summary>Back on this tab: closes an open tool page, then the Tools hub; false when the settings are shown.</summary>
+    public bool CloseSubPage()
     {
-        if (!IsToolsOpen)
+        if (!ShowTools)
             return false;
-        if (!Tools.GoBack())
-            IsToolsOpen = false;
+        if (GamePages.CancelQuestion())
+            return true;
+        if (SkillPages.GoBack())
+            return true;
+        if (!Tools.CloseSubPage())
+            ShowTools = false;
         return true;
     }
+
+    public void Dispose() => _notificationTools?.Dispose();
 
     [ObservableProperty]
     private bool _autoReconnect;
@@ -163,7 +207,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     internal void Apply(EngineSnapshot s)
     {
-        Tools.Apply(s);
+        GamePages.Apply(s);
+        SkillPages.Apply(s);
         MemoryText = $"{Formatting.Memory(s.Memory)}, peak {(s.Memory.PeakRssBytes < 0 ? "n/a" : $"{s.Memory.PeakRssBytes / 1048576.0:0} MB")}";
     }
 }

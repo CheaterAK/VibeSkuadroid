@@ -3,6 +3,7 @@ using Android.Content.Res;
 using Skua.App.Droid.Core.Diagnostics;
 using Skua.App.Droid.Core.Engine;
 using Skua.App.Droid.Core.Hosting;
+using Skua.App.Droid.Core.Notifications;
 using Skua.App.Droid.Core.Platform;
 using Skua.App.Droid.Core.Scripts;
 using Skua.App.Droid.Core.Security;
@@ -150,7 +151,7 @@ internal static class EngineRuntime
     }
 
     /// <summary>What a successful composition produced; published as one object once everything is in place.</summary>
-    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library);
+    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications);
 
     /// <summary>The expensive part, on the background thread.</summary>
     private static Composition Compose()
@@ -158,7 +159,9 @@ internal static class EngineRuntime
         Context application = Volatile.Read(ref s_application) ?? throw new InvalidOperationException("No application context.");
         AppPaths paths = Paths;
         SettingsStore settings = new(paths.SettingsFile);
-        CredentialVault vault = new(CreateSecretStore(application, paths.SecretsDir));
+        // One Keystore-backed store: the remembered password and the Discord webhook URL are separate entries in it.
+        ISecretStore secrets = CreateSecretStore(application, paths.SecretsDir);
+        CredentialVault vault = new(secrets);
         AndroidPlatformServices platform = new(application);
         ScriptLibrary library = new(paths.ScriptsDir);
         CrashCapture.Info($"engine: settings, vault (available: {vault.IsAvailable}) and script library ready");
@@ -175,13 +178,28 @@ internal static class EngineRuntime
         CrashCapture.Info("engine: engine created");
         EngineHost host = new(engine, settings, vault, new ResumeStore(paths.ResumeFile), platform);
         host.RememberFailed += (_, e) => CrashCapture.NonFatal("remembering the password", e);
+        // The script queue lives with the engine (kept alive by the foreground service), not in the UI.
+        host.AttachScheduler(new Skua.App.Droid.Core.Scheduler.ScriptScheduler(engine,
+            new Skua.App.Droid.Core.Scheduler.QueueStore(paths.QueueFile, paths.PlaylistsDir), paths.ScriptsDir, paths.SkuaOptionsDir));
+
+        // Drop notifications, Notification Center, junk and the Discord webhook: alive with the engine, UI or not.
+        NotificationHub notifications = new(
+            engine,
+            new NotificationSettingsStore(paths.NotificationSettingsFile),
+            new NotificationHistory(paths.NotificationHistoryFile, DiagnosticText.Scrub),
+            new DropNotifications(application),
+            new WebhookUrlVault(secrets),
+            new DiscordWebhookSender(log: CrashCapture.Info),
+            DiagnosticText.Secrets,
+            log: CrashCapture.Info);
+        host.RestartStarting += (_, _) => notifications.History.Flush();
 
         // The foreground service follows the engine: started as soon as a session or script is active.
         engine.SnapshotChanged += (_, snapshot) => EngineService.EnsureRunningFor(application, snapshot);
         // Heartbeats record the script and connection state (read from the immutable snapshot; no subscription).
-        CrashCapture.EngineState = () => (engine.Snapshot.Script.State.ToString(), engine.Snapshot.Connection.ToString());
+        CrashCapture.EngineState = () => (engine.Snapshot.Script.IsPaused ? "Paused" : engine.Snapshot.Script.State.ToString(), engine.Snapshot.Connection.ToString());
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
-        return new Composition(host, platform, library);
+        return new Composition(host, platform, library, notifications);
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
@@ -228,7 +246,10 @@ internal static class EngineRuntime
             new AvaloniaFilePicker(),
             composition.Library,
             new ScriptRepositorySync(composition.Library, Paths.SkuaDir, warn: CrashCapture.Info),
-            Paths);
+            Paths)
+        {
+            Notifications = composition.Notifications,
+        };
     }
 
     private static InvalidOperationException NotInitialized() => new("The engine is not available (its composition failed or was skipped; see the crash report).");

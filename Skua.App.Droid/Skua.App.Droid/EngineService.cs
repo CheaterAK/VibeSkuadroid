@@ -29,6 +29,12 @@ public sealed class EngineService : Service
     public const string ActionStop = "com.vibeskua.droid.action.STOP";
     public const string ActionResume = "com.vibeskua.droid.action.RESUME";
 
+    /// <summary>Notification action: pause the running script (Skua's pause). Not "resume after restart".</summary>
+    public const string ActionPauseScript = "com.vibeskua.droid.action.PAUSE_SCRIPT";
+
+    /// <summary>Notification action: resume the paused script.</summary>
+    public const string ActionResumeScript = "com.vibeskua.droid.action.RESUME_SCRIPT";
+
     private const int NotificationId = 1001;
     private const int RestartNoticeId = 1002;
     private const string ChannelId = "engine";
@@ -128,6 +134,8 @@ public sealed class EngineService : Service
         _host = EngineRuntime.Host;
         _host.Engine.SnapshotChanged += OnSnapshot;
         _host.RestartStarting += OnRestartStarting;
+        if (_host.Scheduler is { } queue)
+            queue.StatusChanged += OnQueueStatus;
         OnSnapshot(this, _host.Engine.Snapshot);
         string?[] pending = _pending.ToArray();
         _pending.Clear();
@@ -159,6 +167,12 @@ public sealed class EngineService : Service
             case ActionStop:
                 _ = StopRequestedAsync();
                 break;
+            case ActionPauseScript:
+                _ = SetPausedAsync(true);
+                break;
+            case ActionResumeScript:
+                _ = SetPausedAsync(false);
+                break;
             case ActionResume:
             case null: // restarted by the system after the process was killed (START_STICKY)
                 _ = ResumeAsync();
@@ -174,6 +188,8 @@ public sealed class EngineService : Service
         {
             _host.Engine.SnapshotChanged -= OnSnapshot;
             _host.RestartStarting -= OnRestartStarting;
+            if (_host.Scheduler is { } queue)
+                queue.StatusChanged -= OnQueueStatus;
         }
         ReleaseLocks();
         s_running = false;
@@ -207,8 +223,13 @@ public sealed class EngineService : Service
         {
             if (host.Engine.Snapshot.Script.IsBusy)
             {
-                await host.Engine.StopScriptAsync();
+                await host.Engine.StopScriptAsync(); // stops the script queue too
                 return; // stay connected; a second Stop logs out
+            }
+            if (host.Scheduler is { IsRunning: true } queue)
+            {
+                await queue.StopAsync(); // between two queue runs: stop the queue, stay connected
+                return;
             }
             await host.LogoutAsync();
         }
@@ -217,6 +238,22 @@ public sealed class EngineService : Service
             Log.Warn(EngineRuntime.LogTag, "Stop: " + e.Message);
         }
         _main?.Post(StopService);
+    }
+
+    private async Task SetPausedAsync(bool paused)
+    {
+        EngineHost host = _host!;
+        try
+        {
+            if (paused)
+                await host.Engine.PauseScriptAsync();
+            else
+                await host.Engine.ResumeScriptAsync();
+        }
+        catch (EngineException e)
+        {
+            Log.Warn(EngineRuntime.LogTag, (paused ? "Pause: " : "Resume: ") + e.Message);
+        }
     }
 
     private async Task ResumeAsync()
@@ -240,6 +277,13 @@ public sealed class EngineService : Service
         }
     }
 
+    // The queue's entry changes between snapshots: show it (the notification update is throttled below).
+    private void OnQueueStatus(object? sender, Skua.App.Droid.Core.Scheduler.QueueStatus status)
+    {
+        if (_host?.Engine.Snapshot is EngineSnapshot latest)
+            OnSnapshot(this, latest);
+    }
+
     private void OnSnapshot(object? sender, EngineSnapshot snapshot)
     {
         _latest = snapshot;
@@ -251,9 +295,10 @@ public sealed class EngineService : Service
         if (!ReferenceEquals(snapshot, _latest) || _host is null)
             return;
 
-        UpdateLocks(snapshot.Script.IsBusy);
+        // The wake lock also covers the queue's waits between runs (a dozing CPU would stall the delay).
+        UpdateLocks(snapshot.Script.IsBusy || _host.Scheduler?.IsRunning == true);
 
-        bool idle = !snapshot.NeedsForegroundService;
+        bool idle = !snapshot.NeedsForegroundService && _host.Scheduler?.IsRunning != true;
         if (idle)
         {
             _idleSince ??= DateTimeOffset.UtcNow;
@@ -307,13 +352,17 @@ public sealed class EngineService : Service
         };
         string script = s.Script.State switch
         {
+            ScriptRunState.Running when s.Script.Paused => $"Paused {s.Script.ScriptName}",
             ScriptRunState.Running => $"Running {s.Script.ScriptName}",
             ScriptRunState.Compiling => $"Compiling {s.Script.ScriptName}",
             ScriptRunState.Stopping => "Stopping script",
             ScriptRunState.Faulted => "Script failed",
             _ => "No script running",
         };
-        if (s.BackgroundWork is string work)
+        string? queueLine = _host?.Scheduler?.Status is { IsRunning: true } q ? q.NotificationLine ?? q.Text : null;
+        if (queueLine is not null)
+            script = s.Script.IsBusy ? $"{queueLine} · {script}" : queueLine;
+        else if (s.BackgroundWork is string work)
             script = s.Script.IsBusy ? $"{script} · {work}" : work;
         string memory = s.Memory.RssBytes > 0 ? $" · {s.Memory.RssMb:0} MB" : string.Empty;
         string character = s.Character is CharacterState c ? $"{c.Name} (lvl {c.Level}) · {c.Map} · " : string.Empty;
@@ -324,15 +373,23 @@ public sealed class EngineService : Service
         PendingIntent stop = PendingIntent.GetService(this, 1,
             new Intent(this, typeof(EngineService)).SetAction(ActionStop),
             PendingIntentFlags.Immutable | PendingIntentFlags.UpdateCurrent)!;
+        // Pause / Resume: explicit (this service, which is not exported), immutable, one request code per action.
+        bool paused = s.Script.IsPaused;
+        bool canPause = s.Script.State == ScriptRunState.Running && _host?.Engine.CanPauseScript == true;
+        PendingIntent? pauseOrResume = canPause
+            ? PendingIntent.GetService(this, paused ? 4 : 3,
+                new Intent(this, typeof(EngineService)).SetAction(paused ? ActionResumeScript : ActionPauseScript),
+                PendingIntentFlags.Immutable | PendingIntentFlags.UpdateCurrent)
+            : null;
 
         // Shown on a secure lock screen instead of the full one: no character name or map.
         Notification publicVersion = new NotificationCompat.Builder(this, ChannelId)
             .SetSmallIcon(Resource.Drawable.ic_stat_engine)!
             .SetContentTitle("VibeSkua")!
-            .SetContentText(s.Script.IsBusy ? "Script running" : title)!
+            .SetContentText(s.Script.IsPaused ? "Script paused" : s.Script.IsBusy ? "Script running" : title)!
             .Build()!;
 
-        return new NotificationCompat.Builder(this, ChannelId)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ChannelId)
             .SetSmallIcon(Resource.Drawable.ic_stat_engine)!
             .SetContentTitle(title)!
             .SetContentText(character + script + memory)!
@@ -344,8 +401,11 @@ public sealed class EngineService : Service
             .SetVisibility(NotificationCompat.VisibilityPrivate)!
             .SetPublicVersion(publicVersion)!
             .SetForegroundServiceBehavior(NotificationCompat.ForegroundServiceImmediate)!
-            .SetContentIntent(open)!
-            .AddAction(0, s.Script.IsBusy ? "Stop script" : "Stop", stop)!
+            .SetContentIntent(open)!;
+        if (pauseOrResume is not null)
+            builder.AddAction(0, paused ? "Resume" : "Pause", pauseOrResume);
+        return builder
+            .AddAction(0, s.Script.IsBusy ? "Stop script" : queueLine is not null ? "Stop queue" : "Stop", stop)!
             .Build()!;
     }
 

@@ -1,103 +1,50 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Skua.App.Droid.Core.Engine;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
 
 namespace Skua.App.Droid.Core.ViewModels;
 
-/// <summary>An entry of the Tools list: what it is and how to open it.</summary>
+/// <summary>One entry of the Tools list: what it is and what opening it does.</summary>
 public sealed record ToolEntry(string Title, string Description, Action Open);
 
-/// <summary>A page opened from the Tools list.</summary>
-public interface IToolPage
-{
-    /// <summary>Shown in the page header.</summary>
-    string Title { get; }
-
-    /// <summary>Called each time the page is opened.</summary>
-    void Activate();
-
-    /// <summary>Back inside the page (closes an editor, a sub-page); false when at its top.</summary>
-    bool GoBack();
-}
-
 /// <summary>
-/// The Tools hub (opened from Settings): pages that are not a tab of their own, ports of the desktop's tool windows.
+/// The Tools hub, opened from the Settings page: a list of tool pages (<see cref="Entries"/>), one of which may be
+/// open (<see cref="CurrentPage"/>, a ViewModel the view maps to its view).
 /// </summary>
 public sealed partial class ToolsViewModel : ObservableObject
 {
-    public ToolsViewModel(AppServices services)
-    {
-        AdvancedSkills = new AdvancedSkillsViewModel(services);
-        CoreBots = new CoreBotsOptionsViewModel(services);
-        Entries =
-        [
-            new ToolEntry("Advanced Skills",
-                "Class skill rotations scripts use: browse, edit, create and delete them (skill order, HP/MP/aura rules, wait or skip).",
-                () => Show(AdvancedSkills)),
-            new ToolEntry("CoreBots options",
-                "CoreBots' settings for this account: solo, farm, dodge and boss class with their rotation and gear, private rooms, delays and the other options.",
-                () => Show(CoreBots)),
-        ];
-    }
-
-    public ObservableCollection<ToolEntry> Entries { get; }
-
-    public AdvancedSkillsViewModel AdvancedSkills { get; }
-
-    public CoreBotsOptionsViewModel CoreBots { get; }
+    public ObservableCollection<ToolEntry> Entries { get; } = new();
 
     /// <summary>The open tool page, or null for the list.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsListVisible), nameof(Title))]
+    [NotifyPropertyChangedFor(nameof(IsListVisible))]
     private object? _currentPage;
+
+    [ObservableProperty]
+    private string _currentTitle = "Tools";
 
     public bool IsListVisible => CurrentPage is null;
 
-    public string Title => (CurrentPage as IToolPage)?.Title ?? "Tools";
+    /// <summary>Shows a tool page (called by an entry's <see cref="ToolEntry.Open"/>).</summary>
+    public void Show(object page, string title)
+    {
+        CurrentTitle = title;
+        CurrentPage = page;
+    }
 
     [RelayCommand]
     private void Open(ToolEntry? entry) => entry?.Open();
 
     [RelayCommand]
-    private void Close() => CurrentPage = null;
+    private void Close() => CloseSubPage();
 
-    /// <summary>The header's back button: one level up inside the page, or back to the list.</summary>
-    [RelayCommand]
-    private void Back() => GoBack();
-
-    partial void OnCurrentPageChanged(object? oldValue, object? newValue)
+    /// <summary>Back: closes the open tool page; false when the list is shown.</summary>
+    public bool CloseSubPage()
     {
-        if (oldValue is INotifyPropertyChanged before)
-            before.PropertyChanged -= OnPagePropertyChanged;
-        if (newValue is INotifyPropertyChanged after)
-            after.PropertyChanged += OnPagePropertyChanged;
-    }
-
-    private void OnPagePropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(IToolPage.Title))
-            OnPropertyChanged(nameof(Title));
-    }
-
-    /// <summary>Opens <paramref name="page"/>.</summary>
-    public void Show(object page)
-    {
-        CurrentPage = page;
-        (page as IToolPage)?.Activate();
-    }
-
-    /// <summary>Back: inside the open page first, then to the list; false when the list is shown.</summary>
-    public bool GoBack()
-    {
-        if (CurrentPage is IToolPage page && page.GoBack())
-            return true;
         if (CurrentPage is null)
             return false;
         CurrentPage = null;
+        CurrentTitle = "Tools";
         return true;
     }
-
-    internal void Apply(EngineSnapshot s) => CoreBots.Apply(s);
 }

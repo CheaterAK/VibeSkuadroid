@@ -41,6 +41,8 @@
   <ItemGroup>
     <!-- Reused unchanged from the headless library's tests: a real loopback AQW server. -->
     <Compile Include="..\..\Skua.Core.Headless.Tests\Fakes\FakeAqwServer.cs" Link="Fakes\FakeAqwServer.cs" />
+    <!-- Synthetic map files (cells and pads) for the Control page's map. -->
+    <Compile Include="..\..\Skua.Core.Headless.Tests\Fakes\SyntheticSwf.cs" Link="Fakes\SyntheticSwf.cs" />
   </ItemGroup>
 
   <Import Project="..\ScriptReferences.targets" />

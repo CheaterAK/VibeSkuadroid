@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform-neutral parts of the game view spike: request policy, socket bridge, settings, report. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>RuffleSpike.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

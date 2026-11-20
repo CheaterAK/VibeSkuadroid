@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Skua.Core.Interfaces.ViewModels;
 using Skua.Core.Messaging;
+using Skua.Core.Models;
 
 namespace Skua.App.Avalonia.ViewModels.FastTravel;
 
@@ -50,15 +51,11 @@ public partial class FastTravelItemViewModel : ObservableObject, IFastTravelItem
 
     public bool Validate()
     {
-        return
-            !string.IsNullOrWhiteSpace(Cell)
-            && !string.IsNullOrWhiteSpace(Pad)
-            && !string.IsNullOrWhiteSpace(MapName)
-            && !string.IsNullOrWhiteSpace(DescriptionName);
+        return FastTravelEntry.IsComplete(DescriptionName, MapName, Cell, Pad);
     }
 
     public override string ToString()
     {
-        return $"{DescriptionName},{MapName},{Cell},{Pad}";
+        return FastTravelEntry.Format(DescriptionName, MapName, Cell, Pad);
     }
 }

@@ -199,7 +199,7 @@ public sealed partial class AdvancedSkillsViewModel : ObservableObject, IToolPag
             ? nameof(ClassUseMode.Base)
             : SkillSetStore.Modes.FirstOrDefault(m => SelectedClass!.Sets.All(s => !string.Equals(s.Mode, m, StringComparison.OrdinalIgnoreCase))) ?? nameof(ClassUseMode.Base);
         Message = null;
-        Editor = new SkillRotationEditorViewModel(null, className, mode, SaveAsync);
+        Editor = new SkillRotationEditorViewModel(null, className, mode, SaveAsync) { Closed = () => Editor = null };
     }
 
     [RelayCommand]
@@ -210,7 +210,7 @@ public sealed partial class AdvancedSkillsViewModel : ObservableObject, IToolPag
         Message = null;
         try
         {
-            Editor = new SkillRotationEditorViewModel(row.Set, null, null, SaveAsync);
+            Editor = new SkillRotationEditorViewModel(row.Set, null, null, SaveAsync) { Closed = () => Editor = null };
         }
         catch (FormatException)
         {
@@ -220,6 +220,10 @@ public sealed partial class AdvancedSkillsViewModel : ObservableObject, IToolPag
 
     [RelayCommand]
     private void CloseEditor() => Editor = null;
+
+    /// <summary>The page's own back button: one level up (editor, class).</summary>
+    [RelayCommand]
+    private void Back() => GoBack();
 
     [RelayCommand]
     private void Delete(SkillSetRow? row) => PendingDelete = row;

@@ -10,6 +10,7 @@ public enum AppPage
 {
     Home,
     Scripts,
+    Control,
     World,
     Console,
     Plugins,
@@ -37,6 +38,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Dashboard = new DashboardViewModel(services);
         Scripts = new ScriptsViewModel(services);
         World = new WorldViewModel(services);
+        Control = new ControlViewModel(services);
+        Control.OpenListsRequested += (_, _) => CurrentPage = AppPage.World;
         Console = new ConsoleViewModel(services);
         Plugins = new PluginsViewModel(services);
         Plugins.PropertyChanged += (_, e) =>
@@ -45,6 +48,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(Title));
         };
         Settings = new SettingsViewModel(services);
+        Settings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.Title))
+                OnPropertyChanged(nameof(Title));
+        };
 
         _host.Engine.SnapshotChanged += OnSnapshotChanged;
         _host.MemoryVerdictChanged += OnMemoryVerdictChanged;
@@ -58,7 +66,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     public ScriptsViewModel Scripts { get; }
 
+    /// <summary>The World lists (inventory, bank, quests, drops, monsters); opened from the Control page.</summary>
     public WorldViewModel World { get; }
+
+    /// <summary>The Control page: schematic map, current cell and manual actions.</summary>
+    public ControlViewModel Control { get; }
 
     public ConsoleViewModel Console { get; }
 
@@ -68,7 +80,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public SettingsViewModel Settings { get; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CurrentContent), nameof(Title), nameof(IsHomePage), nameof(IsScriptsPage), nameof(IsWorldPage), nameof(IsConsolePage), nameof(IsPluginsPage), nameof(IsSettingsPage))]
+    [NotifyPropertyChangedFor(nameof(CurrentContent), nameof(Title), nameof(IsHomePage), nameof(IsScriptsPage), nameof(IsWorldPage), nameof(IsControlPage), nameof(IsConsolePage), nameof(IsPluginsPage), nameof(IsSettingsPage))]
     private AppPage _currentPage = AppPage.Home;
 
     [ObservableProperty]
@@ -107,6 +119,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         AppPage.Home => ShowDashboard ? Dashboard : Login,
         AppPage.Scripts => Scripts,
+        AppPage.Control => Control,
         AppPage.World => World,
         AppPage.Console => Console,
         AppPage.Plugins => Plugins,
@@ -117,10 +130,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         AppPage.Home => ShowDashboard ? "Dashboard" : "Login",
         AppPage.Scripts => "Scripts",
+        AppPage.Control => "Control",
         AppPage.World => "World",
         AppPage.Console => "Console",
         AppPage.Plugins => Plugins.Title,
-        _ => "Settings",
+        _ => Settings.Title,
     };
 
     public bool IsHomePage => CurrentPage == AppPage.Home;
@@ -128,6 +142,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public bool IsScriptsPage => CurrentPage == AppPage.Scripts;
 
     public bool IsWorldPage => CurrentPage == AppPage.World;
+
+    /// <summary>The bottom bar's Control entry is lit on the Control page and on the World lists opened from it.</summary>
+    public bool IsControlPage => CurrentPage is AppPage.Control or AppPage.World;
 
     public bool IsConsolePage => CurrentPage == AppPage.Console;
 
@@ -149,7 +166,14 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             return true;
         if (CurrentPage == AppPage.Plugins && Plugins.CloseSubPage())
             return true;
-        if (CurrentPage == AppPage.Settings && Settings.GoBack())
+        if (CurrentPage == AppPage.Control && Control.CloseOverlay())
+            return true;
+        if (CurrentPage == AppPage.World)
+        {
+            CurrentPage = AppPage.Control;
+            return true;
+        }
+        if (CurrentPage == AppPage.Settings && Settings.CloseSubPage())
             return true;
         if (CurrentPage != AppPage.Home)
         {
@@ -192,8 +216,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     partial void OnCurrentPageChanged(AppPage value)
     {
         World.IsActive = value == AppPage.World;
+        Control.IsActive = value == AppPage.Control;
         Console.IsActive = value == AppPage.Console;
         Plugins.IsActive = value == AppPage.Plugins;
+        Settings.IsActive = value == AppPage.Settings;
         if (value == AppPage.Scripts)
             Scripts.Refresh();
     }
@@ -207,6 +233,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     {
         _uiVisible = visible;
         Console.SetUiVisible(visible);
+        Control.SetUiVisible(visible);
+        Scripts.Queue?.SetUiVisible(visible);
         if (visible)
             PostSnapshot();
     }
@@ -261,6 +289,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Dashboard.Apply(s);
         Scripts.Apply(s);
         World.Apply(s);
+        Control.Apply(s);
         Plugins.Apply(s);
         Settings.Apply(s);
         ApplyVerdict(_host.MemoryVerdict);
@@ -285,5 +314,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _host.MemoryVerdictChanged -= OnMemoryVerdictChanged;
         Console.Dispose();
         Plugins.Dispose();
+        Settings.Dispose();
+        Scripts.Queue?.Dispose();
     }
 }

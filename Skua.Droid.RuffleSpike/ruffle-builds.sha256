@@ -1,0 +1,25 @@
+# Ruffle self-hosted web builds bundled by the spike, from the official npm package @ruffle-rs/ruffle.
+# Lines: "<sha256>  tgz <dir> <url>" for the npm tarball, "<sha256>  <dir>/<file>" for each shipped file
+# (directories under web/; source maps are not shipped).
+# 0.7.1: npm dist-tag "latest", published 2026-10-07,
+#   npm integrity sha512-6ZWxx/cfX3RoNyQ1AVimECSae4gKqMxdPimOD+chiIcOFiJS0ATGKcjkretxNT03lqNUpiSyJjF55AuvvZ+QeA==
+dc9e7407549a91accc41a14932b0b9d9a9d51a3742ce6f020888c8a76682b157  tgz ruffle-0.7.1 https://registry.npmjs.org/@ruffle-rs/ruffle/-/ruffle-0.7.1.tgz
+1ed33b9b71a6b01b9aafafed660be343ffeb2d246c5d79e6425a32bf93e38207  ruffle-0.7.1/172de42e6619eac8f371.wasm
+af9b6a13a8f5e8d305bc3ce28a4edf3f6242df1183e8576ad4ca086e9f21eaea  ruffle-0.7.1/878d548199cddef07035.wasm
+62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a  ruffle-0.7.1/LICENSE_APACHE
+4de9338a7879c68e911742a7d691f0797ff1ef8d8a6fb978b0c711e258fe959c  ruffle-0.7.1/LICENSE_MIT
+cdbeefd04e27a2fe80f735210fa4c054e376802eb43a16d9b6eeae78500f2bde  ruffle-0.7.1/README.md
+d27c6bdce2a34afb32e8dfa40970bc7e86cbcb912f92db7eb3e1ac70e943bd82  ruffle-0.7.1/core.ruffle.16d61072ac7fdc4d5013.js
+d89e507ee60d550629e9229aa1e4dd4f9e75ec7db271e0135cbc87dab042ea51  ruffle-0.7.1/core.ruffle.994eeef0a471a88cd0e3.js
+822dd0fe6f6a84d4ab41351acd2a789aa9ef75b3fe454ab846c0858157c48d89  ruffle-0.7.1/package.json
+26036a94567088dfb3de88a759e8ed10a4cea07b29500af36f345eef42420098  ruffle-0.7.1/ruffle.js
+# 0.8.0-nightly.2026.11.19: npm dist-tag "nightly",
+#   npm integrity sha512-nQlnEqQ3bKVnTWaHVwrXWS5BB16/mZKkrNLBtoStLygKf3gtZQ5nZBG75lRAamSbwwN+VYEy3M2a8uFeiM/gkA==
+bccdf0120351ea7e14de4c7d29db3e7d783d3df316b753f8c680a38e6e0a43d8  tgz ruffle-nightly https://registry.npmjs.org/@ruffle-rs/ruffle/-/ruffle-0.8.0-nightly.2026.11.19.tgz
+62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a  ruffle-nightly/LICENSE_APACHE
+4de9338a7879c68e911742a7d691f0797ff1ef8d8a6fb978b0c711e258fe959c  ruffle-nightly/LICENSE_MIT
+cdbeefd04e27a2fe80f735210fa4c054e376802eb43a16d9b6eeae78500f2bde  ruffle-nightly/README.md
+f9286cd3b8613c211bcf3abe0d30170cd75d1675af5fea7e0d4dc65d8c2edc4a  ruffle-nightly/package.json
+02ff4d18a8dad26b5252b2ea25d2cd215eed667bff3464794988c074a649c360  ruffle-nightly/ruffle.js
+2c09a810c5c7fbe3e9c3920da81ec9a9ec3e15ec5103b23d7b943a20b1933a90  ruffle-nightly/ruffle_web-wasm_mvp_bg.CFHO6RHZ.wasm
+6fce3d7077135fa0d39f0f5f597afce7c4d03b6dd883d406b83e5d14c73eb20e  ruffle-nightly/ruffle_web_bg.FV6CI6QL.wasm

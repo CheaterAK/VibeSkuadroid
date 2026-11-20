@@ -6,10 +6,10 @@ Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .N
 
 | Project | TFM | What |
 |---|---|---|
-| `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog), ViewModels, settings, credential vault format, script library |
+| `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog, script queue), ViewModels, settings, credential vault format, script library |
 | `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`) |
 | `Skua.App.Droid.Linked` | net10.0 | the desktop's UI-free ViewModels compiled in unchanged (advanced skill items and rules, CoreBots loadout); referenced by `.Core` only, behind an extern alias (see Tools) |
-| `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) on Skua's `IScriptInterface`; created by the script host adapter |
+| `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) and the Control page's, on Skua's `IScriptInterface`; created by the script host adapter |
 | `Skua.App.Droid.UI` | net10.0 | Avalonia 12 views (compiled bindings) |
 | `Skua.App.Droid` | net10.0-android | Android head: plain launcher and crash screen, the Avalonia activity, foreground `EngineService`, `KeystoreSecretStore`, crash capture, restart, manifest |
 | `Skua.App.Droid.Desktop` | net10.0 | desktop preview of the same UI and engine (no password storage) |
@@ -209,7 +209,9 @@ Reference images scripts compile against are packed as APK assets under `assets/
 
 ## Tools
 
-Settings > *Open tools* lists pages ported from the desktop's tool windows (`ToolsViewModel`, a `ToolEntry` per page).
+Advanced Skills and CoreBots options are pages of the Tools hub (Settings > Tools), registered by `SkillToolPages.AddTo`
+next to the game and notification pages. System back goes up inside the page first (a question, the rotation editor, a
+class), then to the hub, then to the settings.
 
 **Advanced Skills** (desktop: AdvancedSkillsView). Classes and their rotations from `UserAdvancedSkills.json` (what
 Skua's `AdvancedSkillContainer` loads and scripts use), searchable; per rotation: edit, delete, back to the community
@@ -249,6 +251,137 @@ other projects, that namespace would hide the `Avalonia` namespace from code in 
 `Avalonia.Xyz` (several files do). So `.Core` references it with `Aliases="desktop"` and `PrivateAssets="all"`, and the
 views bind to `.Core` wrappers (`SkillRow`, `AuraCheckRow`, `CoreBotsSlot`, ...), never to desktop types.
 
+## Control page
+
+There is no game rendering, so the Control tab (bottom bar: Home, Scripts, **Control**, Console, Plugins, Settings)
+shows the game schematically and lets you act by hand. It took World's place in the bar: the World lists (inventory,
+temp, bank, quests, drops, monsters) open from Control's *Lists* button, and Back returns to Control.
+
+* **Map**: map and room, server, and the map's cells as tiles in map order: the frame labels of the map file
+  (`Skua.Core.Headless/Maps`, downloaded once and cached); when the file cannot be read (LZMA) the cells seen in the
+  room data (monsters' and players' cells, Enter). Each tile shows live/total monsters and other players; yours is lit,
+  cells with live monsters have an orange edge. Tap a tile to move there (the cell's default pad: Spawn, else Left,
+  else its first pad, as skua.swf's jumpCorrectRoom); the pad row moves within your cell.
+* **Cell**: your HP and target; monsters (name, level, HP bar, state) with *Attack* (the client's attackMonsterID:
+  target plus auto attack); players (level, state, afk) with *Go to*; skill bar slots 1-5 (the client's readiness
+  rules: cooldown, global cooldown, mana, target); Cancel target, Rest, Resurrect (when dead); drops with Pick up /
+  Reject.
+* **Actions**: *Travel* (join a map, with the last 8 joined maps; /goto a player by name; everyone in the room),
+  *Shop* (load by ID; each item with price and the client's checks: unmet materials or quest, gold/AC, membership,
+  reputation, how many can be bought; Buy), *Quest* (load by ID; requirements, progress, rewards; Accept, Turn in),
+  *Bank* (load; bank to backpack and back; Sell from the backpack while a shop is loaded).
+
+How it works: `IControlBackend` (Core) is implemented by `Skua.App.Droid.Plugins/Control/ControlBackend.cs` on the
+engine's one Skua session, created next to the plugins (`IPluginBackends.Control`, so the script host adapter is
+unchanged). Reads come from the headless world model and client rules (`HeadlessGame`); actions go through Skua's
+script API (`Map.Jump`, `Combat.Attack`, `Skills.UseSkill`, `Shops`, `Quests`, `Bank`, `Inventory`, `Drops`,
+`Player.Rest/Goto`), the client rules (`GameClient.Resurrect`, `ShowQuests`) and `GameCommands.JoinMapAsync` (for the
+server's refusal text). The page never builds a packet; raw packets stay in the Console's packet logger.
+
+Safety: one action at a time; while a script runs, every action first asks "A script is running; do it anyway?";
+buying (quantity and price, AC purchases in red), selling, bank moves, quest turn-ins and rejecting a drop ask for
+confirmation. Actions wait for the game's own throttles (`world.lock`: shop, buy, sell, quest, rest, map transfer);
+moves within the map are spaced 0.5 s and /goto 3 s apart by the page, skills by the client's cooldowns. Names typed
+for maps and players are checked (letters, digits, `-`, `_`, spaces for players) before anything is sent. Failures
+show on the page and go to the Console (source `control`); nothing there throws into the UI.
+
+Cost: the page reads the game only while it is open and the app is in the foreground, at most every 400 ms (2.5 UI
+updates per second), on a worker thread; a list is replaced only when its content changed. In the background it does
+nothing; returning reads the latest state once.
+
+## Fast Travel, Loader and Grabber (Settings > Tools)
+
+Ports of the desktop's Fast Travel, Loader and Grabber windows, as pages of the Tools hub (`ToolsViewModel`, a list of
+`ToolEntry(Title, Description, Open)`, opened from the top of Settings; the notification pages below share it). They
+are added by `GameToolPages.AddTo` (as `NotificationTools.AddTo` adds the notification pages); Back closes an open
+question, then the page, then the hub. Their game side is `IGameTools` (Core), implemented in `Skua.App.Droid.Plugins/Tools` on the engine's Skua
+session and exposed as `IPluginBackends.GameTools` (like the Control page's backend).
+
+* **Fast Travel**: the desktop's list itself (Skua's `FastTravels` setting, same file and `name,map,cell,pad` lines,
+  `Skua.Core.Models.FastTravelEntry`); search by name, map or cell; one tap travels through Skua's `IMapService.Travel`
+  (private room toggle and number, default on / 111111 like the desktop, saved in `files/droid/tools.json`; the
+  tercessuinotlim detour through m22); add (with *Current*: the map, cell and pad you are in), edit, delete, clear,
+  and add Skua's presets (`DefaultFastTravels`).
+* **Loader**: load a shop (one ID; the Control page's `LoadShop`, which checks it arrived) or quests (`1,2 3`; Skua's
+  `Quests.Load`, then waits for them) by ID, then *View in Grabber*; Skua's quest list (`QuestData.json`, kept current
+  by the community script sync) with the desktop's search, select, copy names / IDs / `// name | id` lines, load, and
+  *Fake* (Skua's client-only `UpdateQuest`); Skua's updater for new IDs or a range, with progress and Cancel. The input
+  rules and copy formats are the desktop's (`Skua.Core.Models.Quests.LoaderText`). At most 200 rows show; search narrows.
+* **Grabber**: the desktop's ten tabs (Skua's `GrabberService.Grab`), search in the desktop's summary lines
+  (`Skua.Core.Services.GrabberText`), select, copy IDs / names / the desktop's Copy text, a per-row ID copy, the
+  desktop's Export text to the share sheet, and the desktop's buttons per tab: Buy; Load Shop; Open, Accept, Register,
+  Fake Complete, Unregister All; Get Map Item; Equip, Sell, Sell All, To Bank; To Inventory; Kill, Teleport To.
+  Buying, selling, loading a shop, accepting and the bank moves call the Control page's backend (same checks and
+  verification); the rest calls Skua's `GrabberService` tasks that ask nothing. The desktop's refusals apply (AC items
+  that cost AC, not enough gold, one sale at a time, equipped items). *GetMap Item IDs* lists only map items the
+  desktop saved before: Skua finds them by decompiling the map file with FFDec, Windows only.
+
+Safety: the pages never use Skua's dialog service (it declines every unattended confirmation here); they ask with
+their own confirmation card (`ConfirmHost`). Buy, Sell, Sell All, Get Map Item (with the desktop's quantity
+questions), the bank moves, Equip and Register ask first; deleting, clearing and adding presets in Fast Travel ask;
+the quest list update asks. While a script runs every action first asks "A script is running; do it anyway?". One
+action at a time per page; long Grabber tasks (Kill) and the quest update can be cancelled. Actions go through Skua's
+API and the client's own throttles (`world.lock`).
+## Pause and resume
+
+*Pause* (Scripts page, Dashboard, notification action) uses Skua's own pause unchanged
+(`ScriptManager.SetPausedAsync`, the desktop's Pause button and hotkey): the skill timer pauses and the script
+thread blocks on `ScriptPauseEvent` at its next `Bot.Sleep` / `Bot.Wait` call (every wait loop of Skua and CoreBots
+goes through them); *Resume* stops Skua's auto attack and releases the thread. Nothing in it needs Flash or a window,
+so it works headless as is. The adapter mirrors `ScriptPaused` into `ScriptStatus.Paused`; everything that shows the
+script state shows "Paused" (Scripts page, Dashboard, notification, heartbeat). A paused script is still busy: the
+memory watchdog does not restart, the wake lock stays, and the session keeps its keepalive and AFK clearing (they
+live in the connection, not in the script). A script that never calls Sleep or Wait does not stop until it does.
+Stop works while paused (Skua cancels the wait). If the connection drops while paused, Skua's relogin restarts the
+script unpaused, as on the desktop. The notification's Pause/Resume action is an explicit, immutable PendingIntent
+to the engine service, which is not exported.
+
+## Script queue
+
+The desktop's Script Scheduler, on the Scripts page (*Queue* tab; *Add to queue* in the Library tab). The queue
+(`Skua.App.Droid.Core/Scheduler/ScriptScheduler.cs`) lives with the engine in `EngineHost` for the whole process, not
+in a ViewModel: it keeps running in the background (the foreground service and its wake lock stay up while it runs,
+also between runs), and a recreated activity shows the same state. The notification shows the current entry
+("Queue 2/5: Gold farm (run 1/3)"); its Stop stops the queue's script and with it the queue.
+
+**Per entry**: display name (desktop default: the file name, "Name (2).cs" for a second copy), runs (or repeat until
+stopped), stop after N minutes (the entry's total run time, paused time excluded), wait before the next run, on
+error: skip / stop the queue / retry N times, and two profiles:
+
+* *Script options*: the entry's own Skua option storage `Queue_<script>_<id>` (the desktop's scheme), edited in the
+  usual options editor and saved by Skua as `options/<storage>.cfg`. The run starts with Skua's `OverrideStorage` set
+  to it and `SilentConfig` on; both stay set until the next start, so Skua's relogin restart of the script reads the
+  same profile (the desktop clears it when the script stops, so its relogin restart falls back to the script's own
+  options).
+* *CoreBots profile*: CoreBots' settings (edited over the account's current CBO file) stored with the entry and
+  written to `options/CBO_Storage(<account>).txt` right before each run of the entry. The file then keeps the last
+  applied profile. Without a profile the file is left as it is.
+
+Dialogs are answered by the headless policy (see *Unattended dialogs*). Errors are shown as one plain-English
+sentence ("The script does not compile: ...", "The script crashed: it used something that was not there
+(NullReferenceException: ...)"). Playlists (queue plus settings) are saved by name in `files/droid/playlists/`; a
+loaded playlist leaves out entries whose script is gone. *Continue* runs from the entry the queue stopped at.
+
+**Relogin.** Ported from the desktop: a run that ends while the account is disconnected (the engine was not online
+during or right after it) is not counted ("Disconnected"); the queue waits for the connection. If Skua's relogin
+restarts the same script (it does after a drop while a script runs, when AutoRelogin is on), the queue adopts that
+run: no second start, nothing skipped. If the account is back and the script was not restarted within 8 s, the
+queue starts the same entry again. Before every run the queue waits until the account is online (the desktop's
+"Scheduler Paused"). The script's Stop (any page, the notification) and logging out stop the queue.
+
+**Memory and restarts.** Script assemblies are never unloaded (Mono), and the app reuses identical ones through
+`ScriptAssemblyStore`, so re-running a script costs nothing but a long queue of different scripts grows memory. The
+watchdog only restarts when no script runs and the engine was idle for 30 s, which a queue rarely is. So between two
+runs (never during one, never before the first run after a start) the queue asks `EngineHost`: if memory is over the
+threshold and an automatic restart is allowed now (auto restart on, threshold not too low, 3 min uptime, 15 min since
+the last automatic restart) and the session can be restored (a remembered password), the engine restarts. Before
+every restart (this one, the watchdog's, the restart button) the queue saves its position with "resume after the
+restart"; after the restart's login (or, if the login could not be resumed, once the user logs in) it continues at
+that run: the entry that ran is not repeated and the next one is not skipped. A restart while the queue waited for a
+reconnect mid-entry runs that entry again. The desktop has no equivalent (its queue is in memory only). If the
+process dies without a planned restart (crash, killed), the queue is not resumed by itself: it shows "Interrupted"
+and *Continue* resumes there. The state (`files/droid/queue.json`) is written at every step; it holds no secrets.
+
 ## Plugins
 
 The desktop app's three plugins are built in (Plugins tab): each has an on/off switch and, where it can run, a page.
@@ -278,3 +411,30 @@ token, the account's characters, network access and the foreground service, and 
 process. It would need at least an explicit warning, a hash or signature allowlist, and the same review as a script,
 which already runs with these rights (scripts are source compiled on the device; a DLL is opaque).
 
+
+## Notifications, junk and Discord (Settings > Tools)
+
+`NotificationHub` (`Skua.App.Droid.Core/Notifications`) is created with the engine and runs without any UI. Skua's game
+and script messages reach it through `IGameEvents` (`Skua.App.Droid.Scripting/SkuaGameEvents.cs`); the message handlers
+only queue, one background worker does the rest, so the Flash bridge and the script thread never wait.
+
+* **Notification Center**: the desktop's entries and filters, newest first, at most 500, kept in
+  `files/droid/notification-history.json` (scrubbed like crash reports).
+* **Notify Drop**: a watch list (`|`-separated input, whole name, case-insensitive) in `files/droid/notify.json`. A watched
+  item dropped or obtained posts a notification on its own channel "Watched drops" (`DropNotifications.cs`, default
+  importance; `EngineService` is untouched); tapping opens the app; one notification per item, alerting once while shown;
+  a secure lock screen shows only "A watched item dropped" unless item names are allowed there.
+* **Current drops**: the World page's Drops tab picks up, rejects, picks up all, and adds a drop to the watch or junk list.
+* **Junk Items**: Skua's `IJunkService` and its `JunkItems.json` in the script folder (the desktop's file and format; the
+  community sync replaces it like the desktop's auto-update does). Sell all junk (equipped items kept). Android adds
+  *reject junk drops automatically*: Skua's `RejectExcept` for the junk drop, unless the running script asked for it or it
+  is watched. The headless bridge's `rejectExcept` closes the rejected drops in the world model, as the game client does.
+* **Discord webhook**: the URL must be `https://` on discord.com, discordapp.com or their canary./ptb. subdomains,
+  `/api[/vN]/webhooks/<id>/<token>`, optionally `?thread_id=`; it is a credential, so it is encrypted in the Keystore
+  secret store (`no_backup/secrets`, entry `discord-webhook`), registered with the diagnostics scrubber, never logged or
+  shown again. Cards (`WebhookPayloads`): Script Started, Farming Session Concluded, Script Error (script name only),
+  Kicked/Disconnected & Relogging, Scheduler Paused (`NotificationHub.NotifySchedulerPaused`), Rare Drop! for watched items
+  (30 s per item). They carry script, item and map names, counts and durations; the character name only when allowed
+  (else "VibeSkua Bot"); `allowed_mentions` is empty. One queue (`DiscordWebhookSender`): 429 waits for `retry_after` /
+  `Retry-After` (at most 60 s, 5 attempts), an empty bucket delays the next message, 2 messages per second at most, the
+  oldest message is dropped when 50 wait.

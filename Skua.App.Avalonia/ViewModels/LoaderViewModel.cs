@@ -81,24 +81,14 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
         }
         if (SelectedIndex == 1)
         {
-            string[] parts = InputIDs.Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            int[] questIds = new int[parts.Length];
-            for (int i = 0; i < parts.Length; i++)
-            {
-                if (int.TryParse(parts[i], out int qId))
-                    questIds[i] = qId;
-            }
+            int[] questIds = LoaderText.ParseIds(InputIDs);
             Task.Factory.StartNew(() => _quests.Load(questIds));
         }
     }
 
     private bool AllDigits()
     {
-        if (string.IsNullOrWhiteSpace(InputIDs))
-            return false;
-
-        string normalized = InputIDs.Replace(",", "").Replace(" ", "");
-        return normalized.Length > 0 && normalized.All(char.IsDigit);
+        return LoaderText.IsIdList(InputIDs);
     }
 
     [RelayCommand]
@@ -136,7 +126,7 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
             if (item is QuestData qd)
                 names.Add(qd.Name);
         }
-        _clipboardService.SetText(string.Join(",", names));
+        _clipboardService.SetText(LoaderText.Names(names));
     }
 
     [RelayCommand]
@@ -155,7 +145,7 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
             if (item is QuestData qd)
                 ids.Add(qd.ID);
         }
-        _clipboardService.SetText(string.Join(",", ids));
+        _clipboardService.SetText(LoaderText.Ids(ids));
     }
 
     [RelayCommand]
@@ -164,7 +154,7 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
         if (items is null || items.Count == 0)
         {
             if (SelectedQuest != null)
-                _clipboardService.SetText($"// {SelectedQuest.Name} | {SelectedQuest.ID}");
+                _clipboardService.SetText(LoaderText.NameAndIdLine(SelectedQuest.Name, SelectedQuest.ID));
             return;
         }
 
@@ -172,7 +162,7 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
         foreach (object item in items)
         {
             if (item is QuestData quest)
-                lines.Add($"// {quest.Name} | {quest.ID}");
+                lines.Add(LoaderText.NameAndIdLine(quest.Name, quest.ID));
         }
         _clipboardService.SetText(string.Join(Environment.NewLine, lines));
     }
@@ -233,19 +223,9 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
     [RelayCommand]
     private async Task UpdateQuestsRange()
     {
-        string[] parts = QuestRange.Split(new char[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-        if (parts.Length != 2 || !int.TryParse(parts[0], out int startId) || !int.TryParse(parts[1], out int endId))
+        if (LoaderText.ParseRange(QuestRange, out int startId, out int endId) is string rangeError)
         {
-            ProgressReport = "Invalid format. Use: startID, endID";
-            await Task.Delay(2000);
-            ProgressReport = string.Empty;
-            return;
-        }
-
-        if (startId > endId)
-        {
-            ProgressReport = "Start ID must be less than or equal to End ID";
+            ProgressReport = rangeError;
             await Task.Delay(2000);
             ProgressReport = string.Empty;
             return;
@@ -318,9 +298,7 @@ public partial class LoaderViewModel : BotControlViewModelBase, IManagedWindow
         FilteredQuestIDs.Clear();
         foreach (QuestData quest in QuestIDs)
         {
-            if (string.IsNullOrEmpty(query) ||
-                quest.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                quest.ID.ToString().Contains(query, StringComparison.OrdinalIgnoreCase))
+            if (LoaderText.QuestMatches(quest.ID, quest.Name, query))
             {
                 FilteredQuestIDs.Add(quest);
             }

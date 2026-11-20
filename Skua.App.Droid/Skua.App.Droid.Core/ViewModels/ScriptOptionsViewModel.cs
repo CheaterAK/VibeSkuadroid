@@ -12,11 +12,18 @@ public sealed partial class ScriptOptionsViewModel : ObservableObject
 {
     private readonly ScriptOptionSet _set;
 
-    public ScriptOptionsViewModel(ScriptOptionSet set, string scriptName, bool isCoreBots = false)
+    /// <param name="set">The options and their values.</param>
+    /// <param name="scriptName">Shown in the header.</param>
+    /// <param name="isCoreBots">CoreBots' own settings rather than one script's options.</param>
+    /// <param name="profileOf">The queue entry whose profile this is (its own option storage), or null.</param>
+    /// <param name="queueEntry">For a CoreBots profile: the queue entry it is saved to (instead of the CBO file).</param>
+    public ScriptOptionsViewModel(ScriptOptionSet set, string scriptName, bool isCoreBots = false, string? profileOf = null, Guid? queueEntry = null)
     {
         _set = set;
         ScriptName = scriptName;
         IsCoreBots = isCoreBots;
+        ProfileOf = profileOf;
+        QueueEntryId = queueEntry;
         foreach (ScriptOptionItem item in set.Items)
             Items.Add(new ScriptOptionEditor(item, set.Items.Any(i => i.Category != "Options")));
     }
@@ -26,13 +33,23 @@ public sealed partial class ScriptOptionsViewModel : ObservableObject
     /// <summary>CoreBots' own settings (CBO file) rather than one script's options.</summary>
     public bool IsCoreBots { get; }
 
+    /// <summary>The queue entry this profile belongs to, or null for the script's (or account's) own options.</summary>
+    public string? ProfileOf { get; }
+
+    /// <summary>A queue entry's CoreBots profile: saved in the queue, written to the CBO file before each run of the entry.</summary>
+    public Guid? QueueEntryId { get; }
+
     public string Storage => _set.Storage;
 
-    public string Header => $"{ScriptName} options";
+    public string Header => ProfileOf is string entry ? $"{ScriptName} options for queue entry \"{entry}\"" : $"{ScriptName} options";
 
-    public string StorageText => IsCoreBots
-        ? $"Saved as {_set.Storage}.txt in Skua's options folder; every CoreBots script reads it at start. Empty means CoreBots' default."
-        : $"Saved as {_set.Storage}.cfg in Skua's options folder; read at every start.";
+    public string StorageText => (IsCoreBots, QueueEntryId) switch
+    {
+        (true, not null) => $"Saved with the queue entry; written to {_set.Storage}.txt right before each of its runs. Empty means CoreBots' default.",
+        (true, null) => $"Saved as {_set.Storage}.txt in Skua's options folder; every CoreBots script reads it at start. Empty means CoreBots' default.",
+        _ when ProfileOf is not null => $"This entry's own options, saved as {_set.Storage}.cfg in Skua's options folder (the script's own options are not changed).",
+        _ => $"Saved as {_set.Storage}.cfg in Skua's options folder; read at every start.",
+    };
 
     public ObservableCollection<ScriptOptionEditor> Items { get; } = new();
 

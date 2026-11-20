@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.FastTravelView"
+             x:DataType="vm:FastTravelViewModel">
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+        <!-- Private room and search -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <CheckBox IsChecked="{Binding UsePrivateRoom}" Content="Join a private room" />
+              <NumericUpDown Grid.Column="1" Width="150" Value="{Binding PrivateRoomNumber}" Minimum="1" Maximum="99999999"
+                             Increment="1" FormatString="0" IsEnabled="{Binding UsePrivateRoom}" />
+            </Grid>
+            <TextBox Text="{Binding SearchText}" PlaceholderText="Search name, map or cell" TextInputOptions.AutoCapitalization="False" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" IsVisible="{Binding !IsOnline}" Text="Log in to travel." />
+            <TextBlock Classes="error" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Status}" IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Destinations -->
+        <Grid ColumnDefinitions="*,Auto,Auto" Margin="2,0,2,6">
+          <TextBlock Classes="caption" VerticalAlignment="Center" Text="{Binding Count, StringFormat='DESTINATIONS ({0})'}" />
+          <Button Grid.Column="1" Classes="small" Margin="0,0,6,0" Content="Presets" Command="{Binding AddPresetsCommand}" />
+          <Button Grid.Column="2" Classes="small danger" Content="Clear" Command="{Binding ClearCommand}" />
+        </Grid>
+        <ItemsControl ItemsSource="{Binding Destinations}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:FastTravelRow">
+              <Border Classes="card" Padding="6">
+                <Grid ColumnDefinitions="*,Auto,Auto">
+                  <Button Classes="primary" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Margin="0,0,6,0"
+                          Command="{Binding TravelCommand}">
+                    <StackPanel>
+                      <TextBlock FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Classes="muted" Text="{Binding Where}" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                  </Button>
+                  <Button Grid.Column="1" Classes="small" Margin="0,0,6,0" Content="Edit" Command="{Binding EditCommand}" />
+                  <Button Grid.Column="2" Classes="small danger" Content="Delete" Command="{Binding DeleteCommand}" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Add or edit -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="{Binding EditorTitle}" />
+            <TextBox Text="{Binding EditName}" PlaceholderText="Name, e.g. Ultra Alteon" />
+            <TextBox Text="{Binding EditMap}" PlaceholderText="Map" TextInputOptions.AutoCapitalization="False" />
+            <Grid ColumnDefinitions="*,*">
+              <TextBox Margin="0,0,4,0" Text="{Binding EditCell}" PlaceholderText="Cell" TextInputOptions.AutoCapitalization="False" />
+              <TextBox Grid.Column="1" Margin="4,0,0,0" Text="{Binding EditPad}" PlaceholderText="Pad" TextInputOptions.AutoCapitalization="False" />
+            </Grid>
+            <Grid ColumnDefinitions="*,*,*">
+              <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Current" Command="{Binding UseCurrentLocationCommand}" />
+              <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Cancel" Command="{Binding CancelEditCommand}" />
+              <Button Grid.Column="2" Classes="small primary" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="{Binding SaveText}" Command="{Binding SaveEditCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <v:ConfirmOverlay DataContext="{Binding Confirm}" />
+  </Panel>
+</UserControl>

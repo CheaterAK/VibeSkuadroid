@@ -1,0 +1,9 @@
+<Project>
+  <!-- Deliberately does NOT import the repo-root Directory.Build.props: the game view spike is self-contained. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

@@ -48,7 +48,7 @@ public class ToolsUiTests
         shell.NavigateCommand.Execute("Settings");
         shell.Settings.OpenToolsCommand.Execute(null);
         ToolsViewModel tools = shell.Settings.Tools;
-        CoreBotsOptionsViewModel page = tools.CoreBots;
+        CoreBotsOptionsViewModel page = shell.Settings.SkillPages.CoreBots;
 
         // Logged out: the page says why.
         tools.OpenCommand.Execute(tools.Entries.Single(e => e.Title == "CoreBots options"));
@@ -120,8 +120,8 @@ public class ToolsUiTests
         Render(window);
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(ToolsView)));
         ToolsViewModel tools = shell.Settings.Tools;
-        tools.OpenCommand.Execute(tools.Entries[0]);
-        AdvancedSkillsViewModel page = tools.AdvancedSkills;
+        tools.OpenCommand.Execute(tools.Entries.Single(e => e.Title == "Advanced Skills"));
+        AdvancedSkillsViewModel page = shell.Settings.SkillPages.AdvancedSkills;
         await Until(window, () => page.Classes.Count == 3);
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(AdvancedSkillsView)));
 
@@ -171,7 +171,7 @@ public class ToolsUiTests
         Assert.True(shell.GoBack());
         Assert.True(tools.IsListVisible);
         Assert.True(shell.GoBack());
-        Assert.False(shell.Settings.IsToolsOpen);
+        Assert.False(shell.Settings.ShowTools);
         Render(window);
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(SettingsView)));
 

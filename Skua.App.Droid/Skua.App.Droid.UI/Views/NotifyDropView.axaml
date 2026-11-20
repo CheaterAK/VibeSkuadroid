@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:sys="using:System"
+             x:Class="Skua.App.Droid.UI.Views.NotifyDropView"
+             x:DataType="vm:NotifyDropViewModel">
+  <ScrollViewer>
+    <StackPanel Margin="12,8">
+      <Border Classes="banner" IsVisible="{Binding !NotificationsAllowed}">
+        <Grid ColumnDefinitions="*,Auto">
+          <TextBlock TextWrapping="Wrap" VerticalAlignment="Center" FontSize="13"
+                     Text="Notifications are off for this app: watched drops are only listed in the Notification Center." />
+          <Button Grid.Column="1" Classes="small primary" Margin="8,0,0,0" Content="Allow" Command="{Binding RequestPermissionCommand}" />
+        </Grid>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="WATCH LIST" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="A notification when one of these items drops or is obtained. Several names: separate them with |." />
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBox Text="{Binding AddDropInput}" PlaceholderText="Item name | another item" TextInputOptions.AutoCapitalization="False" />
+            <Button Grid.Column="1" Classes="small primary" Margin="8,0,0,0" Content="Add" Command="{Binding AddDropCommand}" />
+          </Grid>
+          <TextBlock Classes="muted" Text="No items watched." IsVisible="{Binding IsEmpty}" />
+          <ItemsControl ItemsSource="{Binding NotifyDropList}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="sys:String">
+                <Grid ColumnDefinitions="*,Auto" Margin="0,2">
+                  <TextBlock VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding}" />
+                  <Button Grid.Column="1" Classes="small" Content="Remove"
+                          Command="{Binding $parent[ItemsControl].((vm:NotifyDropViewModel)DataContext).RemoveDropCommand}" CommandParameter="{Binding}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Button Classes="small danger" HorizontalAlignment="Left" Content="Remove all" Command="{Binding RemoveAllDropsCommand}" IsVisible="{Binding !IsEmpty}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Classes="caption" Text="NOTIFICATIONS" />
+          <CheckBox IsChecked="{Binding NotifyWatchedDrops}" Content="When a watched item drops" />
+          <CheckBox IsChecked="{Binding NotifyWatchedObtained}" Content="When a watched item is obtained" />
+          <CheckBox IsChecked="{Binding ShowNamesOnLockScreen}" Content="Show item names on the lock screen" />
+          <TextBlock Classes="muted" TextWrapping="Wrap"
+                     Text="Off: a locked phone only shows that a watched item dropped. Item and character names stay hidden until you unlock." />
+          <Button Classes="small" HorizontalAlignment="Left" Content="Send a test notification" Command="{Binding TestNotificationCommand}" />
+        </StackPanel>
+      </Border>
+      <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

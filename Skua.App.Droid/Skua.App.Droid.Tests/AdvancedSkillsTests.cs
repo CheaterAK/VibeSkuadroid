@@ -298,8 +298,11 @@ public class AdvancedSkillsTests
     {
         await using TestApp app = new();
         File.WriteAllText(Path.Combine(app.Paths.SkuaDir, SkillSetStore.DefaultsFileName), SampleJson);
-        ToolsViewModel tools = new(app.Services);
-        AdvancedSkillsViewModel page = tools.AdvancedSkills;
+        ToolsViewModel tools = new();
+        SkillToolPages skills = SkillToolPages.AddTo(tools, app.Services);
+        AdvancedSkillsViewModel page = skills.AdvancedSkills;
+        // System back as Settings does it: inside the page first, then the hub closes it.
+        bool Back() => skills.GoBack() || tools.CloseSubPage();
         tools.OpenCommand.Execute(tools.Entries.Single(e => e.Title == "Advanced Skills"));
         Assert.Same(page, tools.CurrentPage);
         await Sandbox.Until(() => page.Classes.Count == 3);
@@ -312,11 +315,11 @@ public class AdvancedSkillsTests
         // A class and its rotations; edit one.
         page.OpenClassCommand.Execute(page.Classes.Single(c => c.ClassName == "Sample Mage"));
         Assert.True(page.IsClassVisible);
-        Assert.Equal("Sample Mage", tools.Title);
+        Assert.Equal("Sample Mage", tools.CurrentTitle);
         SkillSetRow farm = page.SelectedClass!.Sets.Single(s => s.Mode == "Farm");
         page.EditCommand.Execute(farm);
         SkillRotationEditorViewModel editor = page.Editor!;
-        Assert.Equal("Sample Mage (Farm)", tools.Title);
+        Assert.Equal("Sample Mage (Farm)", tools.CurrentTitle);
         editor.MoveDownCommand.Execute(editor.Skills[0]);
         await editor.SaveCommand.ExecuteAsync(null);
         Assert.Null(editor.Error);
@@ -340,7 +343,7 @@ public class AdvancedSkillsTests
         Assert.Equal(["Base", "Farm", "Solo"], page.SelectedClass!.Sets.Select(s => s.Mode));
 
         // Back: class -> list; a brand new class from the list joins an existing one ignoring case.
-        Assert.True(tools.GoBack());
+        Assert.True(Back());
         Assert.True(page.IsListVisible);
         page.NewCommand.Execute(null);
         page.Editor!.ClassName = "sample gunner";
@@ -367,9 +370,9 @@ public class AdvancedSkillsTests
         Assert.Equal("3 classes, 5 rotations", page.Summary);
 
         // System back: class page -> list -> Tools list -> (Settings).
-        Assert.True(tools.GoBack());
-        Assert.True(tools.GoBack());
+        Assert.True(Back());
+        Assert.True(Back());
         Assert.True(tools.IsListVisible);
-        Assert.False(tools.GoBack());
+        Assert.False(Back());
     }
 }

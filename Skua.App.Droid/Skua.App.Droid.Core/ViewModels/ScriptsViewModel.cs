@@ -25,6 +25,53 @@ public sealed partial class ScriptsViewModel : ObservableObject
         _library = services.Library;
         ScriptSupportText = _host.Engine.ScriptSupport.Available ? null : _host.Engine.ScriptSupport.Reason;
         RepositoryText = services.RepositorySync.Description;
+        if (_host.Scheduler is { } scheduler)
+        {
+            Queue = new QueueViewModel(services, scheduler, editor => OptionsEditor = editor);
+            Queue.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(QueueViewModel.TabTitle))
+                    OnPropertyChanged(nameof(QueueTabTitle));
+            };
+        }
+    }
+
+    /// <summary>"Queue (3)".</summary>
+    public string QueueTabTitle => Queue?.TabTitle ?? "Queue";
+
+    /// <summary>The Queue tab (the engine's script queue), or null when the engine has none.</summary>
+    public QueueViewModel? Queue { get; }
+
+    public bool HasQueue => Queue is not null;
+
+    /// <summary>The Queue tab is selected (else the Library).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBrowsing), nameof(IsQueueVisible), nameof(IsLibraryTab))]
+    private bool _showQueue;
+
+    public bool IsLibraryTab => !ShowQueue;
+
+    public bool IsQueueVisible => OptionsEditor is null && ShowQueue && Queue is not null;
+
+    /// <summary>The Library / Queue tabs (hidden behind the options editor).</summary>
+    public bool ShowTabs => OptionsEditor is null && Queue is not null;
+
+    [RelayCommand]
+    private void SelectTab(string? tab)
+    {
+        ShowQueue = string.Equals(tab, "Queue", StringComparison.OrdinalIgnoreCase) && Queue is not null;
+        if (ShowQueue)
+            Queue!.RefreshPlaylists();
+    }
+
+    private bool CanAddToQueue() => SelectedEntry is { IsScript: true } && Queue is { IsRunning: false };
+
+    /// <summary>Adds the selected script at the end of the queue.</summary>
+    [RelayCommand(CanExecute = nameof(CanAddToQueue))]
+    private void AddToQueue()
+    {
+        Queue!.Add(SelectedEntry!);
+        Message = Queue.Message;
     }
 
     private CancellationTokenSource? _syncCts;
@@ -38,7 +85,7 @@ public sealed partial class ScriptsViewModel : ObservableObject
     private string _currentFolder = string.Empty;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(DeleteCommand), nameof(EditOptionsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(DeleteCommand), nameof(EditOptionsCommand), nameof(AddToQueueCommand))]
     private ScriptEntry? _selectedEntry;
 
     [ObservableProperty]
@@ -47,6 +94,16 @@ public sealed partial class ScriptsViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(EditOptionsCommand))]
     private bool _scriptBusy;
+
+    /// <summary>A script runs and is not paused: Pause is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(PauseCommand))]
+    private bool _canPause;
+
+    /// <summary>The running script is paused: Resume is offered.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResumeCommand))]
+    private bool _isPaused;
 
     /// <summary>Kills, deaths, quests and drops of the running (or last) script.</summary>
     [ObservableProperty]
@@ -65,12 +122,17 @@ public sealed partial class ScriptsViewModel : ObservableObject
 
     /// <summary>The options editor while it is open.</summary>
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsEditingOptions), nameof(IsBrowsing))]
+    [NotifyPropertyChangedFor(nameof(IsEditingOptions), nameof(IsBrowsing), nameof(IsQueueVisible), nameof(ShowTabs))]
     private ScriptOptionsViewModel? _optionsEditor;
 
     public bool IsEditingOptions => OptionsEditor is not null;
 
-    public bool IsBrowsing => OptionsEditor is null;
+    public bool IsBrowsing => OptionsEditor is null && !(ShowQueue && Queue is not null);
+
+    /// <summary>The script queue runs: manual starts wait (the queue owns the script slot).</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(AddToQueueCommand))]
+    private bool _queueRunning;
 
     [ObservableProperty]
     private string _scriptStatus = "Idle";
@@ -120,10 +182,10 @@ public sealed partial class ScriptsViewModel : ObservableObject
             Message ??= "No scripts yet. Import a .cs file or a folder.";
     }
 
-    /// <summary>One level up; false at the root.</summary>
+    /// <summary>One level up; false at the root (and on the Queue tab).</summary>
     public bool GoUp()
     {
-        if (CurrentFolder.Length == 0)
+        if (CurrentFolder.Length == 0 || ShowQueue)
             return false;
         int slash = CurrentFolder.LastIndexOf('/');
         CurrentFolder = slash < 0 ? string.Empty : CurrentFolder[..slash];
@@ -158,7 +220,7 @@ public sealed partial class ScriptsViewModel : ObservableObject
         }
     }
 
-    private bool CanStart() => SelectedEntry is { IsScript: true } && !ScriptBusy;
+    private bool CanStart() => SelectedEntry is { IsScript: true } && !ScriptBusy && !QueueRunning;
 
     [RelayCommand(CanExecute = nameof(CanStart))]
     private async Task StartAsync()
@@ -180,6 +242,32 @@ public sealed partial class ScriptsViewModel : ObservableObject
         try
         {
             await _host.Engine.StopScriptAsync();
+        }
+        catch (EngineException e)
+        {
+            Message = e.Message;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanPause))]
+    private async Task PauseAsync()
+    {
+        try
+        {
+            await _host.Engine.PauseScriptAsync();
+        }
+        catch (EngineException e)
+        {
+            Message = e.Message;
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(IsPaused))]
+    private async Task ResumeAsync()
+    {
+        try
+        {
+            await _host.Engine.ResumeScriptAsync();
         }
         catch (EngineException e)
         {
@@ -381,12 +469,16 @@ public sealed partial class ScriptsViewModel : ObservableObject
         editor.Error = null;
         try
         {
-            if (editor.IsCoreBots)
+            if (editor.IsCoreBots && editor.QueueEntryId is Guid entry && Queue is not null)
+                Queue.SaveCoreBotsProfile(entry, editor.ToSet());
+            else if (editor.IsCoreBots)
                 await Task.Run(() => CoreBotsOptions.Save(editor.ToSet(), OptionsDir));
             else
                 await _host.Engine.SaveScriptOptionsAsync(editor.ToSet());
             OptionsEditor = null;
-            Message = $"Options of {editor.ScriptName} saved.";
+            Message = editor.ProfileOf is string profile ? $"{editor.ScriptName} options of queue entry \"{profile}\" saved." : $"Options of {editor.ScriptName} saved.";
+            if (Queue is not null && editor.ProfileOf is not null)
+                Queue.Message = Message;
         }
         catch (EngineException e)
         {
@@ -401,18 +493,24 @@ public sealed partial class ScriptsViewModel : ObservableObject
     [RelayCommand]
     private void CloseOptions() => OptionsEditor = null;
 
-    /// <summary>System back closes the options editor first.</summary>
+    /// <summary>System back closes the options editor first, then the queue entry editor.</summary>
     public bool CloseOverlay()
     {
-        if (OptionsEditor is null)
-            return false;
-        OptionsEditor = null;
-        return true;
+        if (OptionsEditor is not null)
+        {
+            OptionsEditor = null;
+            return true;
+        }
+        return ShowQueue && Queue is not null && Queue.CloseOverlay();
     }
 
     internal void Apply(EngineSnapshot s)
     {
         ScriptBusy = s.Script.IsBusy;
+        QueueRunning = Queue?.IsRunning == true;
+        Queue?.Tick();
+        IsPaused = s.Script.IsPaused;
+        CanPause = s.Script.State == ScriptRunState.Running && !s.Script.Paused && _host.Engine.CanPauseScript;
         ScriptStatus = Formatting.ScriptLine(s.Script);
         CountersText = s.ScriptCounters?.Display;
         EditCoreBotsOptionsCommand.NotifyCanExecuteChanged();

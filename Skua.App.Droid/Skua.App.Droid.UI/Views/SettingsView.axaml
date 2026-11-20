@@ -4,15 +4,20 @@
              xmlns:v="using:Skua.App.Droid.UI.Views"
              x:Class="Skua.App.Droid.UI.Views.SettingsView"
              x:DataType="vm:SettingsViewModel">
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:ToolsViewModel"><v:ToolsView /></DataTemplate>
+  </UserControl.DataTemplates>
   <Panel>
-  <ScrollViewer IsVisible="{Binding IsSettingsVisible}">
+  <ScrollViewer IsVisible="{Binding !ShowTools}">
     <StackPanel Margin="12">
       <Border Classes="card">
-        <StackPanel Spacing="8">
-          <TextBlock Classes="caption" Text="TOOLS" />
-          <TextBlock Classes="muted" TextWrapping="Wrap" Text="Advanced skills (class rotations) and CoreBots options." />
-          <Button Classes="small primary" HorizontalAlignment="Left" Content="Open tools" Command="{Binding OpenToolsCommand}" />
-        </StackPanel>
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="caption" Text="TOOLS" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Fast Travel, Loader, Grabber, Notification Center, drop notifications, junk items, Discord webhook, Advanced Skills, CoreBots options" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="small primary" VerticalAlignment="Center" Margin="8,0,0,0" Content="Open" Command="{Binding OpenToolsCommand}" />
+        </Grid>
       </Border>
 
       <Border Classes="card">
@@ -76,8 +81,12 @@
       <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
     </StackPanel>
   </ScrollViewer>
-  <Panel IsVisible="{Binding IsToolsOpen}">
-    <v:ToolsView DataContext="{Binding Tools}" />
-  </Panel>
+
+  <!-- The Tools hub -->
+  <Grid RowDefinitions="Auto,*" IsVisible="{Binding ShowTools}">
+    <Button Grid.Row="0" Classes="small" HorizontalAlignment="Left" Margin="12,8,12,0" Content="‹ Settings"
+            Command="{Binding CloseToolsCommand}" IsVisible="{Binding Tools.IsListVisible}" />
+    <ContentControl Grid.Row="1" Content="{Binding Tools}" />
+  </Grid>
   </Panel>
 </UserControl>

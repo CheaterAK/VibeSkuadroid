@@ -50,6 +50,9 @@ public sealed partial class SkillRotationEditorViewModel : ObservableObject
 {
     private readonly Func<SkillRotationEditorViewModel, Task> _save;
 
+    /// <summary>Closes the editor without saving (set by the page).</summary>
+    public Action? Closed { get; set; }
+
     /// <param name="original">The rotation being edited, or null for a new one.</param>
     /// <param name="className">Class name for a new rotation.</param>
     /// <param name="mode">Mode for a new rotation.</param>
@@ -181,6 +184,9 @@ public sealed partial class SkillRotationEditorViewModel : ObservableObject
 
     [RelayCommand(CanExecute = nameof(CanSave))]
     private Task SaveAsync() => _save(this);
+
+    [RelayCommand]
+    private void Cancel() => Closed?.Invoke();
 
     private bool CanSave() => !IsSaving;
 

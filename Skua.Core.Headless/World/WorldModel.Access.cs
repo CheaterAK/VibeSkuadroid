@@ -31,6 +31,30 @@ public sealed partial class WorldModel
     /// <summary>Accepted quest ids (under the lock, no copy).</summary>
     internal IReadOnlySet<int> AcceptedQuestsUnsafe => _acceptedQuests;
 
+    /// <summary>
+    /// Skua's rejectExcept: the client closes the drop windows of every offered drop whose name (case-insensitive) is
+    /// not in <paramref name="keepNames"/>; they leave <see cref="GetDrops"/>. Nothing is sent (rejecting a drop is
+    /// client-side only in the game too). Returns how many drops were removed.
+    /// </summary>
+    public int RejectDropsExcept(IEnumerable<string> keepNames)
+    {
+        HashSet<string> keep = new(keepNames.Select(n => n.Trim()), StringComparer.OrdinalIgnoreCase);
+        int removed = 0;
+        Write((_, _) =>
+        {
+            foreach (int id in _dropOrder.ToList())
+            {
+                string name = (JsonUtil.AsString(_drops[id].Raw["sName"]) ?? string.Empty).Trim();
+                if (keep.Contains(name))
+                    continue;
+                _drops.Remove(id);
+                _dropOrder.Remove(id);
+                removed++;
+            }
+        }, "rejectExcept");
+        return removed;
+    }
+
     /// <summary>World.abandonQuest: the client forgets that the quest is in progress (no packet is sent).</summary>
     public void AbandonQuest(int questId)
     {

@@ -100,7 +100,6 @@ public class GrabberService : IGrabberService
         }
 
         List<MapItem> mapItems = objects.Cast<MapItem>().ToList();
-        IScriptMap map = Ioc.Default.GetService<IScriptMap>()!;
         IDialogService dialogService = Ioc.Default.GetService<IDialogService>()!;
         progress.Report(mapItems.Count == 1
             ? $"Getting Map Item [{mapItems[0].ID}, input quantity..."
@@ -117,6 +116,17 @@ public class GrabberService : IGrabberService
 
         if (!int.TryParse(dialog.DialogTextInput, out int result))
             return;
+        await GetMapItems(mapItems, result, progress, token);
+    }
+
+    /// <summary>
+    /// "Get Map Item" once the quantity is known (the desktop asks for it first): each map item <paramref name="quantity"/>
+    /// times, a second between items.
+    /// </summary>
+    public static async Task GetMapItems(IReadOnlyList<MapItem> mapItems, int quantity, IProgress<string> progress, CancellationToken token)
+    {
+        IScriptMap map = Ioc.Default.GetService<IScriptMap>()!;
+        int result = quantity;
         try
         {
             if (mapItems.Count == 1)
@@ -372,7 +382,7 @@ public class GrabberService : IGrabberService
         if (items.Count == 1)
         {
             ShopItem item = items[0];
-            if (item is { Coins: true, Cost: > 0 })
+            if (IsPaidAcItem(item))
             {
                 WarnAcPurchase(progress, dialogService);
                 return;
@@ -389,14 +399,11 @@ public class GrabberService : IGrabberService
             if (!int.TryParse(dialog.DialogTextInput, out int quantity))
                 return;
 
-            quantity = Math.Clamp(quantity, 1, item.MaxStack);
-            int totalCost = item.Cost * quantity;
-            if (!item.Coins && totalCost > player.Gold)
+            quantity = ClampBuyQuantity(item, quantity);
+            if (NotEnoughGold(item, quantity, player.Gold) is string shortOfGold)
             {
-                progress.Report($"Not enough gold. Total: {totalCost:#,0}");
-                dialogService.ShowMessageBox(
-                    $"Not enough gold to buy {quantity} {item.Name}.\r\nTotal: {totalCost:#,0}\r\nNeeded: {totalCost - player.Gold:#,0}",
-                    "Not enough gold");
+                progress.Report($"Not enough gold. Total: {item.Cost * quantity:#,0}");
+                dialogService.ShowMessageBox(shortOfGold, "Not enough gold");
                 return;
             }
 
@@ -416,19 +423,16 @@ public class GrabberService : IGrabberService
             return;
         }
 
-        if (items.Any(i => i.Coins && i.Cost > 0))
+        if (items.Any(IsPaidAcItem))
         {
             WarnAcPurchase(progress, dialogService);
             return;
         }
 
-        int totalGoldCost = items.Where(i => !i.Coins).Sum(i => i.Cost);
-        if (totalGoldCost > player.Gold)
+        if (NotEnoughGold(items, player.Gold) is string shortOfGoldForAll)
         {
-            progress.Report($"Not enough gold. Total: {totalGoldCost:#,0}");
-            dialogService.ShowMessageBox(
-                $"Not enough gold to buy the {items.Count} items.\r\nTotal: {totalGoldCost:#,0}\r\nNeeded: {totalGoldCost - player.Gold:#,0}",
-                "Not enough gold");
+            progress.Report($"Not enough gold. Total: {items.Where(i => !i.Coins).Sum(i => i.Cost):#,0}");
+            dialogService.ShowMessageBox(shortOfGoldForAll, "Not enough gold");
             return;
         }
 
@@ -464,14 +468,14 @@ public class GrabberService : IGrabberService
         if (objects.Count > 1)
         {
             progress.Report("Warning");
-            dialogService.ShowMessageBox($"ATTENTION - {objects.Count} items selected!\nPlease sell 1 item at a time to prevent losses.", "Selling item - Warning");
+            dialogService.ShowMessageBox(MultipleSellWarning(objects.Count), "Selling item - Warning");
             return;
         }
 
         InventoryItem item = objects.Cast<InventoryItem>().First();
         if (item.Equipped)
         {
-            dialogService.ShowMessageBox("Cannot sell equipped item.", "Sell item");
+            dialogService.ShowMessageBox(EquippedSellRefusal, "Sell item");
             return;
         }
 
@@ -479,7 +483,7 @@ public class GrabberService : IGrabberService
         IScriptShop shop = Ioc.Default.GetService<IScriptShop>()!;
         try
         {
-            int maxQty = item.Category == ItemCategory.Class ? 1 : item.Quantity;
+            int maxQty = MaxSellQuantity(item);
             IInputDialogViewModel dialog = dialogService.CreateInputDialog($"Selling {item.Name}", $"Sell quantity (Currently has: {maxQty})");
             if (dialogService.ShowDialog(dialog) != true)
             {
@@ -506,8 +510,47 @@ public class GrabberService : IGrabberService
     private static void WarnAcPurchase(IProgress<string> progress, IDialogService dialogService)
     {
         progress.Report("AC item - Cancelled");
-        dialogService.ShowMessageBox("Don't use this to buy AC items that aren't 0 AC.", "AC Item");
+        dialogService.ShowMessageBox(PaidAcWarning, "AC Item");
     }
+
+    // UI-free rules of the buy and sell tasks (the desktop shows their messages in dialogs; other front ends ask and
+    // tell their own way).
+
+    /// <summary>Why AC items that cost AC are refused.</summary>
+    public const string PaidAcWarning = "Don't use this to buy AC items that aren't 0 AC.";
+
+    /// <summary>Selling an equipped item is refused.</summary>
+    public const string EquippedSellRefusal = "Cannot sell equipped item.";
+
+    /// <summary>The Grabber never buys items that cost AC.</summary>
+    public static bool IsPaidAcItem(ShopItem item) => item is { Coins: true, Cost: > 0 };
+
+    /// <summary>A single item's buy quantity, 1 to its stack size.</summary>
+    public static int ClampBuyQuantity(ShopItem item, int quantity) => Math.Clamp(quantity, 1, item.MaxStack);
+
+    /// <summary>The message when <paramref name="quantity"/> of <paramref name="item"/> cost more gold than held, else null.</summary>
+    public static string? NotEnoughGold(ShopItem item, int quantity, int gold)
+    {
+        int totalCost = item.Cost * quantity;
+        return !item.Coins && totalCost > gold
+            ? $"Not enough gold to buy {quantity} {item.Name}.\r\nTotal: {totalCost:#,0}\r\nNeeded: {totalCost - gold:#,0}"
+            : null;
+    }
+
+    /// <summary>The message when one of each of <paramref name="items"/> costs more gold than held, else null.</summary>
+    public static string? NotEnoughGold(IReadOnlyCollection<ShopItem> items, int gold)
+    {
+        int totalGoldCost = items.Where(i => !i.Coins).Sum(i => i.Cost);
+        return totalGoldCost > gold
+            ? $"Not enough gold to buy the {items.Count} items.\r\nTotal: {totalGoldCost:#,0}\r\nNeeded: {totalGoldCost - gold:#,0}"
+            : null;
+    }
+
+    /// <summary>Selling is one item at a time.</summary>
+    public static string MultipleSellWarning(int count) => $"ATTENTION - {count} items selected!\nPlease sell 1 item at a time to prevent losses.";
+
+    /// <summary>How many of an item can be sold (a class: one).</summary>
+    public static int MaxSellQuantity(InventoryItem item) => item.Category == ItemCategory.Class ? 1 : item.Quantity;
 
     /*public async Task BuyItems(IList<object>? objects, IProgress<string> progress, CancellationToken token)
     {
@@ -624,13 +667,13 @@ public class GrabberService : IGrabberService
         if (objects.Count > 1)
         {
             progress.Report("Warning");
-            dialogService.ShowMessageBox($"ATTENTION - {objects.Count} items selected!\nPlease sell 1 item at a time to prevent losses.", "Selling item - Warning");
+            dialogService.ShowMessageBox(MultipleSellWarning(objects.Count), "Selling item - Warning");
             return;
         }
         InventoryItem item = objects.Cast<InventoryItem>().First();
         if (item.Equipped)
         {
-            dialogService.ShowMessageBox("Cannot sell equipped item.", "Sell item");
+            dialogService.ShowMessageBox(EquippedSellRefusal, "Sell item");
             return;
         }
         progress.Report($"Selling {item.Name}, input quantity...");
@@ -670,19 +713,19 @@ public class GrabberService : IGrabberService
         if (objects.Count > 1)
         {
             progress.Report("Warning");
-            dialogService.ShowMessageBox($"ATTENTION - {objects.Count} items selected!\nPlease sell 1 item at a time to prevent losses.", "Selling item - Warning");
+            dialogService.ShowMessageBox(MultipleSellWarning(objects.Count), "Selling item - Warning");
             return;
         }
         InventoryItem item = objects.Cast<InventoryItem>().First();
         if (item.Equipped)
         {
-            dialogService.ShowMessageBox("Cannot sell equipped item.", "Sell item");
+            dialogService.ShowMessageBox(EquippedSellRefusal, "Sell item");
             return;
         }
         IScriptShop shop = Ioc.Default.GetService<IScriptShop>()!;
         try
         {
-            int quantity = item.Category == ItemCategory.Class ? 1 : item.Quantity;
+            int quantity = MaxSellQuantity(item);
             progress.Report($"Selling all {quantity} {item.Name}");
             await Task.Run(() => shop.SellItem(item.ID), token);
             progress.Report($"Sold {quantity} {item.Name}");

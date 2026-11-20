@@ -11,6 +11,18 @@ public interface IPluginBackends
     IDailyTrackerBackend? DailyTracker { get; }
 
     IButlerBackend? Butler { get; }
+
+    /// <summary>
+    /// The Control page's game side (not a plugin, but made the same way: Skua's API on the same session). Null when
+    /// the engine has none.
+    /// </summary>
+    Control.IControlBackend? Control => null;
+
+    /// <summary>
+    /// The Tools pages' game side (Fast Travel, Loader, Grabber; not plugins, made the same way). Null when the engine
+    /// has none.
+    /// </summary>
+    Tools.IGameTools? GameTools => null;
 }
 
 /// <summary>Implemented by a script host that can provide <see cref="IPluginBackends"/> (the Skua.Core host adapter).</summary>

@@ -99,8 +99,8 @@ public partial class SessionIntegrationTests
             await Sandbox.Until(() => engine.Snapshot.Character is not null);
 
             // Edit the Base rotation on the page: drop skill 1, wait for cooldown, timeout 321.
-            ToolsViewModel tools = new(services);
-            AdvancedSkillsViewModel page = tools.AdvancedSkills;
+            ToolsViewModel tools = new();
+            AdvancedSkillsViewModel page = SkillToolPages.AddTo(tools, services).AdvancedSkills;
             await page.RefreshAsync();
             Assert.True(page.Classes.Any(c => c.ClassName == "Droid Test Class"), page.Message + " / " + string.Join(", ", page.Classes.Select(c => c.ClassName)) + " / " + File.ReadAllText(store.UserFile));
             page.OpenClassCommand.Execute(page.Classes.Single(c => c.ClassName == "Droid Test Class"));
