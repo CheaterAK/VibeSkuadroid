@@ -30,7 +30,7 @@ public sealed partial class HeadlessFlashUtil
     private static readonly HashSet<string> s_modelWorldKeys = new(StringComparer.Ordinal)
     {
         "strMapName", "strAreaName", "strMapFileName", "strFrame", "strPad", "curRoom", "areaId", "intType", "intKillCount",
-        "areaUsers", "uoTree", "monTree", "mondef", "monmap", "monsters", "questTree", "shopinfo", "bankinfo", "avatars", "myAvatar",
+        "areaUsers", "uoTree", "monTree", "mondef", "monmap", "monsters", "questTree", "shopinfo", "bankinfo", "avatars", "myAvatar", "objInfo",
     };
 
     private static readonly HashSet<string> s_modelAvatarKeys = new(StringComparer.Ordinal)

@@ -511,6 +511,11 @@ public sealed partial class GameClient : IDisposable
             case "cmd" when a.Length >= 1 && a[0] == "tfer":
                 Locks.Stamp("tfer");
                 break;
+
+            // Outfit commands a script sends itself still start the game's cooldowns.
+            case "equipLoadout" or "wearLoadout" or "addLoadout" or "removeLoadout":
+                Locks.Stamp(cmd);
+                break;
         }
     }
 

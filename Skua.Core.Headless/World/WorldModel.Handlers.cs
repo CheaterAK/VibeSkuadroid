@@ -97,6 +97,10 @@ public sealed partial class WorldModel
                     }
                     break;
 
+                case "addLoadout":
+                    ApplyLoadoutOutbound(cmd, args);
+                    break;
+
                 case "gar" when args.Length >= 2:
                     DateTimeOffset now = _time.GetUtcNow();
                     foreach (string target in args[1].Split(','))
@@ -648,7 +652,7 @@ public sealed partial class WorldModel
                 return true;
 
             default:
-                return false;
+                return ApplyLoadoutJson(cmd, d);
         }
     }
 
