@@ -1,0 +1,103 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:d="using:Skua.App.Droid.Core.Diagnostics"
+             xmlns:e="using:Skua.App.Droid.Core.Engine"
+             x:Class="Skua.App.Droid.UI.Views.DiagnosticsView"
+             x:DataType="vm:DiagnosticsViewModel">
+  <UserControl.Resources>
+    <DataTemplate x:Key="InfoRowTemplate" x:DataType="d:InfoRow">
+      <Grid ColumnDefinitions="120,*" Margin="0,1">
+        <TextBlock Classes="muted" Text="{Binding Label}" TextWrapping="Wrap" />
+        <TextBlock Grid.Column="1" Margin="8,0,0,0" Text="{Binding Value}" TextWrapping="Wrap" />
+      </Grid>
+    </DataTemplate>
+  </UserControl.Resources>
+
+  <ScrollViewer>
+    <StackPanel Margin="12,8" Spacing="0">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,8">
+        <TextBlock Classes="muted" VerticalAlignment="Center" Text="{Binding UpdatedText}" />
+        <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Refresh" Command="{Binding RefreshCommand}" />
+        <Button Grid.Column="2" Classes="small" Margin="6,0,0,0" Content="Copy" Command="{Binding CopyCommand}" />
+        <Button Grid.Column="3" Classes="small primary" Margin="6,0,0,0" Content="Share" Command="{Binding ShareCommand}" />
+      </Grid>
+      <TextBlock Classes="muted" TextWrapping="Wrap" Margin="0,0,0,8" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="ENGINE" />
+          <ItemsControl ItemsSource="{Binding EngineRows}" ItemTemplate="{StaticResource InfoRowTemplate}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="CONNECTION" />
+          <ItemsControl ItemsSource="{Binding ConnectionRows}" ItemTemplate="{StaticResource InfoRowTemplate}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="MEMORY" />
+          <ItemsControl ItemsSource="{Binding MemoryRows}" ItemTemplate="{StaticResource InfoRowTemplate}" />
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="FLASH GAPS" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding FlashGapsText}" />
+          <ItemsControl ItemsSource="{Binding FlashGaps}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="e:FlashGapRow">
+                <StackPanel Margin="0,3">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <TextBlock Classes="mono" Text="{Binding Display}" TextWrapping="Wrap" />
+                    <TextBlock Grid.Column="1" Margin="8,0,0,0" Text="{Binding CountText}" />
+                  </Grid>
+                  <TextBlock Classes="muted" TextWrapping="Wrap">
+                    <Run Text="{Binding Kind}" />
+                    <Run Text=": " />
+                    <Run Text="{Binding Detail}" />
+                  </TextBlock>
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="PROCESS EXITS" />
+          <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding ExitsText}" />
+          <ItemsControl ItemsSource="{Binding Exits}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="d:ExitRow">
+                <StackPanel Margin="0,3">
+                  <TextBlock Classes="muted" Text="{Binding When}" />
+                  <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                </StackPanel>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
+      <Border Classes="card">
+        <StackPanel Spacing="4">
+          <TextBlock Classes="caption" Text="RUNTIME HELPERS" />
+          <ItemsControl ItemsSource="{Binding RuntimeRows}" ItemTemplate="{StaticResource InfoRowTemplate}" />
+          <CheckBox IsChecked="{Binding RecordSkuaEvents}" IsVisible="{Binding CanRecordSkuaEvents}"
+                    Content="Record Skua's events (script starts and stops, waits, relogins; samples every 5 s)" />
+          <ItemsControl ItemsSource="{Binding SkuaEvents}" ItemTemplate="{StaticResource InfoRowTemplate}" />
+        </StackPanel>
+      </Border>
+
+      <TextBlock Classes="muted" TextWrapping="Wrap" Margin="2,4,2,12"
+                 Text="Share and Copy remove passwords, login tokens, credential-like values, e-mail addresses, webhook URLs and the account and character names." />
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

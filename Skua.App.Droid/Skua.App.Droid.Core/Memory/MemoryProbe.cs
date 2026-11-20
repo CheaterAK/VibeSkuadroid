@@ -57,6 +57,27 @@ public sealed class ProcMemoryProbe : IMemoryProbe
         return new MemorySample(rss, hwm, GC.GetTotalMemory(false));
     }
 
+    /// <summary>
+    /// Proportional set size (shared pages divided among the processes sharing them; what Android's memory screens
+    /// show) from <c>/proc/self/smaps_rollup</c> (Linux 4.14+, every supported Android). -1 when it cannot be read.
+    /// It walks the page tables (a few milliseconds): read it on demand, not on a timer.
+    /// </summary>
+    public static long ReadPssBytes(string path = "/proc/self/smaps_rollup")
+    {
+        try
+        {
+            foreach (string line in File.ReadLines(path))
+            {
+                if (line.StartsWith("Pss:", StringComparison.Ordinal))
+                    return ParseKb(line);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+        return -1;
+    }
+
     /// <summary>Parses a "Key:   1234 kB" line into bytes; -1 when malformed.</summary>
     internal static long ParseKb(string line)
     {

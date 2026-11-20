@@ -328,6 +328,33 @@ questions), the bank moves, Equip and Register ask first; deleting, clearing and
 the quest list update asks. While a script runs every action first asks "A script is running; do it anyway?". One
 action at a time per page; long Grabber tasks (Kill) and the quest update can be cancelled. Actions go through Skua's
 API and the client's own throttles (`world.lock`).
+## Diagnostics (Settings > Tools)
+
+Port of the desktop's Diagnostics, Runtime helpers and log windows (`DiagnosticsToolPages`, `DiagnosticsViewModel`,
+`Core/Diagnostics/DiagnosticsReport.cs`). Read on a worker thread once a second, only while the page is open, the
+Settings tab shows the hub and the app is in the foreground.
+
+* **Engine**: connection phase and status, script and its state, run time, Skua's counters, background work, whether
+  packet capture and the packet interceptor are on.
+* **Connection** (`IBotEngine.GetConnectionDetails`): server and host:port, state, client version, latency (the time
+  from writing a request the server always answers, such as character data, quests, a shop or the bank, to reading
+  its answer, measured in `AqwConnection`; last and moving average), packets per minute in and out over the last
+  minute (from the connection's counters), totals, the send queue and drops, the pacer's gaps, slow-down warnings,
+  liveness probes, time since the server last sent anything.
+* **Memory**: RSS and peak, PSS (`/proc/self/smaps_rollup`, read on demand), managed heap and total allocated, GC
+  collections, loaded script assemblies, thread pool, the watchdog's threshold, mode and current verdict.
+* **Flash gaps**: `HeadlessFlashUtil`'s gap log (Missing / Impossible / Approximated, name and argument shape, count,
+  what was answered instead), most frequent first.
+* **Process exits**: the exits Android reported (the `previous exit (...)` lines the crash reporting writes to the
+  events log), newest first, and whether a crash report waits.
+* **Runtime helpers** (desktop Runtime window, read only): Skua's registered quests, the drop grabber's list, the
+  boosts chosen; an opt-in switch for Skua's own event recorder (`IDiagnosticsService`: script starts and stops,
+  waits, relogins) whose events are listed.
+* **Share / Copy**: one text bundle of every section, the gap log, the exits, the last 150 events log lines and the last
+  150 engine log lines, scrubbed: the engine's registered secrets (password, login tokens, webhook URL), the
+  scrubber's credential-like key/value patterns, Discord webhook URLs, e-mail addresses, and the account and
+  character names (replaced by `<account>`).
+
 ## Pause and resume
 
 *Pause* (Scripts page, Dashboard, notification action) uses Skua's own pause unchanged

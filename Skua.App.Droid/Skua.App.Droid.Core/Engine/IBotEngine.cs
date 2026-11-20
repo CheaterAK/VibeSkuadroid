@@ -166,6 +166,12 @@ public interface IBotEngine : IAsyncDisposable
     /// </summary>
     Notifications.IGameEvents? GameEvents => null;
 
+    /// <summary>The live socket connection's details and counters; null while there is none.</summary>
+    ConnectionDetails? GetConnectionDetails() => null;
+
+    /// <summary>The headless Flash bridge's gap log (calls it could not answer faithfully); null without a Skua host.</summary>
+    IReadOnlyList<FlashGapRow>? GetFlashGaps() => null;
+
     /// <summary>
     /// Registers long work done for the user outside the game (a script repository sync): it shows in
     /// <see cref="EngineSnapshot.BackgroundWork"/> and keeps the process (the foreground service) alive until disposed.

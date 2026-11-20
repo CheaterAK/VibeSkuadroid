@@ -14,6 +14,7 @@
     <DataTemplate DataType="vm:DiscordWebhookViewModel"><v:DiscordWebhookView /></DataTemplate>
     <DataTemplate DataType="vm:AdvancedSkillsViewModel"><v:AdvancedSkillsView /></DataTemplate>
     <DataTemplate DataType="vm:CoreBotsOptionsViewModel"><v:CoreBotsOptionsView /></DataTemplate>
+    <DataTemplate DataType="vm:DiagnosticsViewModel"><v:DiagnosticsView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Panel>

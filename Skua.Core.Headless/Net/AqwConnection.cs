@@ -40,6 +40,15 @@ public sealed partial class AqwConnection : IAsyncDisposable
         "gar", "moveToCell", "restRequest", "resPlayerTimed", "aggroMon", "mv",
     };
 
+    // Requests the server always answers with a packet of a known command: the time between writing one and reading
+    // its answer is the round trip (server work included) shown as latency.
+    private static readonly Dictionary<string, string> s_replyOf = new(StringComparer.Ordinal)
+    {
+        ["retrieveUserData"] = "initUserData", ["getQuests"] = "getQuests", ["loadShop"] = "loadShop",
+        ["acceptQuest"] = "acceptQuest", ["tryQuestComplete"] = "ccqr", ["loadBank"] = "loadBank",
+        ["buyItem"] = "buyItem", ["sellItem"] = "sellItem", ["loadHairShop"] = "loadHairShop",
+    };
+
     private readonly TimeProvider _time;
     private readonly SendPacer _pacer;
     private readonly PacketFramer _framer;
@@ -82,6 +91,10 @@ public sealed partial class AqwConnection : IAsyncDisposable
     private long _afkClears;
     private long _probes;
     private long _subscriberErrors;
+    private readonly object _rttGate = new();
+    private readonly Dictionary<string, long> _awaitingReply = new(StringComparer.Ordinal);
+    private long _lastRoundTripTicks = -1;
+    private double _averageRoundTripMs = -1;
 
     public AqwConnection(AqwConnectionOptions? options = null, WorldModel? world = null, TimeProvider? time = null)
     {
@@ -143,7 +156,43 @@ public sealed partial class AqwConnection : IAsyncDisposable
             Interlocked.Read(ref _afkClears),
             Interlocked.Read(ref _probes),
             Interlocked.Read(ref _subscriberErrors),
-            State == ConnectionState.Created ? null : _liveness.LastInbound);
+            State == ConnectionState.Created ? null : _liveness.LastInbound)
+        {
+            LastRoundTrip = RoundTrip(out TimeSpan? average),
+            AverageRoundTrip = average,
+        };
+    }
+
+    private TimeSpan? RoundTrip(out TimeSpan? average)
+    {
+        lock (_rttGate)
+        {
+            average = _averageRoundTripMs < 0 ? null : TimeSpan.FromMilliseconds(_averageRoundTripMs);
+            return _lastRoundTripTicks < 0 ? null : TimeSpan.FromTicks(_lastRoundTripTicks);
+        }
+    }
+
+    private void NoteRequestWritten(string? command)
+    {
+        if (command is null || !s_replyOf.TryGetValue(command, out string? reply))
+            return;
+        lock (_rttGate)
+            _awaitingReply.TryAdd(reply, Stopwatch.GetTimestamp());
+    }
+
+    private void NoteReply(string? command)
+    {
+        if (command is null)
+            return;
+        lock (_rttGate)
+        {
+            if (_awaitingReply.Count == 0 || !_awaitingReply.Remove(command, out long sent))
+                return;
+            TimeSpan rtt = Stopwatch.GetElapsedTime(sent);
+            _lastRoundTripTicks = rtt.Ticks;
+            // A moving average over about the last eight answers.
+            _averageRoundTripMs = _averageRoundTripMs < 0 ? rtt.TotalMilliseconds : _averageRoundTripMs * 0.875 + rtt.TotalMilliseconds * 0.125;
+        }
     }
 
     // ---------------------------------------------------------------- connect / login
@@ -365,6 +414,7 @@ public sealed partial class AqwConnection : IAsyncDisposable
         bool transfer = item.Command == "cmd" && item.Text.Contains("%tfer%", StringComparison.Ordinal);
         if (item.Command is not null && (s_expectReply.Contains(item.Command) || transfer))
             _liveness.OnRequestExpectingReply(now);
+        NoteRequestWritten(item.Command);
         if (transfer)
         {
             // [tfer, user, map, cell, pad]: remembered so the cell move after moveToArea goes where we asked.
@@ -443,6 +493,7 @@ public sealed partial class AqwConnection : IAsyncDisposable
         _liveness.OnInbound(_time.GetUtcNow());
         Interlocked.Increment(ref _packetsIn);
         InboundPacket packet = PacketCodec.Decode(frame);
+        NoteReply(packet.Command);
         if (packet.WasCompressed)
             Interlocked.Increment(ref _compressedIn);
         if (packet.Kind == PacketKind.Unknown)

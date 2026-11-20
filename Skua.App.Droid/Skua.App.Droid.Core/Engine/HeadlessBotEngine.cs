@@ -134,6 +134,34 @@ public sealed class HeadlessBotEngine : IBotEngine
 
     public IReadOnlyList<PacketEntry> GetRecentPackets() => _packets.Snapshot();
 
+    public ConnectionDetails? GetConnectionDetails()
+    {
+        AqwConnection? c = _session.Connection;
+        if (c is null)
+            return null;
+        ConnectionStatistics st = c.GetStatistics();
+        return new ConnectionDetails(
+            c.Server?.Name,
+            c.Server is { } server ? $"{server.Host}:{server.Port}" : null,
+            c.State.ToString(),
+            c.ClientVersion,
+            st.PacketsIn,
+            st.PacketsOut,
+            st.BytesIn,
+            st.BytesOut,
+            st.OutboundDropped,
+            st.OutboundQueued,
+            st.SlowDownWarnings,
+            st.Probes,
+            st.LastInbound,
+            st.LastRoundTrip,
+            st.AverageRoundTrip,
+            c.Options.SendGap,
+            c.Options.SlowSendGap);
+    }
+
+    public IReadOnlyList<FlashGapRow>? GetFlashGaps() => (_scripts as IFlashGapSource)?.GetFlashGaps();
+
     public void ClearPackets() => _packets.Clear();
 
     public async Task<IReadOnlyList<ServerChoice>> GetServersAsync(CancellationToken cancellationToken = default)

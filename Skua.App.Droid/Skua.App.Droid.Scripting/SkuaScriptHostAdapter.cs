@@ -34,7 +34,7 @@ namespace Skua.App.Droid.Scripting;
 /// <c>LoadContextFactory</c>), so an unchanged CoreBots is loaded once per process.
 /// </para>
 /// </remarks>
-public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource, IGameEventSource, ISkuaServicesSource
+public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSource, IGameEventSource, ISkuaServicesSource, IFlashGapSource
 {
     /// <summary>
     /// The version Skua reports to scripts (bot.Version and the "ApplicationVersion" setting). CoreBots'
@@ -109,6 +109,10 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
 
     /// <summary>Skua's services on this host's session (the Tools pages: Advanced Skills, CoreBots options).</summary>
     public IServiceProvider? SkuaServices => _skua?.Services;
+
+    /// <summary>The Flash bridge's gap log (Settings > Tools > Diagnostics).</summary>
+    public IReadOnlyList<FlashGapRow> GetFlashGaps() =>
+        _skua?.Gaps.Snapshot().Select(g => new FlashGapRow(g.Kind.ToString(), g.Name, g.ArgsShape, g.Count, g.FirstSeen, g.Detail)).ToList() ?? [];
 
     /// <summary>
     /// Skua's game and script messages, drop actions and junk list on this host's session (drop notifications,

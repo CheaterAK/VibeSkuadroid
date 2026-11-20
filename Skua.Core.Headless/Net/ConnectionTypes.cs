@@ -239,7 +239,17 @@ public sealed record ConnectionStatistics(
     long AfkClears,
     long Probes,
     long SubscriberErrors,
-    DateTimeOffset? LastInbound);
+    DateTimeOffset? LastInbound)
+{
+    /// <summary>
+    /// The time between writing the last answered request (character data, quests, shop, bank ...) and reading its
+    /// answer, server work included. Null until one was answered.
+    /// </summary>
+    public TimeSpan? LastRoundTrip { get; init; }
+
+    /// <summary>A moving average of <see cref="LastRoundTrip"/> over about the last eight answers.</summary>
+    public TimeSpan? AverageRoundTrip { get; init; }
+}
 
 /// <summary>Thrown to waiters when the connection closes under them.</summary>
 public sealed class ConnectionClosedException : Exception

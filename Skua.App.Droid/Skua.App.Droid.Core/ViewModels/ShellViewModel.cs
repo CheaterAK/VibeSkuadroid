@@ -235,6 +235,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Console.SetUiVisible(visible);
         Control.SetUiVisible(visible);
         World.SetUiVisible(visible);
+        Settings.SetUiVisible(visible);
         Scripts.Queue?.SetUiVisible(visible);
         if (visible)
             PostSnapshot();
