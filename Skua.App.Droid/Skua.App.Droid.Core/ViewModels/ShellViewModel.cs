@@ -36,10 +36,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         _host = services.Host;
         Login = new LoginViewModel(services);
         GameView = new GameViewViewModel(services);
-        Dashboard = new DashboardViewModel(services) { GameView = GameView };
+        Dashboard = new DashboardViewModel(services, GameView);
         Scripts = new ScriptsViewModel(services);
         World = new WorldViewModel(services);
-        Control = new ControlViewModel(services) { GameView = GameView };
+        Control = new ControlViewModel(services, gameView: GameView);
         Control.OpenListsRequested += (_, _) => CurrentPage = AppPage.World;
         Console = new ConsoleViewModel(services);
         Plugins = new PluginsViewModel(services);

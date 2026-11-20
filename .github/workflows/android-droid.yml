@@ -83,6 +83,9 @@ jobs:
       - name: Install the Android SDK (platform 36, build-tools 36.0.0)
         run: bash build/android/setup-android-sdk.sh
 
+      - name: Fetch and verify the game view's pinned Ruffle web build
+        run: bash Skua.App.Droid/fetch-ruffle.sh
+
       # No signing secrets anywhere in this job: the APKs are signed with the SDK's debug key.
       - name: Test, build Debug and Release APKs
         run: bash Skua.App.Droid/build-droid.sh "${{ runner.temp }}/apk"

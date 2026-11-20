@@ -47,6 +47,11 @@ public sealed partial class GameViewRecorder
             _secrets.Add(secretToRedact);
     }
 
+    private string? _lastStage;
+
+    /// <summary>Raised (on the caller's thread) when the page's stage changes: login_screen, in_game, left_game.</summary>
+    public event Action<string>? StageChanged;
+
     /// <summary>Raised (on the caller's thread) the first time a milestone is reached.</summary>
     public event Action<string>? MarkAdded;
 
@@ -138,6 +143,15 @@ public sealed partial class GameViewRecorder
                 break;
             case "mem":
                 lock (_lock) _pageMem.Add((Now, Num(r, "wasmMB"), Num(r, "jsHeapMB")));
+                break;
+            case "stage":
+                string stage = Str(r, "name") ?? "?";
+                if (stage != _lastStage)
+                {
+                    _lastStage = stage;
+                    Event("stage", stage);
+                    try { StageChanged?.Invoke(stage); } catch { /* observers must not break recording */ }
+                }
                 break;
             case "config":
                 Header("page", string.Join(" ", r.EnumerateObject().Where(p => p.Name is not ("t" or "type")).Select(p => $"{p.Name}={Val(p.Value)}")));

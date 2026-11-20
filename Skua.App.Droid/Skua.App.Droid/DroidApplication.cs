@@ -22,8 +22,9 @@ namespace Skua.App.Droid;
 /// So the plain-Android <see cref="LaunchActivity"/> and <see cref="CrashActivity"/> work even when Avalonia's startup
 /// is what crashes, and a process started only for the service never loads Skia or EGL.</item>
 /// </list>
-/// The restart trampoline (<see cref="RestartActivity"/>) runs in a separate ":restart" process; there neither the
-/// engine nor Avalonia is initialised.
+/// The restart trampoline (<see cref="RestartActivity"/>) runs in a separate ":restart" process and the game view
+/// (<see cref="GameView.GameViewActivity"/>) in ":gameview"; there neither the engine nor Avalonia is initialised (crash
+/// handlers only, no startup tracking).
 /// </remarks>
 [Application]
 [Register("com.vibeskua.droid.DroidApplication")]
@@ -40,7 +41,7 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
         CrashCapture.InstallHandlers();
         try
         {
-            CrashCapture.Attach(this, trackStartup: !ProcessInfo.IsRestartProcess(this));
+            CrashCapture.Attach(this, trackStartup: !ProcessInfo.IsAuxiliaryProcess(this));
         }
         catch (Exception e)
         {
@@ -51,9 +52,9 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     public override void OnCreate()
     {
         CrashCapture.InstallHandlers();
-        bool restartProcess = ProcessInfo.IsRestartProcess(this);
-        CrashCapture.Attach(this, trackStartup: !restartProcess);
-        if (restartProcess)
+        bool auxiliary = ProcessInfo.IsAuxiliaryProcess(this);
+        CrashCapture.Attach(this, trackStartup: !auxiliary);
+        if (auxiliary)
             return; // Application.onCreate itself does nothing; skipping base also skips Avalonia here.
 
         CrashCapture.Step(StartupStep.ApplicationCreate);
@@ -101,14 +102,14 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     public override void OnTrimMemory([GeneratedEnum] TrimMemory level)
     {
         base.OnTrimMemory(level);
-        if (!ProcessInfo.IsRestartProcess(this))
+        if (!ProcessInfo.IsAuxiliaryProcess(this))
             CrashCapture.Lifecycle($"trimMemory {(int)level} {level}");
     }
 
     public override void OnLowMemory()
     {
         base.OnLowMemory();
-        if (!ProcessInfo.IsRestartProcess(this))
+        if (!ProcessInfo.IsAuxiliaryProcess(this))
             CrashCapture.Lifecycle("lowMemory");
     }
 }

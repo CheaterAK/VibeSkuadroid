@@ -52,9 +52,10 @@ public sealed partial class ControlViewModel : ObservableObject
     private object? _inFlightToken;
     private TaskCompletionSource<int?>? _answer;
 
-    public ControlViewModel(AppServices services, TimeProvider? time = null)
+    public ControlViewModel(AppServices services, TimeProvider? time = null, GameViewViewModel? gameView = null)
     {
         _services = services;
+        GameView = gameView ?? new GameViewViewModel(services);
         _host = services.Host;
         _time = time ?? TimeProvider.System;
         IsAvailable = Backend is not null;
@@ -78,7 +79,7 @@ public sealed partial class ControlViewModel : ObservableObject
     public bool IsAvailable { get; }
 
     /// <summary>The Game view card (shared with the other page).</summary>
-    public GameViewViewModel? GameView { get; init; }
+    public GameViewViewModel GameView { get; }
 
     [ObservableProperty]
     private bool _isActive;

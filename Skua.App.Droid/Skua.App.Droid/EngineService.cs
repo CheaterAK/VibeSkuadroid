@@ -348,6 +348,7 @@ public sealed class EngineService : Service
             ConnectionPhase.LoggingIn or ConnectionPhase.Connecting => "Connecting...",
             ConnectionPhase.Reconnecting => "Reconnecting...",
             ConnectionPhase.Failed => "Disconnected",
+            ConnectionPhase.GameView => "Game view open (bot logged out)",
             _ => "Engine idle",
         };
         string script = s.Script.State switch

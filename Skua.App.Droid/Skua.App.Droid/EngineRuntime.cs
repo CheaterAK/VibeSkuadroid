@@ -44,6 +44,9 @@ internal static class EngineRuntime
 
     public static AndroidPlatformServices Platform => s_startup.Value?.Platform ?? throw NotInitialized();
 
+    /// <summary>The game view switch (null until the engine is composed).</summary>
+    public static Skua.App.Droid.Core.GameView.GameViewSwitch? GameView => s_startup.Value?.GameView;
+
     /// <summary>The engine was composed. False in the ":restart" process, while it is composing, or after a recorded failure.</summary>
     public static bool IsInitialized => s_startup.Value is not null;
 
@@ -151,7 +154,8 @@ internal static class EngineRuntime
     }
 
     /// <summary>What a successful composition produced; published as one object once everything is in place.</summary>
-    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications);
+    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications,
+        Skua.App.Droid.Core.GameView.GameViewSwitch GameView);
 
     /// <summary>The expensive part, on the background thread.</summary>
     private static Composition Compose()
@@ -198,8 +202,10 @@ internal static class EngineRuntime
         engine.SnapshotChanged += (_, snapshot) => EngineService.EnsureRunningFor(application, snapshot);
         // Heartbeats record the script and connection state (read from the immutable snapshot; no subscription).
         CrashCapture.EngineState = () => (engine.Snapshot.Script.IsPaused ? "Paused" : engine.Snapshot.Script.State.ToString(), engine.Snapshot.Connection.ToString());
+        // The game view (its own ":gameview" process) and the switch that hands the account to it and back.
+        Skua.App.Droid.Core.GameView.GameViewSwitch gameView = new(host, new global::Skua.App.Droid.GameView.AndroidGameViewLauncher(application));
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
-        return new Composition(host, platform, library, notifications);
+        return new Composition(host, platform, library, notifications, gameView);
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
@@ -249,6 +255,7 @@ internal static class EngineRuntime
             Paths)
         {
             Notifications = composition.Notifications,
+            GameView = composition.GameView,
         };
     }
 
