@@ -152,6 +152,9 @@ public static class TraceText
             sb.Append("Abort message: '").Append(t.AbortMessage).Append("'\n");
         foreach (string cause in t.Causes.Where(c => c.Length > 0))
             sb.Append("Cause: ").Append(cause).Append('\n');
+        if (crashing is not null
+            && MonoGcDiagnostics.Diagnose(crashing.Frames.Select(f => (f.File, f.BuildId, f.RelPc)).ToList(), crashing.Name, MonoGcDiagnostics.CurrentGcParams) is string diagnosis)
+            sb.Append("Diagnosis: ").Append(diagnosis).Append('\n');
 
         if (crashing is not null)
         {
@@ -189,6 +192,8 @@ public static class TraceText
             sb.Append(FormattableString.Invariant($"    #{i:00} pc {f.RelPc:x16}  {f.File ?? "<unknown>"}"));
             if (!string.IsNullOrEmpty(f.Function))
                 sb.Append(FormattableString.Invariant($" ({f.Function}+{f.FunctionOffset})"));
+            else if (MonoGcDiagnostics.Symbolize(f.File, f.BuildId, f.RelPc) is string symbol)
+                sb.Append(" [").Append(symbol).Append(']');
             if (!string.IsNullOrEmpty(f.BuildId))
                 sb.Append(" (BuildId: ").Append(f.BuildId).Append(')');
             sb.Append('\n');

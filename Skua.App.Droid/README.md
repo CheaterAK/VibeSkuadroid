@@ -103,6 +103,22 @@ foreground or background, script state, connection, RSS. It goes to the events l
 11+) to the process state summary Android returns with that process's exit record, so the report says what the app was
 doing just before it died. Below Android 11 a process that died while a script ran is reported from the marker alone.
 
+**Mono GC crashes (serial major GC).** The APK runs Mono's serial major collector (`AndroidEnableSGenConcurrent=false`,
+i.e. `MONO_GC_PARAMS=major=marksweep`). With the default concurrent one, the Java bridge (Tarjan) of .NET 10's Mono
+corrupts the managed heap now and then (dotnet/runtime#123537, #123495; fix proposed in #137047, not in .NET 10): on
+the S21 Ultra the app died with SIGSEGV about 100 s into a script, in `push_object` <- `processing_stw_step`
+(sgen-tarjan-bridge.c) <- `collect_nursery`, the fault address being packet text that happened to sit in the heap.
+Native tombstone frames in libmonosgen-2.0.so are named from an embedded table for the shipped runtime build
+(`Core/Diagnostics/monosgen-<BuildId>.sym`, `MonoGcDiagnostics`; regenerate with
+`build/android/tools/monosgen-symbols.py <runtime pack native dir>` after a runtime update), and a known GC crash gets a
+"Diagnosis:" line. The events log and every report header name the GC mode in effect (`runtime:` line).
+
+**Socket buffer canaries.** Each game connection reads into its own receive buffer (`Skua.Core.Headless/Net/ReceiveBuffer.cs`),
+never pooled, released only after its last read completed (a pending read is ended by closing the socket, never by a
+cancellation token). Guard bands, poison in every byte not holding received data, and a quarantine of released buffers
+(checked on every new connection, on dispose and at each heartbeat) catch any write outside a read; a violation is
+logged at once (`SOCKET BUFFER CANARY:` in logcat and the events log). Always on, also in Release.
+
 ## Background and foreground
 
 The engine, its log and the ViewModels live for the whole process; each activity gets a fresh view. While the activity

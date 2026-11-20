@@ -48,6 +48,17 @@
       DroidCheckJavaStubRegistration below fails the build if a wrapper ever ends up without registration again.
     -->
     <AndroidEnableMarshalMethods>false</AndroidEnableMarshalMethods>
+    <!--
+      Serial major GC (MONO_GC_PARAMS=major=marksweep instead of the default major=marksweep-conc). With the concurrent
+      major collector, Mono's Java bridge (Tarjan) corrupts the managed heap now and then: the bridge walk of a nursery
+      collection scans and tags major-heap objects the concurrent marker may be working on (dotnet/runtime#123537 and
+      #123495; fix proposed in dotnet/runtime#137047, not in .NET 10). On the S21 Ultra this killed the app with
+      SIGSEGV in push_object <- processing_stw_step <- collect_nursery (libmonosgen BuildId a81cb065...) about 100 s
+      into a script. The serial collector is the workaround the runtime's maintainers suggest; its longer major
+      pauses do not matter for a headless bot. Remove once the Mono runtime in use has the fix (or on CoreCLR).
+      Skua.App.Droid.Tests checks this setting; the crash report names the GC mode in effect (MonoGcDiagnostics).
+    -->
+    <AndroidEnableSGenConcurrent>false</AndroidEnableSGenConcurrent>
   </PropertyGroup>
 
   <!--

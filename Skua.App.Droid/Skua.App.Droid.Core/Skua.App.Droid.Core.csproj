@@ -38,4 +38,9 @@
     <InternalsVisibleTo Include="Skua.App.Droid.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- GC function ranges of the shipped libmonosgen-2.0.so builds (MonoGcDiagnostics; build/android/tools/monosgen-symbols.py). -->
+    <EmbeddedResource Include="Diagnostics\*.sym" LogicalName="Skua.App.Droid.Core.Diagnostics.%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

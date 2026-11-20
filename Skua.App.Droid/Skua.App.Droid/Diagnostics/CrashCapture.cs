@@ -78,6 +78,20 @@ internal static class CrashCapture
             Java.Lang.Thread.IUncaughtExceptionHandler? previous = Java.Lang.Thread.DefaultUncaughtExceptionHandler;
             Java.Lang.Thread.DefaultUncaughtExceptionHandler = new JavaHandler(previous);
         });
+        // A write into a game socket's receive buffer outside a read (overrun, stray writer, receive still in flight
+        // after its connection closed): logged at once, so it is in the events log a later crash report includes.
+        TryRun("hook receive buffer canary", () => Skua.Core.Headless.Net.ReceiveBufferCanary.Violation += v =>
+        {
+            try
+            {
+                string text = DiagnosticText.Scrub("SOCKET BUFFER CANARY: " + v);
+                Android.Util.Log.Error(Tag, text);
+                s_store?.Log(text);
+            }
+            catch (Exception)
+            {
+            }
+        });
     }
 
     /// <summary>
@@ -116,6 +130,7 @@ internal static class CrashCapture
             s_store.Log($"process start: {ProcessInfo.CurrentName()} pid {Process.MyPid()}" +
                 (previous is null ? string.Empty : $"; previous pid {previous.ProcessId} reached {previous.LastStep}") +
                 (previous?.Activity is { } last ? $"; its last record: {last.Describe()}" : string.Empty));
+            s_store.Log("runtime: " + RuntimeInformationText());
             Step(StartupStep.ProcessStarted);
         }
         return true;
@@ -236,7 +251,12 @@ internal static class CrashCapture
             {
                 if (s_heartbeat is not null || !s_trackStartup)
                     return;
-                s_heartbeat = new System.Threading.Timer(_ => Lifecycle("heartbeat"), null, HeartbeatInterval, HeartbeatInterval);
+                s_heartbeat = new System.Threading.Timer(_ =>
+                {
+                    // Released socket buffers must still hold their poison (a violation is logged by the canary hook).
+                    try { Skua.Core.Headless.Net.ReceiveBufferCanary.SweepReleased(); } catch (Exception) { }
+                    Lifecycle("heartbeat");
+                }, null, HeartbeatInterval, HeartbeatInterval);
             }
         }
         catch (Exception e)
@@ -398,8 +418,16 @@ internal static class CrashCapture
         Add("startup step", () => $"{(int)s_lastStep} {s_lastStep}, engine composition {s_engine}");
         Add("thread", () => $"{System.Environment.CurrentManagedThreadId} {Thread.CurrentThread.Name}");
         Add("memory", () => $"managed {GC.GetTotalMemory(false) / (1024 * 1024)} MB");
+        Add("runtime", RuntimeInformationText);
         Add("app state", () => s_activity?.Describe() ?? "(none recorded in this process)");
         return items;
+    }
+
+    /// <summary>The GC mode (MONO_GC_PARAMS, set at build time by AndroidEnableSGenConcurrent) and the socket canary state.</summary>
+    private static string RuntimeInformationText()
+    {
+        return MonoGcDiagnostics.DescribeGcMode(MonoGcDiagnostics.CurrentGcParams)
+            + $"; socket buffer canaries {(Skua.Core.Headless.Net.ReceiveBufferCanary.Enabled ? "on" : "off")}, {Skua.Core.Headless.Net.ReceiveBufferCanary.Violations} violation(s)";
     }
 
     private static void TryRun(string what, Action action)

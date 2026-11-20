@@ -203,6 +203,75 @@ public class ExitReasonTests
         Assert.Contains("BufferQueue has been abandoned", text);
     }
 
+    /// <summary>
+    /// The S21 Ultra crash of 2026-11-19/20 (.NET 10.0.15, libmonosgen BuildId a81cb065...): the runtime's frames are
+    /// named from the embedded sgen table and the report says it is the Mono bridge bug, not the app.
+    /// </summary>
+    [Fact]
+    public void TheMonoBridgeCrashIsSymbolizedAndExplained()
+    {
+        const string BuildId = "a81cb0659781b5613899a7899e8d4d24da649df7";
+        const string Lib = "/data/app/~~x/com.vibeskua.droid-y/base.apk!libmonosgen-2.0.so";
+        ulong[] pcs = [0x29d438, 0x29c734, 0x297d24, 0x2b5ed8, 0x2b5004, 0x2b14ec, 0x2b12d4, 0x2adadc, 0x2a02c8];
+        Proto worker = new Proto().Varint(1, 18155).Str(2, ".NET TP Worker");
+        foreach (ulong pc in pcs)
+            worker.Msg(4, new Proto().Varint(1, pc).Str(6, Lib).Str(8, BuildId));
+        worker.Msg(4, new Proto().Varint(1, 0xf928).Str(6, "<anonymous:712dfdf000>"));
+        byte[] tombstone = new Proto()
+            .Varint(5, 18000).Varint(6, 18155)
+            .Msg(10, new Proto().Varint(1, 11).Str(2, "SIGSEGV").Varint(3, 1).Str(4, "SEGV_MAPERR").Varint(8, 1).Varint(9, 0x7b3a2262222c22))
+            .Msg(16, new Proto().Varint(1, 18155).Msg(2, worker))
+            .ToArray();
+
+        string text = TraceText.Format(tombstone, truncated: false);
+
+        Assert.Contains("fault addr 0x7b3a2262222c22", text);
+        Assert.Contains("#00 pc 000000000029d438  " + Lib + " [push_object+0x10 (sgen-tarjan-bridge.c)] (BuildId: " + BuildId + ")", text);
+        string[] expected =
+        [
+            "push_object+0x10 (sgen-tarjan-bridge.c)", "processing_stw_step+0xcf8 (sgen-tarjan-bridge.c)",
+            "sgen_bridge_processing_stw_step+0x1c (sgen-bridge.c)", "finish_gray_stack+0x114 (sgen-gc.c)",
+            "collect_nursery+0x5a0 (sgen-gc.c)", "sgen_perform_collection+0x1f4 (sgen-gc.c)",
+            "sgen_ensure_free_space+0xb8 (sgen-gc.c)", "sgen_alloc_obj_nolock+0x3b8 (sgen-alloc.c)",
+            "mono_gc_alloc_vector+0x84 (sgen-mono.c)",
+        ];
+        foreach (string symbol in expected)
+            Assert.Contains("[" + symbol + "]", text);
+        Assert.Contains("Diagnosis: Crash inside the Mono GC's Java bridge (Tarjan) during a nursery collection", text);
+        Assert.Contains("dotnet/runtime#123537", text);
+    }
+
+    [Theory]
+    [InlineData("major=marksweep-conc", "concurrent major GC")]
+    [InlineData("major=marksweep", "serial major GC")]
+    [InlineData("nursery-size=64m,major=marksweep", "serial major GC")]
+    [InlineData(null, "not set")]
+    public void TheGcModeIsDescribed(string? gcParams, string expected)
+    {
+        Assert.Contains(expected, MonoGcDiagnostics.DescribeGcMode(gcParams));
+    }
+
+    [Fact]
+    public void UnknownRuntimeBuildsAndOtherLibrariesAreLeftAlone()
+    {
+        Assert.Null(MonoGcDiagnostics.Symbolize("/x/libmonosgen-2.0.so", "0000", 0x29d438));
+        Assert.Null(MonoGcDiagnostics.Symbolize("/x/libc.so", "a81cb0659781b5613899a7899e8d4d24da649df7", 0x29d438));
+        Assert.Null(MonoGcDiagnostics.Diagnose([("/apex/libc.so", "1", 0x10)], "main", null));
+        Assert.Contains("no symbol table", MonoGcDiagnostics.Diagnose([("/x/libmonosgen-2.0.so", "0000", 0x10)], ".NET TP Worker", null));
+        Assert.True(MonoGcDiagnostics.HasTable("A81CB0659781B5613899A7899E8D4D24DA649DF7"));
+    }
+
+    /// <summary>The APK must keep the serial major collector until the runtime has the bridge fix (see the csproj).</summary>
+    [Fact]
+    public void TheAndroidHeadUsesTheSerialMajorCollector()
+    {
+        string dir = AppContext.BaseDirectory;
+        while (!File.Exists(Path.Combine(dir, "Skua.App.Droid", "Skua.App.Droid.csproj")))
+            dir = Path.GetDirectoryName(dir) ?? throw new InvalidOperationException("Skua.App.Droid.csproj not found above the test output.");
+        System.Xml.Linq.XDocument project = System.Xml.Linq.XDocument.Load(Path.Combine(dir, "Skua.App.Droid", "Skua.App.Droid.csproj"));
+        Assert.Contains(project.Descendants("AndroidEnableSGenConcurrent"), e => e.Value.Trim() == "false" && e.Parent?.Attribute("Condition") is null);
+    }
+
     [Fact]
     public void GarbageTracesFallBackToPrintableStrings()
     {
