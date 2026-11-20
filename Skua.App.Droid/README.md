@@ -347,6 +347,41 @@ Limits, because spamming is what gets accounts flagged (the page says so, and ev
   during the run (even if the engine already reconnected), when a packet was not sent, or when the server sent a
   "slow down" warning (the connection's counter of them went up).
 
+## Packet Interceptor (Settings > Tools)
+
+Port of the desktop's Packet Interceptor (`PacketInterceptorViewModel`, `Core/Packets/PacketInterception.cs`). The
+desktop redirects the Flash socket through Skua's localhost `CaptureProxy` and runs `IInterceptor`s on each message;
+headless there is no separate client, so the interceptor chain sits in `AqwConnection` itself
+(`AqwConnectionOptions.Interceptor`, `Skua.Core.Headless/Net/PacketInterception.cs`): outbound game packets are offered
+in the writer just before they are written, inbound messages in the reader after framing and decompression and before
+the world model applies them. The engine sets its one `PacketInterception` on its session's connection options, so
+every connection (reconnects included) uses it.
+
+* **Rules** (at most 30, applied in order, kept in `tools.json`): direction (out, in, both), an optional command
+  (matched against every command the message carries, the desktop's `PacketCommands.Parse`, compiled in through
+  `Skua.App.Droid.Linked`), an optional text to find (case-sensitive), and either *replace* (every occurrence) or
+  *block* (drop). A block rule needs a command or a text; each rule has its own switch; Up reorders.
+* **Master switch**: off by default and at every start of the app (never saved); turning it on asks with the warning;
+  the Console logs on/off (source `interceptor`). While off, or on without an enabled rule, each message costs one check.
+* **Log**: every message a rule changed or dropped (time, direction OUT / IN / BLOCK as on the desktop, the rules,
+  the desktop's categories, before and after, scrubbed with the engine's secret scrubber), newest first, at most 300,
+  searchable, cleared, shared as the desktop's export lines (`[OUT] packet`). It refreshes every 0.5 s only while
+  the page is shown. Diagnostics shows the switch and counters; the connection counts changed and dropped messages.
+
+Safety limits, enforced by the connection, not by the rules:
+
+* nothing is offered before the connection's character has loaded (after the first `moveToArea`, the character data
+  and the inventory): the SmartFox handshake, the login with its token, the login response and the character load
+  are never seen, changed or dropped; every reconnect starts over;
+* SmartFox system (XML) messages are never offered, only `%xt%` and JSON game messages;
+* a message that contains a redacted secret (the login token) is passed on untouched and not offered;
+* the messages the connection's own safety depends on are never offered: outbound `login`, `firstJoin`,
+  `retrieveUserData` (the liveness probe); inbound `loginResponse`, `warning` and `server` (the "slow down" warnings
+  the send pacer reacts to), `multiLoginWarning`, `logoutWarning`, `logout`;
+* a changed outbound message must still be one `%xt%` packet without NUL whose command is not protected, a changed
+  inbound one must still parse as a game message; otherwise the original is used (logged). An interceptor that throws
+  is logged and the original is used. A dropped outbound packet completes as "not sent" and does not move the pacer.
+
 ## Diagnostics (Settings > Tools)
 
 Port of the desktop's Diagnostics, Runtime helpers and log windows (`DiagnosticsToolPages`, `DiagnosticsViewModel`,

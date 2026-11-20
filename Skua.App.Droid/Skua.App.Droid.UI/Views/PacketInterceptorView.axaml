@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:p="using:Skua.App.Droid.Core.Packets"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             x:Class="Skua.App.Droid.UI.Views.PacketInterceptorView"
+             x:DataType="vm:PacketInterceptorViewModel">
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+        <Border Classes="banner">
+          <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding Warning}" />
+        </Border>
+
+        <!-- Master switch -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel>
+                <TextBlock FontWeight="SemiBold" Text="Interceptor" />
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding StatusText}" />
+              </StackPanel>
+              <Button Grid.Column="1" Classes="primary" Classes.danger="{Binding !IsOn}" MinWidth="96" VerticalAlignment="Center"
+                      Content="{Binding ToggleText}" Command="{Binding ToggleCommand}" IsEnabled="{Binding IsAvailable}" />
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap"
+                       Text="Off at every start of the app. Nothing is seen before the character is in the world (the login and the token never are), and the login, the liveness probe, &quot;slow down&quot; warnings and logout notices are never changed." />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Rule editor -->
+        <Border Classes="card" IsVisible="{Binding IsEditing}">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="caption" Text="RULE" />
+            <TextBox Text="{Binding EditName}" PlaceholderText="Name" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="muted" Text="Direction" />
+                <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Directions}" SelectedItem="{Binding EditDirection}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock Classes="muted" Text="Action" />
+                <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding Actions}" SelectedItem="{Binding EditAction}" />
+              </StackPanel>
+            </Grid>
+            <TextBox Text="{Binding EditCommand}" PlaceholderText="Command (optional, e.g. ct, moveToCell)" TextInputOptions.AutoCapitalization="False" />
+            <TextBox Text="{Binding EditFind}" PlaceholderText="Text to find (case-sensitive)" TextInputOptions.AutoCapitalization="False" />
+            <TextBox Text="{Binding EditReplace}" PlaceholderText="Replace with" TextInputOptions.AutoCapitalization="False" IsVisible="{Binding IsReplace}" />
+            <TextBlock Classes="error" TextWrapping="Wrap" Text="{Binding EditError}" IsVisible="{Binding EditError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Classes="small primary" Content="Save" Command="{Binding SaveRuleCommand}" />
+              <Button Classes="small" Content="Cancel" Command="{Binding CancelEditCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- Rules -->
+        <Grid ColumnDefinitions="*,Auto" Margin="2,0,2,6">
+          <TextBlock Classes="caption" VerticalAlignment="Center" Text="{Binding Rules.Count, StringFormat='RULES ({0})'}" />
+          <Button Grid.Column="1" Classes="small" Content="New rule" Command="{Binding NewRuleCommand}" IsEnabled="{Binding IsAvailable}" />
+        </Grid>
+        <TextBlock Classes="muted" Margin="2,0,2,8" TextWrapping="Wrap" Text="No rules yet. A rule matches a direction, a command and a text, then replaces the text or drops the message; rules apply in order." IsVisible="{Binding !HasRules}" />
+        <ItemsControl ItemsSource="{Binding Rules}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="p:InterceptRule">
+              <Border Classes="card" Padding="8">
+                <StackPanel Spacing="6">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <CheckBox IsChecked="{Binding Enabled, Mode=OneWay}" CommandParameter="{Binding}"
+                              Command="{Binding $parent[ItemsControl].((vm:PacketInterceptorViewModel)DataContext).ToggleRuleCommand}" />
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                    <TextBlock Grid.Column="2" Classes="muted" VerticalAlignment="Center" Text="{Binding DirectionText}" />
+                  </Grid>
+                  <TextBlock Classes="mono" TextWrapping="Wrap" Text="{Binding Summary}" />
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Classes="small" Content="Edit" CommandParameter="{Binding}"
+                            Command="{Binding $parent[ItemsControl].((vm:PacketInterceptorViewModel)DataContext).EditRuleCommand}" />
+                    <Button Classes="small" Content="Up" CommandParameter="{Binding}"
+                            Command="{Binding $parent[ItemsControl].((vm:PacketInterceptorViewModel)DataContext).MoveRuleUpCommand}" />
+                    <Button Classes="small danger" Content="Delete" CommandParameter="{Binding}"
+                            Command="{Binding $parent[ItemsControl].((vm:PacketInterceptorViewModel)DataContext).DeleteRuleCommand}" />
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <!-- Log -->
+        <Grid ColumnDefinitions="*,Auto,Auto" Margin="2,8,2,6">
+          <TextBlock Classes="caption" VerticalAlignment="Center" Text="INTERCEPTED" />
+          <Button Grid.Column="1" Classes="small" Margin="0,0,6,0" Content="Share" Command="{Binding ShareLogCommand}" />
+          <Button Grid.Column="2" Classes="small danger" Content="Clear" Command="{Binding ClearLogCommand}" />
+        </Grid>
+        <TextBox Text="{Binding LogFilter}" PlaceholderText="Search the log (text, rule, category)" TextInputOptions.AutoCapitalization="False" Margin="0,0,0,4" />
+        <TextBlock Classes="muted" Margin="2,0,2,4" Text="{Binding LogSummary}" />
+        <ItemsControl ItemsSource="{Binding Log}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="p:InterceptLogEntry">
+              <StackPanel Margin="0,4">
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Header}" />
+                <TextBlock Classes="mono" TextWrapping="Wrap" Text="{Binding Before}" />
+                <TextBlock Classes="mono" TextWrapping="Wrap" Foreground="{StaticResource PrimaryBrush}" Text="{Binding After}" IsVisible="{Binding !Blocked}" />
+                <TextBlock Classes="muted" Foreground="{StaticResource RedBrush}" Text="dropped" IsVisible="{Binding Blocked}" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+    <v:ConfirmOverlay DataContext="{Binding Confirm}" />
+  </Panel>
+</UserControl>

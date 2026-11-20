@@ -172,6 +172,12 @@ public interface IBotEngine : IAsyncDisposable
     /// </summary>
     Notifications.IGameEvents? GameEvents => null;
 
+    /// <summary>
+    /// The packet interceptor of this engine's connections (rules that change or drop game messages; off by default);
+    /// null when this engine has none.
+    /// </summary>
+    Packets.PacketInterception? Interception => null;
+
     /// <summary>The live socket connection's details and counters; null while there is none.</summary>
     ConnectionDetails? GetConnectionDetails() => null;
 

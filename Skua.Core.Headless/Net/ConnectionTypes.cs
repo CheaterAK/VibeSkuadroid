@@ -57,6 +57,12 @@ public sealed class AqwConnectionOptions
     /// </summary>
     public bool TraceHandshake { get; set; } = true;
 
+    /// <summary>
+    /// Sees, changes or drops game messages once the character has loaded (null: none). Strictly opt-in; see
+    /// <see cref="IPacketInterceptor"/> for what it can never touch.
+    /// </summary>
+    public IPacketInterceptor? Interceptor { get; set; }
+
     /// <summary>Opens the socket. Defaults to a TCP connection; tests or other transports may replace it.</summary>
     public Func<string, int, CancellationToken, ValueTask<Stream>>? Connector { get; set; }
 }
@@ -249,6 +255,12 @@ public sealed record ConnectionStatistics(
 
     /// <summary>A moving average of <see cref="LastRoundTrip"/> over about the last eight answers.</summary>
     public TimeSpan? AverageRoundTrip { get; init; }
+
+    /// <summary>Messages the packet interceptor changed.</summary>
+    public long InterceptedChanged { get; init; }
+
+    /// <summary>Messages the packet interceptor dropped.</summary>
+    public long InterceptedBlocked { get; init; }
 }
 
 /// <summary>Thrown to waiters when the connection closes under them.</summary>

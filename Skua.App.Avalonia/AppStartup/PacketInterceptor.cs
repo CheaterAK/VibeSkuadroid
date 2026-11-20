@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Skua.Core.Interfaces;
+using Skua.Core.Models.Packets;
 using Skua.App.Avalonia.ViewModels.Packets;
 
 namespace Skua.App.Avalonia.AppStartup;
@@ -15,36 +16,15 @@ internal static class PacketInterceptor
     }
 
     // Each filter is given a packet's commands (PacketCommands.Parse), both directions of a request are listed
+    // (the categories are shared with the Android app: Skua.Core.Models.Packets.PacketCategories)
     internal static List<PacketLogFilterViewModel> CreateFilters()
     {
-        List<PacketLogFilterViewModel> filters = new()
-        {
-            Category("Combat", "ct", "gar", "sar", "sars", "anim", "mtls", "cb", "restRequest", "aggroMon",
-                "resPlayerTimed", "resTimed", "respawnMon", "playerDeath"),
-            Category("User Data", "retrieveUserData", "retrieveUserDatas", "initUserData", "initUserDatas"),
-            Category("Join", "moveToArea", "tfer", "house", "joinOK", "firstJoin", "exitArea"),
-            Category("Jump", "moveToCell"),
-            Category("Movement", "mv", "mtcid", "mvna", "mvnb"),
-            Category("Get Map", "getMapItem"),
-            Category("Quest", "getQuest", "getQuests", "getQuests2", "acceptQuest", "tryQuestComplete", "updateQuest",
-                "ccqr", "turnIn", "showQuestLink"),
-            Category("Shop", "loadShop", "reloadShop", "loadHairShop", "loadEnhShop", "buyItem", "sellItem",
-                "enhanceItem", "enhanceItemShop", "enhanceItemLocal"),
-            Category("Equip", "equipItem", "forceEquipItem", "unequipItem", "wearItem", "unwearItem"),
-            Category("Drop", "getDrop", "dropItem", "getMonsterDrops", "monsterDrops"),
-            Category("Chat", "message", "cc", "chatm", "whisper", "em", "emotea"),
-            Category("Auras", "aura+", "aura-", "aura++", "aura--", "aura*", "aura+p", "aura-p", "clearAuras", "auSnap",
-                "showAuraResult"),
-            Category("Skills", "sAct", "gar", "sar", "sars", "geia", "seia"),
-            Category("Stats", "uotls", "stu"),
-            Category("Inventory", "loadInventoryBig", "retrieveInventory", "initInventory", "addItems", "forceAddItem",
-                "removeItem", "removeTempItem", "serverUseItem", "loadBank", "bankFromInv", "bankToInv", "bankSwapInv"),
-            Category("Class", "updateClass", "changeClass"),
-            Category("Misc", "crafting", "setHomeTown", "afk", "summonPet")
-        };
+        List<PacketLogFilterViewModel> filters = new();
+        foreach ((string name, string[] commands) in PacketCategories.All)
+            filters.Add(Category(name, commands));
 
         List<PacketLogFilterViewModel> specificFilters = new(filters);
-        filters.Add(new("Other", p =>
+        filters.Add(new(PacketCategories.Other, p =>
         {
             foreach (PacketLogFilterViewModel f in specificFilters)
             {

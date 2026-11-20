@@ -43,6 +43,7 @@ public sealed class HeadlessBotEngine : IBotEngine
     private readonly object _snapshotLock = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _publisher;
+    private readonly Packets.PacketInterception _interception;
 
     private AqwSession _session;
     private volatile ConnectionPhase _phase = ConnectionPhase.Offline;
@@ -75,6 +76,8 @@ public sealed class HeadlessBotEngine : IBotEngine
         _scripts.StatusChanged += OnScriptStatus;
         _scripts.Log += OnScriptLog;
         _sessionHost = _scripts as ISessionScriptHost;
+        _interception = new Packets.PacketInterception(Scrub, _time);
+        _interception.StateChanged += OnInterceptionChanged;
 
         _session = CreateSession();
         SampleMemory();
@@ -133,6 +136,21 @@ public sealed class HeadlessBotEngine : IBotEngine
     }
 
     public IReadOnlyList<PacketEntry> GetRecentPackets() => _packets.Snapshot();
+
+    public Packets.PacketInterception Interception => _interception;
+
+    private bool _interceptionWasActive;
+
+    private void OnInterceptionChanged(object? sender, EventArgs e)
+    {
+        bool active = _interception.IsActive;
+        if (active == _interceptionWasActive)
+            return;
+        _interceptionWasActive = active;
+        AddLog(EngineLogLevel.Warning, "interceptor", active
+            ? $"Packet interceptor on: {_interception.Rules.Count(r => r.Enabled)} rule(s) change or drop game messages from the next one on."
+            : "Packet interceptor off: game messages pass unchanged.");
+    }
 
     public ConnectionDetails? GetConnectionDetails()
     {
@@ -616,6 +634,9 @@ public sealed class HeadlessBotEngine : IBotEngine
             }
         }
         AqwSession session = owned ?? _options.SessionFactory();
+        // Every connection of this session offers its game messages to the interceptor (which passes them on
+        // untouched while it is off); AqwConnection keeps the handshake and the token out of its reach.
+        session.Options.Connection.Interceptor = _interception;
         session.StateChanged += OnSessionStateChanged;
         session.Disconnected += OnSessionDisconnected;
         session.Log += OnSessionLog;

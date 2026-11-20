@@ -175,7 +175,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
         _ => verdict.ToString().ToLowerInvariant(),
     };
 
-    private string? InterceptionText() => null;
+    private string? InterceptionText() => _host.Engine.Interception?.StatusText;
 
     private void Show(DiagnosticsReading r)
     {

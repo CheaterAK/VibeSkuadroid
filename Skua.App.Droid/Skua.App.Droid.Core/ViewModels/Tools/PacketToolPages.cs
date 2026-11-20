@@ -18,12 +18,17 @@ public sealed class PacketToolPages : IDisposable
     {
         _tools = tools;
         Spammer = new PacketSpammerViewModel(services, store);
+        Interceptor = new PacketInterceptorViewModel(services, store);
         tools.Entries.Add(new ToolEntry("Packet Spammer", "Send a list of game packets in turn at an interval, with the game's pacing as the minimum, a cap per run and a stop on any \"slow down\". Risky: see the warning.",
             () => tools.Show(Spammer, "Packet Spammer")));
+        tools.Entries.Add(new ToolEntry("Packet Interceptor", "Rules that change or drop game messages on the connection (off at every start), and the log of what they changed. Never touches the login.",
+            () => tools.Show(Interceptor, "Packet Interceptor")));
         tools.PropertyChanged += OnToolsChanged;
     }
 
     public PacketSpammerViewModel Spammer { get; }
+
+    public PacketInterceptorViewModel Interceptor { get; }
 
     /// <summary>Adds the pages to <paramref name="tools"/>; <paramref name="store"/> is the tools' store (shared with the game tool pages).</summary>
     public static PacketToolPages AddTo(ToolsViewModel tools, AppServices services, PluginStore store) => new(tools, services, store);
@@ -32,15 +37,22 @@ public sealed class PacketToolPages : IDisposable
     public bool Visible
     {
         get => _visible;
-        set => _visible = value;
+        set
+        {
+            _visible = value;
+            Update();
+        }
     }
 
-    /// <summary>System back: cancels the open page's question. False when none was open.</summary>
-    public bool CancelQuestion() => ConfirmOf(_tools.CurrentPage)?.CancelIfOpen() == true;
+    /// <summary>System back: cancels the open page's question, then closes the rule editor. False when neither was open.</summary>
+    public bool CancelQuestion() =>
+        ConfirmOf(_tools.CurrentPage)?.CancelIfOpen() == true
+        || (ReferenceEquals(_tools.CurrentPage, Interceptor) && Interceptor.GoBack());
 
     private ConfirmHost? ConfirmOf(object? page) => page switch
     {
         PacketSpammerViewModel s => s.Confirm,
+        PacketInterceptorViewModel i => i.Confirm,
         _ => null,
     };
 
@@ -49,11 +61,15 @@ public sealed class PacketToolPages : IDisposable
         if (e.PropertyName != nameof(ToolsViewModel.CurrentPage))
             return;
         object? page = _tools.CurrentPage;
-        if (ReferenceEquals(page, _shown))
-            return;
-        ConfirmOf(_shown)?.CancelIfOpen();
-        _shown = page;
+        if (!ReferenceEquals(page, _shown))
+        {
+            ConfirmOf(_shown)?.CancelIfOpen();
+            _shown = page;
+        }
+        Update();
     }
+
+    private void Update() => Interceptor.Visible = _visible && ReferenceEquals(_tools.CurrentPage, Interceptor);
 
     internal void Apply(EngineSnapshot s) => Spammer.Apply(s);
 
@@ -61,5 +77,6 @@ public sealed class PacketToolPages : IDisposable
     {
         _tools.PropertyChanged -= OnToolsChanged;
         Spammer.Stop();
+        Interceptor.Dispose();
     }
 }
