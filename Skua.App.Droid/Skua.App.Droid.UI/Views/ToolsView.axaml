@@ -17,6 +17,7 @@
     <DataTemplate DataType="vm:DiagnosticsViewModel"><v:DiagnosticsView /></DataTemplate>
     <DataTemplate DataType="vm:PacketSpammerViewModel"><v:PacketSpammerView /></DataTemplate>
     <DataTemplate DataType="vm:PacketInterceptorViewModel"><v:PacketInterceptorView /></DataTemplate>
+    <DataTemplate DataType="vm:CalendarViewModel"><v:CalendarView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Panel>

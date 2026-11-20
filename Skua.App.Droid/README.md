@@ -382,6 +382,26 @@ Safety limits, enforced by the connection, not by the rules:
   inbound one must still parse as a game message; otherwise the original is used (logged). An interceptor that throws
   is logged and the original is used. A dropped outbound packet completes as "not sent" and does not move the pacer.
 
+## Calendar (Settings > Tools)
+
+Port of the desktop's Calendar window (`CalendarToolPages`, `CalendarViewModel`): server time (US Eastern), the daily
+reset (server midnight) and weekly reset (Thursday to Friday) countdowns with their progress, and the AQW boosts of
+artix.com's calendar, running now (time left, progress) and coming (at most 14). The rules and the fetch moved from
+the desktop ViewModel into Skua.Core (`Skua.Core/Services/AqwCalendar.cs`), which the desktop window now calls with
+its signatures unchanged.
+
+* Source: `https://www.artix.com/calendar/` (the script array of the page), then, for boosts that began in the last ten
+  days or begin today, their event pages' meta description (how long they run, whether they are another Artix game's).
+  Hosts: `www.artix.com` (and `artix.com` for event pages). The app reads event pages only over https:// on those two
+  hosts (`AqwCalendar.IsArtixHttps`); others keep the default length (Double ALL 72 h, other Double boosts 48 h, else
+  one day). Android's network security policy refuses plain http anyway.
+* Time is the phone's clock corrected by the `Date` header of the calendar's answer, as on the desktop.
+* The countdowns tick every second only while the page is open and the app is in the foreground; the calendar is
+  read when the page opens and the last read is 30 minutes old, or with Refresh; a failed read keeps the last list.
+* Not verified against the live page: artix.com is not reachable from the container this was built in (the network
+  proxy refuses the host). The tests use a synthetic sample in the shape the desktop's parser reads
+  (`Skua.App.Droid.Tests/Fixtures/artix-calendar.sample.html`), not a recording.
+
 ## Diagnostics (Settings > Tools)
 
 Port of the desktop's Diagnostics, Runtime helpers and log windows (`DiagnosticsToolPages`, `DiagnosticsViewModel`,

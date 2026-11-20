@@ -19,4 +19,7 @@ public sealed record AppServices(
     /// where the host did not create them: their pages are then not offered.
     /// </summary>
     public NotificationHub? Notifications { get; init; }
+
+    /// <summary>The Calendar page's source; null for artix.com over HTTPS (<see cref="Calendar.ArtixCalendarSource"/>).</summary>
+    public Calendar.ICalendarSource? Calendar { get; init; }
 }

@@ -24,6 +24,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         SkillPages = SkillToolPages.AddTo(Tools, services);
         DiagnosticPages = DiagnosticsToolPages.AddTo(Tools, services);
         PacketPages = PacketToolPages.AddTo(Tools, services, GamePages.Store);
+        CalendarPages = CalendarToolPages.AddTo(Tools, services);
         Tools.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ToolsViewModel.CurrentTitle) || e.PropertyName == nameof(ToolsViewModel.CurrentPage))
@@ -39,6 +40,9 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 
     /// <summary>The packet tool pages of the hub (Packet Spammer, Packet Interceptor).</summary>
     public PacketToolPages PacketPages { get; }
+
+    /// <summary>The Calendar page of the hub.</summary>
+    public CalendarToolPages CalendarPages { get; }
 
     /// <summary>The Diagnostics page of the hub.</summary>
     public DiagnosticsToolPages DiagnosticPages { get; }
@@ -82,6 +86,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
             _notificationTools.Visible = IsActive && ShowTools;
         DiagnosticPages.Visible = IsActive && ShowTools && _uiVisible;
         PacketPages.Visible = IsActive && ShowTools && _uiVisible;
+        CalendarPages.Visible = IsActive && ShowTools && _uiVisible;
     }
 
     [RelayCommand]
@@ -109,6 +114,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         _notificationTools?.Dispose();
         DiagnosticPages.Dispose();
         PacketPages.Dispose();
+        CalendarPages.Dispose();
     }
 
     [ObservableProperty]
