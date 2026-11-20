@@ -10,6 +10,8 @@
     POST_NOTIFICATIONS                   the status notification with the Stop action (asked at run time, 13+)
     WAKE_LOCK                            partial wake lock and Wi-Fi lock while a script runs
     REQUEST_IGNORE_BATTERY_OPTIMIZATIONS lets the app show the system "allow background use" prompt
+    ${applicationId}.permission.SLOT_IPC signature-level, declared here: only an app signed with this app's key may
+                                         hold it; the army slot services require it (on top of not being exported)
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" android:installLocation="internalOnly">
   <uses-permission android:name="android.permission.INTERNET" />
@@ -18,6 +20,14 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+  <!-- Army: the coordinator (main process) binds the slot processes' services. ${applicationId} keeps Debug and Release apart. -->
+  <permission
+      android:name="${applicationId}.permission.SLOT_IPC"
+      android:protectionLevel="signature"
+      android:label="VibeSkua army slots"
+      android:description="@string/app_name" />
+  <uses-permission android:name="${applicationId}.permission.SLOT_IPC" />
 
   <application
       android:label="@string/app_name"
@@ -45,6 +55,68 @@
       <property
           android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
           android:value="Keeps a user-started game client session (TCP connection and automation script) running while the app is in the background." />
+    </service>
+
+    <!--
+      Army full slots 2..6: the same engine as the main process, one account each, each in its own process (Skua.Core
+      keeps process-wide state). Not exported and permission-protected; started and bound only by the main process with
+      explicit intents that carry an action and nothing else. They share the main service's notification id, so the app
+      shows one persistent notification.
+    -->
+    <service
+        android:name="com.vibeskua.droid.SlotService2"
+        android:process=":acct2"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC"
+        android:foregroundServiceType="specialUse"
+        android:stopWithTask="false">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps a user-started game client session (TCP connection and automation script) of a second account running while the app is in the background." />
+    </service>
+    <service
+        android:name="com.vibeskua.droid.SlotService3"
+        android:process=":acct3"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC"
+        android:foregroundServiceType="specialUse"
+        android:stopWithTask="false">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps a user-started game client session (TCP connection and automation script) of a second account running while the app is in the background." />
+    </service>
+    <service
+        android:name="com.vibeskua.droid.SlotService4"
+        android:process=":acct4"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC"
+        android:foregroundServiceType="specialUse"
+        android:stopWithTask="false">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps a user-started game client session (TCP connection and automation script) of a second account running while the app is in the background." />
+    </service>
+    <service
+        android:name="com.vibeskua.droid.SlotService5"
+        android:process=":acct5"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC"
+        android:foregroundServiceType="specialUse"
+        android:stopWithTask="false">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps a user-started game client session (TCP connection and automation script) of a second account running while the app is in the background." />
+    </service>
+    <service
+        android:name="com.vibeskua.droid.SlotService6"
+        android:process=":acct6"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC"
+        android:foregroundServiceType="specialUse"
+        android:stopWithTask="false">
+      <property
+          android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+          android:value="Keeps a user-started game client session (TCP connection and automation script) of a second account running while the app is in the background." />
     </service>
   </application>
 </manifest>

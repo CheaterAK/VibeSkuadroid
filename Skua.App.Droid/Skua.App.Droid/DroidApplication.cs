@@ -40,7 +40,7 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
         CrashCapture.InstallHandlers();
         try
         {
-            CrashCapture.Attach(this, trackStartup: !ProcessInfo.IsRestartProcess(this));
+            AttachDiagnostics();
         }
         catch (Exception e)
         {
@@ -52,9 +52,18 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     {
         CrashCapture.InstallHandlers();
         bool restartProcess = ProcessInfo.IsRestartProcess(this);
-        CrashCapture.Attach(this, trackStartup: !restartProcess);
+        AttachDiagnostics();
         if (restartProcess)
             return; // Application.onCreate itself does nothing; skipping base also skips Avalonia here.
+        if (Army.SlotRuntime.Detect() is int slot)
+        {
+            // A full army slot process (":acctN"): its own HOME and folders, its own engine, no UI, no Avalonia.
+            Army.SlotRuntime.PreparePaths(this, slot);
+            CrashCapture.Lifecycle($"slot {slot} process start");
+            CrashCapture.StartHeartbeat();
+            _ = Army.SlotRuntime.StartInitialization();
+            return;
+        }
 
         CrashCapture.Step(StartupStep.ApplicationCreate);
         // How the previous run ended, by Android's own records (native crash, ANR, killed for memory): before any
@@ -80,6 +89,22 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
             _ = EngineRuntime.StartInitialization(this);
         }
         CrashCapture.Step(StartupStep.ApplicationReady);
+    }
+
+    /// <summary>
+    /// Main process: files/diagnostics with startup tracking. ":restart": the same folder, no tracking. Army slot
+    /// process: its own folder (files/slots/acctN/diagnostics), no startup tracking, so its reports never replace the
+    /// main process's and the main crash screen is not shown for a slot's death (the main process logs it).
+    /// </summary>
+    private void AttachDiagnostics()
+    {
+        if (Army.SlotRuntime.Detect() is int slot)
+        {
+            string main = FilesDir!.AbsolutePath;
+            CrashCapture.Attach(this, trackStartup: false, Path.Combine(main, "slots", $"acct{slot}", "diagnostics"));
+            return;
+        }
+        CrashCapture.Attach(this, trackStartup: !ProcessInfo.IsRestartProcess(this));
     }
 
     /// <summary>Starts Avalonia (AppBuilder setup) once per process, on the main thread, before the first Avalonia activity.</summary>

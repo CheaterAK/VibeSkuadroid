@@ -35,9 +35,9 @@ public sealed class EngineService : Service
     /// <summary>Notification action: resume the paused script.</summary>
     public const string ActionResumeScript = "com.vibeskua.droid.action.RESUME_SCRIPT";
 
-    private const int NotificationId = 1001;
+    internal const int NotificationId = 1001;
     private const int RestartNoticeId = 1002;
-    private const string ChannelId = "engine";
+    internal const string ChannelId = "engine";
     private const string NoticeChannelId = "notices";
 
     /// <summary>How long the service stays up with nothing to do (offline, no script) before it stops itself.</summary>
@@ -488,7 +488,7 @@ public sealed class EngineService : Service
         }
     }
 
-    private static void CreateChannels(Context context)
+    internal static void CreateChannels(Context context)
     {
         try
         {

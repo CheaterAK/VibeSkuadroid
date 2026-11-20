@@ -200,9 +200,17 @@ public sealed class EngineHost : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Replaces the single-account rule of <see cref="CanResumeAfterRestart"/> (a full army slot process resumes the
+    /// account it was asked to log in, from the army vault). Null: the single-account rule.
+    /// </summary>
+    public Func<bool>? CanResumeOverride { get; set; }
+
     /// <summary>Whether a restart now could log back in by itself afterwards.</summary>
     public bool CanResumeAfterRestart()
     {
+        if (CanResumeOverride is Func<bool> custom)
+            return custom();
         EngineSnapshot s = Engine.Snapshot;
         return s.Connection is ConnectionPhase.Offline or ConnectionPhase.Failed || HasRememberedPassword(s.AccountName);
     }

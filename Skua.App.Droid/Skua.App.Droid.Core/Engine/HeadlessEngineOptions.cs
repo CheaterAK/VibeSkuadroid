@@ -23,6 +23,12 @@ public sealed class HeadlessEngineOptions
     public IReadOnlyList<TimeSpan> ReconnectDelays { get; init; } =
         [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(120)];
 
+    /// <summary>
+    /// Taken before every reconnect attempt and released after it (the army's login stagger, so the light sessions of
+    /// one process never log back in at the same moment). Null: no gate.
+    /// </summary>
+    public Func<CancellationToken, Task<IAsyncDisposable>>? LoginGate { get; init; }
+
     /// <summary>Give up after this many failed reconnect attempts in a row.</summary>
     public int MaxReconnectAttempts { get; init; } = 30;
 

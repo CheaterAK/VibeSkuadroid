@@ -99,7 +99,13 @@ internal static class CrashCapture
     /// tracking: reads the previous marker, turns an unexpected previous end into a pending report, writes step 1.
     /// Idempotent; returns false while no Context directory is available yet.
     /// </summary>
-    public static bool Attach(Context context, bool trackStartup)
+    public static bool Attach(Context context, bool trackStartup) => Attach(context, trackStartup, null);
+
+    /// <summary>
+    /// <see cref="Attach(Context, bool)"/> with the diagnostics directory given (an army slot process keeps its own,
+    /// files/slots/acctN/diagnostics, so its reports and events never overwrite the main process's).
+    /// </summary>
+    public static bool Attach(Context context, bool trackStartup, string? directory)
     {
         lock (s_lock)
         {
@@ -111,7 +117,7 @@ internal static class CrashCapture
                 if (string.IsNullOrEmpty(files))
                     return false;
                 s_context = context.ApplicationContext ?? context;
-                s_store = new DiagnosticsStore(Path.Combine(files, "diagnostics"));
+                s_store = new DiagnosticsStore(directory ?? Path.Combine(files, "diagnostics"));
             }
             catch (Exception e)
             {

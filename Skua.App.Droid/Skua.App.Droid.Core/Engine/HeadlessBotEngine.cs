@@ -786,9 +786,14 @@ public sealed class HeadlessBotEngine : IBotEngine
                 ? TimeSpan.FromSeconds(10)
                 : _options.ReconnectDelays[Math.Min(attempt - 1, _options.ReconnectDelays.Count - 1)];
             SetPhase(ConnectionPhase.Reconnecting, $"Reconnecting in {delay.TotalSeconds:0}s (attempt {attempt})");
+            IAsyncDisposable? gate = null;
+            try
+            {
             try
             {
                 await Task.Delay(delay, _time, cancellationToken).ConfigureAwait(false);
+                if (_options.LoginGate is { } loginGate)
+                    gate = await loginGate(cancellationToken).ConfigureAwait(false);
                 // Never fight Skua: while a script is busy or Skua's relogin runs, it reconnects and this loop waits.
                 while (_sessionHost is { OwnsReconnect: true } && _session.Connection is not { IsReady: true })
                 {
@@ -846,6 +851,13 @@ public sealed class HeadlessBotEngine : IBotEngine
                 _connecting = false;
                 _opLock.Release();
                 PublishNow();
+            }
+            }
+            finally
+            {
+                // The army's login turn ends with this attempt, whatever its outcome.
+                if (gate is not null)
+                    await gate.DisposeAsync().ConfigureAwait(false);
             }
         }
 

@@ -203,7 +203,7 @@ internal static class EngineRuntime
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
-    private static ISecretStore CreateSecretStore(Context context, string directory)
+    internal static ISecretStore CreateSecretStore(Context context, string directory)
     {
         try
         {
@@ -217,7 +217,7 @@ internal static class EngineRuntime
     }
 
     /// <summary>The script reference images from the APK assets; an empty (incomplete) set if they cannot be listed.</summary>
-    private static ScriptReferenceSet LoadScriptReferences(Context application)
+    internal static ScriptReferenceSet LoadScriptReferences(Context application)
     {
         try
         {
