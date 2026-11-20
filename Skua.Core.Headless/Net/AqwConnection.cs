@@ -207,7 +207,10 @@ public sealed partial class AqwConnection : IAsyncDisposable
             World.SetConnected(true);
             _liveness = new LivenessMonitor(Options.AwaitReplyTimeout, Options.ProbeTimeout, Options.IdleProbeAfter, _time.GetUtcNow());
             CancellationToken life = _lifetime.Token;
-            _readTask = Task.Run(() => ReadLoopAsync(_stream, life), CancellationToken.None);
+            // One receive buffer per socket, owned by its reader until the reader's last read has completed.
+            ReceiveBuffer receive = new ReceiveBuffer($"{server.Name} ({server.Host}:{server.Port})");
+            Stream stream = _stream;
+            _readTask = Task.Run(() => ReadLoopAsync(stream, receive, life), CancellationToken.None);
             _writeTask = Task.Run(() => WriteLoopAsync(_stream, life), CancellationToken.None);
             _livenessTask = Task.Run(() => LivenessLoopAsync(life), CancellationToken.None);
 
@@ -386,22 +389,33 @@ public sealed partial class AqwConnection : IAsyncDisposable
 
     // ---------------------------------------------------------------- receiving
 
-    private async Task ReadLoopAsync(Stream stream, CancellationToken cancellationToken)
+    /// <summary>
+    /// The only reader of <paramref name="stream"/> and the only user of <paramref name="receive"/>.
+    /// </summary>
+    /// <remarks>
+    /// A pending read is never cancelled by a token: a cancelled receive may complete its task before the transport
+    /// has stopped writing into the buffer (whatever the stream), and the buffer would then be released with a write
+    /// still in flight. The read is ended by <see cref="Close"/> disposing the stream instead, and the buffer is
+    /// released only in the finally block, after the last read has completed one way or the other.
+    /// </remarks>
+    private async Task ReadLoopAsync(Stream stream, ReceiveBuffer receive, CancellationToken cancellationToken)
     {
-        byte[] buffer = new byte[64 * 1024];
         try
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                int read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                int read = await stream.ReadAsync(receive.Payload, CancellationToken.None).ConfigureAwait(false);
                 if (read == 0)
                 {
                     Close(_pendingReason ?? DisconnectReason.RemoteClosed, _pendingMessage ?? "The server closed the connection.");
                     return;
                 }
+                if (receive.CheckAfterRead(read) is CanaryViolation violation)
+                    RaiseLog(HeadlessLogLevel.Error, violation.ToString());
                 Interlocked.Add(ref _bytesIn, read);
-                foreach (byte[] frame in _framer.Push(buffer.AsSpan(0, read)))
+                foreach (byte[] frame in _framer.Push(receive.Received(read)))
                     HandleFrame(frame);
+                receive.Recycle(read);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -420,6 +434,11 @@ public sealed partial class AqwConnection : IAsyncDisposable
             // Anything else (a packet shape no layer expected) must not leave a dead reader behind an open socket.
             RaiseLog(HeadlessLogLevel.Error, $"Reader stopped by {e.GetType().Name}: {e.Message}");
             Close(DisconnectReason.ProtocolError, $"Reader failed: {e.GetType().Name}: {e.Message}");
+        }
+        finally
+        {
+            // No read is pending here: every ReadAsync above was awaited to completion.
+            receive.Release();
         }
     }
 
@@ -914,6 +933,8 @@ public sealed partial class AqwConnection : IAsyncDisposable
         }
         _lifetime.Dispose();
         _sendSignal.Dispose();
+        if (ReceiveBufferCanary.SweepReleased() > 0)
+            RaiseLog(HeadlessLogLevel.Error, "A released socket receive buffer was written after its connection closed (see the canary report).");
     }
 
     // ---------------------------------------------------------------- helpers
