@@ -328,6 +328,25 @@ questions), the bank moves, Equip and Register ask first; deleting, clearing and
 the quest list update asks. While a script runs every action first asks "A script is running; do it anyway?". One
 action at a time per page; long Grabber tasks (Kill) and the quest update can be cancelled. Actions go through Skua's
 API and the client's own throttles (`world.lock`).
+## Packet Spammer (Settings > Tools)
+
+Port of the desktop's Packet Spammer (`PacketToolPages`, `PacketSpammerViewModel`, `Core/Packets/PacketSpammer.cs`):
+a list of game packets sent in turn, one every interval, Start/Stop, add, remove, clear, send once; the list and its
+options are kept in `files/droid/tools.json`. The desktop's "send to client" is left out (no client to show them).
+
+Limits, because spamming is what gets accounts flagged (the page says so, and every Start asks with that warning):
+
+* only one-line client game packets (`%xt%zm%command%room%...`, at most 2000 characters); SmartFox system messages,
+  JSON and `login`/`firstJoin` are refused; at most 50 packets in the list;
+* the interval is at least 1 s, and never below twice the send pacer's "slow down" gap or four times its normal gap
+  (`SpammerLimits.MinimumFor`, from `IBotEngine.GetConnectionDetails`); a shorter one is raised and the question says so;
+* a run sends at most 500 packets (the page's "at most" can only lower it);
+* packets go through the engine's paced send queue like any other (no "Raw packet sent" line each; the run is logged
+  once at its start and end, source `spammer`);
+* a run stops by itself before the next packet when the account is not online, when the connection changed or dropped
+  during the run (even if the engine already reconnected), when a packet was not sent, or when the server sent a
+  "slow down" warning (the connection's counter of them went up).
+
 ## Diagnostics (Settings > Tools)
 
 Port of the desktop's Diagnostics, Runtime helpers and log windows (`DiagnosticsToolPages`, `DiagnosticsViewModel`,

@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
+             xmlns:sys="using:System"
+             x:Class="Skua.App.Droid.UI.Views.PacketSpammerView"
+             x:DataType="vm:PacketSpammerViewModel">
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+        <Border Classes="banner">
+          <TextBlock TextWrapping="Wrap" FontSize="13" Text="{Binding Warning}" />
+        </Border>
+
+        <!-- Start/stop, interval, cap -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+              <StackPanel Spacing="2">
+                <TextBlock Classes="muted" Text="Every (ms)" />
+                <NumericUpDown Value="{Binding IntervalMs}" Minimum="0" Maximum="600000" Increment="100" FormatString="0" IsEnabled="{Binding !IsRunning}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="2">
+                <TextBlock Classes="muted" Text="At most (sends)" />
+                <NumericUpDown Value="{Binding MaxSends}" Minimum="1" Maximum="{Binding MaxSendsLimit}" Increment="10" FormatString="0" IsEnabled="{Binding !IsRunning}" />
+              </StackPanel>
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding LimitsText}" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding RunStatus}" />
+              <Button Grid.Column="1" Classes="primary" Classes.danger="{Binding IsRunning}" MinWidth="96" Content="{Binding ToggleText}" Command="{Binding ToggleCommand}" />
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding Message}" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Composer -->
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBox Classes="mono" Text="{Binding PacketText}" PlaceholderText="%xt%zm%command%room%..." TextInputOptions.AutoCapitalization="False" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Classes="small" Content="Add" Command="{Binding AddPacketCommand}" />
+              <Button Classes="small primary" Content="Send once" Command="{Binding SendOnceCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- The list -->
+        <Grid ColumnDefinitions="*,Auto" Margin="2,0,2,6">
+          <TextBlock Classes="caption" VerticalAlignment="Center" Text="{Binding Packets.Count, StringFormat='QUEUE ({0})'}" />
+          <Button Grid.Column="1" Classes="small danger" Content="Clear" Command="{Binding ClearPacketsCommand}" IsVisible="{Binding HasPackets}" />
+        </Grid>
+        <TextBlock Classes="muted" Margin="2,0" Text="No packets yet: type one above and Add." IsVisible="{Binding !HasPackets}" />
+        <ListBox ItemsSource="{Binding Packets}" SelectedIndex="{Binding SelectedIndex}" Background="Transparent">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="sys:String">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Classes="mono" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="{Binding}" />
+                <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Remove" CommandParameter="{Binding}"
+                        Command="{Binding $parent[ListBox].((vm:PacketSpammerViewModel)DataContext).RemovePacketCommand}"
+                        IsEnabled="{Binding !$parent[ListBox].((vm:PacketSpammerViewModel)DataContext).IsRunning}" />
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </StackPanel>
+    </ScrollViewer>
+    <v:ConfirmOverlay DataContext="{Binding Confirm}" />
+  </Panel>
+</UserControl>

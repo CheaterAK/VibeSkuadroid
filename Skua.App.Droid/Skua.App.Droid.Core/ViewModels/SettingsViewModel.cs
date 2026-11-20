@@ -23,6 +23,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         _notificationTools = NotificationTools.AddTo(Tools, services);
         SkillPages = SkillToolPages.AddTo(Tools, services);
         DiagnosticPages = DiagnosticsToolPages.AddTo(Tools, services);
+        PacketPages = PacketToolPages.AddTo(Tools, services, GamePages.Store);
         Tools.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ToolsViewModel.CurrentTitle) || e.PropertyName == nameof(ToolsViewModel.CurrentPage))
@@ -35,6 +36,9 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 
     /// <summary>The skill tool pages of the hub (Advanced Skills, CoreBots options).</summary>
     public SkillToolPages SkillPages { get; }
+
+    /// <summary>The packet tool pages of the hub (Packet Spammer, Packet Interceptor).</summary>
+    public PacketToolPages PacketPages { get; }
 
     /// <summary>The Diagnostics page of the hub.</summary>
     public DiagnosticsToolPages DiagnosticPages { get; }
@@ -77,6 +81,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         if (_notificationTools is not null)
             _notificationTools.Visible = IsActive && ShowTools;
         DiagnosticPages.Visible = IsActive && ShowTools && _uiVisible;
+        PacketPages.Visible = IsActive && ShowTools && _uiVisible;
     }
 
     [RelayCommand]
@@ -90,7 +95,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
     {
         if (!ShowTools)
             return false;
-        if (GamePages.CancelQuestion())
+        if (GamePages.CancelQuestion() || PacketPages.CancelQuestion())
             return true;
         if (SkillPages.GoBack())
             return true;
@@ -103,6 +108,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
     {
         _notificationTools?.Dispose();
         DiagnosticPages.Dispose();
+        PacketPages.Dispose();
     }
 
     [ObservableProperty]
@@ -227,6 +233,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
     {
         GamePages.Apply(s);
         SkillPages.Apply(s);
+        PacketPages.Apply(s);
         MemoryText = $"{Formatting.Memory(s.Memory)}, peak {(s.Memory.PeakRssBytes < 0 ? "n/a" : $"{s.Memory.PeakRssBytes / 1048576.0:0} MB")}";
     }
 }

@@ -157,7 +157,10 @@ public sealed class HeadlessBotEngine : IBotEngine
             st.LastRoundTrip,
             st.AverageRoundTrip,
             c.Options.SendGap,
-            c.Options.SlowSendGap);
+            c.Options.SlowSendGap)
+        {
+            Identity = c,
+        };
     }
 
     public IReadOnlyList<FlashGapRow>? GetFlashGaps() => (_scripts as IFlashGapSource)?.GetFlashGaps();
@@ -398,14 +401,17 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
     }
 
-    public async Task<bool> SendPacketAsync(string packet, CancellationToken cancellationToken = default)
+    public Task<bool> SendPacketAsync(string packet, CancellationToken cancellationToken = default) => SendPacketAsync(packet, log: true, cancellationToken);
+
+    public async Task<bool> SendPacketAsync(string packet, bool log, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(packet))
             throw new EngineException("The packet is empty.");
         GameCommands commands = RequireOnline();
         string text = packet.TrimEnd('\r', '\n');
         bool sent = await commands.SendRawAsync(text).WaitAsync(cancellationToken).ConfigureAwait(false);
-        AddLog(sent ? EngineLogLevel.Info : EngineLogLevel.Warning, "packets", sent ? "Raw packet sent." : "Raw packet was dropped (queue full or disconnected).");
+        if (log || !sent)
+            AddLog(sent ? EngineLogLevel.Info : EngineLogLevel.Warning, "packets", sent ? "Raw packet sent." : "Raw packet was dropped (queue full or disconnected).");
         return sent;
     }
 

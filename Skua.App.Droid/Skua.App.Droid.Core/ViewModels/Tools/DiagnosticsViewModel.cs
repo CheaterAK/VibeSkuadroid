@@ -218,7 +218,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject, IDisposable
         IBotEngine engine = _host.Engine;
         bool capture = engine.PacketCaptureEnabled;
         string? interception = InterceptionText();
-        string[] personal = [_host.Settings.Current.AccountName, _host.Settings.Current.RememberedAccount, reading.Engine.AccountName, reading.Engine.Character?.Name];
+        string?[] personal = [_host.Settings.Current.AccountName, _host.Settings.Current.RememberedAccount, reading.Engine.AccountName, reading.Engine.Character?.Name];
         return await Task.Run(() =>
         {
             IReadOnlyList<string> events = new DiagnosticsStore(_services.Paths.DiagnosticsDir).ReadLogTail(BundleLogLines);

@@ -15,6 +15,7 @@
     <DataTemplate DataType="vm:AdvancedSkillsViewModel"><v:AdvancedSkillsView /></DataTemplate>
     <DataTemplate DataType="vm:CoreBotsOptionsViewModel"><v:CoreBotsOptionsView /></DataTemplate>
     <DataTemplate DataType="vm:DiagnosticsViewModel"><v:DiagnosticsView /></DataTemplate>
+    <DataTemplate DataType="vm:PacketSpammerViewModel"><v:PacketSpammerView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Panel>

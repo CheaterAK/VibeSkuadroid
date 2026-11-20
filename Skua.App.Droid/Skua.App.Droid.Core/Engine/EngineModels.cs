@@ -261,6 +261,9 @@ public sealed record ConnectionDetails(
     TimeSpan SlowSendGap)
 {
     public bool IsReady => State == "Ready";
+
+    /// <summary>Which socket this is: the same object for as long as one connection lives (compare by reference).</summary>
+    public object? Identity { get; init; }
 }
 
 /// <summary>

@@ -73,6 +73,12 @@ public interface IBotEngine : IAsyncDisposable
     /// <summary>Sends a raw packet exactly as typed (paced like every other packet). False when it was dropped.</summary>
     Task<bool> SendPacketAsync(string packet, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <see cref="SendPacketAsync(string, CancellationToken)"/>; <paramref name="log"/> false leaves out the Console's
+    /// "Raw packet sent" line (the packet spammer logs its run once instead).
+    /// </summary>
+    Task<bool> SendPacketAsync(string packet, bool log, CancellationToken cancellationToken = default) => SendPacketAsync(packet, cancellationToken);
+
     /// <summary>Asks the server for the bank contents (the bank list is empty until this ran once).</summary>
     Task LoadBankAsync(CancellationToken cancellationToken = default);
 
