@@ -118,7 +118,8 @@ public interface IBotEngine : IAsyncDisposable
 
     /// <summary>
     /// Pauses the running script in place (Skua's pause): its thread waits at its next Sleep or Wait until resumed;
-    /// the session, its keepalive and AFK clearing keep running. <see cref="ScriptStatus.Paused"/> shows it.
+    /// the session, its keepalive and AFK clearing keep running. <see cref="ScriptStatus.Paused"/> shows it. While a
+    /// start is still in progress (compiling), it waits for that start and then pauses the script it started.
     /// </summary>
     /// <exception cref="EngineException">No script is running, or this engine cannot pause.</exception>
     Task PauseScriptAsync(CancellationToken cancellationToken = default) =>
