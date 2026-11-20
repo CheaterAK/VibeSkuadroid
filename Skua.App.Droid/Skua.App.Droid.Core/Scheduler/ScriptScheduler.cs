@@ -719,7 +719,6 @@ public sealed class ScriptScheduler : IDisposable
                 return new RunResult(RunKind.Failed, "File Not Found", ErrorText.Summarize("No script at " + entry.Script));
 
             ApplyCoreBotsProfile(entry);
-            SetResult(entry, "Running", null);
             SetPhase(QueuePhase.Running, $"Starting {entry.Name}...");
 
             bool adopted = false;
@@ -745,7 +744,11 @@ public sealed class ScriptScheduler : IDisposable
                 {
                     QueueStatus at = Status;
                     Log(EngineLogLevel.Info, $"Queue: starting {entry.Name} ({at.Index + 1}/{at.Count}).");
-                    await _engine.StartScriptAsync(path, new ScriptStartOptions(entry.OptionStorage, Silent: true), ct).ConfigureAwait(false);
+                    Task start = _engine.StartScriptAsync(path, new ScriptStartOptions(entry.OptionStorage, Silent: true), ct);
+                    // "Running" only once the engine has the start: a pause by whoever sees it then waits for the
+                    // start (or finds the script running) instead of finding no script.
+                    SetResult(entry, "Running", null);
+                    await start.ConfigureAwait(false);
                 }
                 catch (EngineException e)
                 {
@@ -756,6 +759,10 @@ public sealed class ScriptScheduler : IDisposable
                     }
                     // Skua's relogin restarted the same script in the meantime: that is this run.
                 }
+            }
+            else
+            {
+                SetResult(entry, "Running", null);
             }
 
             if (adopted && busy.StartedAt is DateTimeOffset adoptedStart)

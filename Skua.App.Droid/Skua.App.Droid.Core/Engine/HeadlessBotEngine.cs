@@ -55,6 +55,8 @@ public sealed class HeadlessBotEngine : IBotEngine
     private volatile bool _packetCapture;
     private volatile bool _wantOnline;
     private volatile bool _connecting;
+    // The script start in progress (completes, never faults, when StartScriptAsync returns): a pause asked for meanwhile waits for it.
+    private Task? _starting;
     private volatile bool _loggingOut;
     private readonly List<string> _work = new();
     private string? _lastToken;
@@ -449,12 +451,24 @@ public sealed class HeadlessBotEngine : IBotEngine
             _scripts.Load(scriptPath);
         if (_scripts.Status.ScriptPath is null)
             throw new EngineException("Choose a script first.");
-        AddLog(EngineLogLevel.Info, "scripts", $"Starting {Path.GetFileName(_scripts.Status.ScriptPath)}{(options.OptionStorage is string storage ? $" (options {storage})" : string.Empty)}.");
-        if (ReferenceEquals(options, ScriptStartOptions.Default))
-            await _scripts.StartAsync(cancellationToken).ConfigureAwait(false);
-        else
-            await _scripts.StartAsync(options, cancellationToken).ConfigureAwait(false);
-        PublishNow();
+        // Registered before the first await: whoever sees this call made (the queue marks its entry running) and then
+        // pauses finds the start, and the pause waits for it instead of failing with "No script is running".
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Volatile.Write(ref _starting, started.Task);
+        try
+        {
+            AddLog(EngineLogLevel.Info, "scripts", $"Starting {Path.GetFileName(_scripts.Status.ScriptPath)}{(options.OptionStorage is string storage ? $" (options {storage})" : string.Empty)}.");
+            if (ReferenceEquals(options, ScriptStartOptions.Default))
+                await _scripts.StartAsync(cancellationToken).ConfigureAwait(false);
+            else
+                await _scripts.StartAsync(options, cancellationToken).ConfigureAwait(false);
+            PublishNow();
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _starting, null, started.Task);
+            started.TrySetResult();
+        }
     }
 
     public Task StopScriptAsync(CancellationToken cancellationToken = default)
@@ -485,6 +499,12 @@ public sealed class HeadlessBotEngine : IBotEngine
     {
         if (!_scripts.CanPause)
             throw new EngineException("Pausing scripts is not available in this engine.");
+        // Pause pressed right after Start (or by the queue just after it started an entry): the start is still in
+        // progress (compiling); wait for it, then pause the script it started. A failed start is reported to its caller.
+        if (Volatile.Read(ref _starting) is Task starting && _scripts.Status.State != ScriptRunState.Running)
+            await starting.WaitAsync(cancellationToken).ConfigureAwait(false);
+        if (_scripts.Status.State == ScriptRunState.Compiling)
+            throw new EngineException("The script is still starting.");
         if (_scripts.Status.State != ScriptRunState.Running)
             throw new EngineException("No script is running.");
         if (_scripts.Status.Paused == paused)

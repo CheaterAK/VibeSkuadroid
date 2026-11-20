@@ -182,6 +182,58 @@ public class QueueTests
     }
 
     /// <summary>
+    /// Pause pressed while a start is still in progress (compiling), by hand or right after the queue marked its entry
+    /// running: the pause waits for the start and pauses the script it started; when the start fails, the pause says
+    /// that no script is running.
+    /// </summary>
+    [Fact]
+    public async Task APauseDuringAStartWaitsForTheScriptToRun()
+    {
+        (TestApp app, QueueScriptHost host) = await OnlineApp();
+        await using TestApp _ = app;
+        host.Scripts["Endless.cs"] = new FakeScript(Forever: true);
+        host.Scripts["Broken.cs"] = new FakeScript(StartError: "Compile error: CS1002");
+        string endless = QueueTesting.Script(app, "Endless.cs");
+        string broken = QueueTesting.Script(app, "Broken.cs");
+
+        host.HoldStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task start = app.Engine.StartScriptAsync(endless);
+        Assert.Equal(ScriptRunState.Compiling, host.Status.State);
+        Task pause = app.Engine.PauseScriptAsync();
+        Assert.False(pause.IsCompleted); // waits for the start
+        host.HoldStart.SetResult();
+        await start;
+        await pause;
+        Assert.True(host.Status.IsPaused);
+        Assert.True(app.Engine.Snapshot.Script.IsPaused);
+        await app.Engine.StopScriptAsync();
+
+        host.HoldStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task failing = app.Engine.StartScriptAsync(broken);
+        Task pauseFailing = app.Engine.PauseScriptAsync();
+        Assert.False(pauseFailing.IsCompleted);
+        host.HoldStart.SetResult();
+        await Assert.ThrowsAsync<EngineException>(() => failing);
+        EngineException e = await Assert.ThrowsAsync<EngineException>(() => pauseFailing);
+        Assert.Equal("No script is running.", e.Message);
+
+        // The queue: its entry reads "Running" once the engine has the start, so a pause then always finds it.
+        host.HoldStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using ScriptScheduler q = QueueTesting.Scheduler(app);
+        QueueEntry entry = q.Add(endless);
+        q.Update(entry with { StopAfter = TimeSpan.FromMilliseconds(300), DelayAfter = TimeSpan.Zero });
+        q.Start();
+        await Sandbox.Until(() => q.Status.Entries[0].Result.Status == "Running");
+        Task queuedPause = app.Engine.PauseScriptAsync();
+        host.HoldStart.SetResult();
+        await queuedPause;
+        await Sandbox.Until(() => q.Status.Entries[0].Result.Status == "Paused");
+        await app.Engine.ResumeScriptAsync();
+        await QueueTesting.UntilIdle(q);
+        Assert.Equal("Completed", q.Status.Entries[0].Result.Status);
+    }
+
+    /// <summary>
     /// The desktop's relogin collision protection: a run that Skua's relogin stopped is not counted; when Skua restarts
     /// the same script the queue adopts it (one start, nothing skipped); when it does not, the queue starts the entry
     /// again once the account is back.

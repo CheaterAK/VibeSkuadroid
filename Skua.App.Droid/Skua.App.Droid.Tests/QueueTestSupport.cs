@@ -31,6 +31,9 @@ internal sealed class QueueScriptHost : IScriptHost
 
     public ScriptSupport Support { get; } = new(true, null);
 
+    /// <summary>When set, a start stays in progress (compiling) until this completes, as a real compile does.</summary>
+    public TaskCompletionSource? HoldStart { get; set; }
+
     public ScriptStatus Status
     {
         get
@@ -90,13 +93,29 @@ internal sealed class QueueScriptHost : IScriptHost
             Starts.Add((Path.GetFileName(path), options.OptionStorage, options.Silent));
             script = Scripts.TryGetValue(Path.GetFileName(path), out FakeScript? s) ? s : new FakeScript();
         }
+        if (HoldStart is TaskCompletionSource hold)
+        {
+            Set(new ScriptStatus(ScriptRunState.Compiling, path, null, "Compiling..."));
+            return FinishStartAsync(hold.Task, path, script);
+        }
+        FinishStart(path, script);
+        return Task.CompletedTask;
+    }
+
+    private async Task FinishStartAsync(Task hold, string path, FakeScript script)
+    {
+        await hold;
+        FinishStart(path, script);
+    }
+
+    private void FinishStart(string path, FakeScript script)
+    {
         if (script.StartError is string error)
         {
             Set(new ScriptStatus(ScriptRunState.Faulted, path, null, error));
             throw new EngineException(error);
         }
         Begin(path, script);
-        return Task.CompletedTask;
     }
 
     private void Begin(string path, FakeScript script)
