@@ -257,7 +257,7 @@ public partial class ToolsTests
         Assert.NotNull(window.GetVisualDescendantOfType(nameof(LoaderView)));
 
         lock (sink.Messages)
-            Assert.Empty(sink.Messages.Where(m => m.Contains("Binding", StringComparison.OrdinalIgnoreCase)));
+            Assert.DoesNotContain(sink.Messages, m => m.Contains("Binding", StringComparison.OrdinalIgnoreCase));
         window.Close();
     }
 }

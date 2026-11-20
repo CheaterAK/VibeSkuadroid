@@ -133,6 +133,7 @@ public sealed class PacketInterception : IPacketInterceptor
     private long _version;
 
     /// <param name="scrub">Applied to every logged message (the engine's secret scrubber).</param>
+    /// <param name="time">Clock for log timestamps (the system clock when null).</param>
     public PacketInterception(Func<string, string>? scrub = null, TimeProvider? time = null)
     {
         _scrub = scrub ?? (s => s);

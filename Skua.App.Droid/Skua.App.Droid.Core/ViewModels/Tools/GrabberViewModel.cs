@@ -17,6 +17,8 @@ public sealed record GrabberTab(GrabberCategory Category, string Title, string G
 }
 
 /// <summary>A button of a Grabber tab.</summary>
+/// <param name="Action">The Grabber action the button runs.</param>
+/// <param name="Title">The button text.</param>
 /// <param name="Destructive">Shown in red (the desktop's soft red: Sell, Sell All).</param>
 public sealed record GrabberActionInfo(GrabberAction Action, string Title, bool Destructive = false);
 

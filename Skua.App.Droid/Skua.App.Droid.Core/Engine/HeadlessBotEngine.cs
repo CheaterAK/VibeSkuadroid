@@ -518,7 +518,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
         finally
         {
-            Interlocked.CompareExchange(ref _starting, null, started.Task);
+            _ = Interlocked.CompareExchange(ref _starting, null, started.Task); // returns the previous value, not an operation
             started.TrySetResult();
         }
     }

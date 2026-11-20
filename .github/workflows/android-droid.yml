@@ -73,9 +73,14 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # The runner image also has a newer SDK (.NET 11) preinstalled, and dotnet picks the highest SDK unless
+      # global.json says otherwise: the repo-root global.json keeps every dotnet call below on .NET 10.
       - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
         with:
           dotnet-version: '10.0.1xx'
+
+      - name: Show the .NET SDK in use
+        run: dotnet --version
 
       - name: Install the .NET android workload
         run: dotnet workload install android

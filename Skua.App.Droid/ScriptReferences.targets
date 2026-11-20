@@ -5,7 +5,10 @@
     APK assets, and by the test project, which copies them next to the tests and compiles real scripts against
     exactly this set.
 
-      script-refs/framework/*.dll   net10.0 reference pack of the SDK doing the build (public API only)
+      script-refs/framework/*.dll   Microsoft.NETCore.App.Ref pack of the app's target framework (net10.0) as
+                                    the SDK resolved it for this project (public API only). Not the pack of the
+                                    SDK's own runtime: a newer SDK (e.g. .NET 11) building net10.0 must still
+                                    ship the net10.0 pack. Override with -p:SkuaScriptRefPackDir=...
       script-refs/app/*.dll         Skua assemblies and their dependencies, the same files the app runs
       script-refs/manifest.txt      "<folder>/<file> <size>" per image, checked at run time
 
@@ -13,7 +16,6 @@
     every non-framework assembly Skua.Core references, apart from the exclusions listed there with a reason.
   -->
   <PropertyGroup>
-    <SkuaScriptRefPackDir Condition="'$(SkuaScriptRefPackDir)' == ''">$(NetCoreTargetingPackRoot)/Microsoft.NETCore.App.Ref/$(BundledNETCoreAppPackageVersion)/ref/net10.0</SkuaScriptRefPackDir>
     <SkuaScriptRefsManifest>$(IntermediateOutputPath)script-refs-manifest.txt</SkuaScriptRefsManifest>
   </PropertyGroup>
 
@@ -32,9 +34,25 @@
     <SkuaScriptAppAssembly Include="Velopack" />
   </ItemGroup>
 
-  <Target Name="SkuaCollectScriptReferences" DependsOnTargets="ResolvePackageAssets;ResolveAssemblyReferences">
+  <Target Name="SkuaCollectScriptReferences" DependsOnTargets="ResolvePackageAssets;ResolveTargetingPackAssets;ResolveAssemblyReferences">
+    <!-- The Microsoft.NETCore.App targeting pack the SDK resolved for this project's target framework (from the
+         SDK's packs folder or the NuGet cache), not the one bundled with the SDK doing the build. -->
+    <PropertyGroup>
+      <!-- net10.0 for both the Android head (net10.0-android) and the tests (net10.0). Set here, not at evaluation
+           time: TargetFrameworkVersion is inferred by SDK targets imported after this file. -->
+      <SkuaScriptRefTfm Condition="'$(SkuaScriptRefTfm)' == ''">net$(TargetFrameworkVersion.TrimStart('vV'))</SkuaScriptRefTfm>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(SkuaScriptRefPackDir)' == ''">
+      <_SkuaNetCoreRefPack Include="@(ResolvedTargetingPack)" Condition="'%(Identity)' == 'Microsoft.NETCore.App'" />
+    </ItemGroup>
+    <Error Condition="'$(SkuaScriptRefPackDir)' == '' and @(_SkuaNetCoreRefPack->Count()) != 1"
+           Text="Could not resolve the Microsoft.NETCore.App targeting pack for $(TargetFramework) (SDK $(NETCoreSdkVersion)); pass -p:SkuaScriptRefPackDir=&lt;Microsoft.NETCore.App.Ref pack&gt;/ref/$(SkuaScriptRefTfm)" />
+    <PropertyGroup Condition="'$(SkuaScriptRefPackDir)' == ''">
+      <_SkuaRefPackVersion>@(_SkuaNetCoreRefPack->'%(NuGetPackageVersion)')</_SkuaRefPackVersion>
+      <SkuaScriptRefPackDir>@(_SkuaNetCoreRefPack->'%(Path)')/ref/$(SkuaScriptRefTfm)</SkuaScriptRefPackDir>
+    </PropertyGroup>
     <Error Condition="!Exists('$(SkuaScriptRefPackDir)/System.Runtime.dll')"
-           Text="Reference pack not found at $(SkuaScriptRefPackDir); pass -p:SkuaScriptRefPackDir=..." />
+           Text="$(SkuaScriptRefTfm) reference pack not found at $(SkuaScriptRefPackDir) (Microsoft.NETCore.App.Ref $(_SkuaRefPackVersion), SDK $(NETCoreSdkVersion)). Scripts are compiled against the $(SkuaScriptRefTfm) reference pack; build with the SDK band pinned in global.json or pass -p:SkuaScriptRefPackDir=..." />
     <ItemGroup>
       <_SkuaRefFramework Include="$(SkuaScriptRefPackDir)/*.dll" />
       <!-- Implementation assemblies the app copies (packages and project references alike). -->
@@ -70,6 +88,6 @@
     <ItemGroup>
       <FileWrites Include="$(SkuaScriptRefsManifest)" />
     </ItemGroup>
-    <Message Importance="high" Text="Script references: @(SkuaScriptRefFramework->Count()) framework + @(SkuaScriptRefApp->Count()) app assemblies" />
+    <Message Importance="high" Text="Script references: @(SkuaScriptRefFramework->Count()) framework ($(SkuaScriptRefPackDir)) + @(SkuaScriptRefApp->Count()) app assemblies" />
   </Target>
 </Project>
