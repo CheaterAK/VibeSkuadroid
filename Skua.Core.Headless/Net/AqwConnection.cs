@@ -40,6 +40,15 @@ public sealed partial class AqwConnection : IAsyncDisposable
         "gar", "moveToCell", "restRequest", "resPlayerTimed", "aggroMon", "mv",
     };
 
+    // Requests the server always answers with a packet of a known command: the time between writing one and reading
+    // its answer is the round trip (server work included) shown as latency.
+    private static readonly Dictionary<string, string> s_replyOf = new(StringComparer.Ordinal)
+    {
+        ["retrieveUserData"] = "initUserData", ["getQuests"] = "getQuests", ["loadShop"] = "loadShop",
+        ["acceptQuest"] = "acceptQuest", ["tryQuestComplete"] = "ccqr", ["loadBank"] = "loadBank",
+        ["buyItem"] = "buyItem", ["sellItem"] = "sellItem", ["loadHairShop"] = "loadHairShop",
+    };
+
     private readonly TimeProvider _time;
     private readonly SendPacer _pacer;
     private readonly PacketFramer _framer;
@@ -82,6 +91,13 @@ public sealed partial class AqwConnection : IAsyncDisposable
     private long _afkClears;
     private long _probes;
     private long _subscriberErrors;
+    private readonly object _rttGate = new();
+    private readonly Dictionary<string, long> _awaitingReply = new(StringComparer.Ordinal);
+    private long _lastRoundTripTicks = -1;
+    private bool _interceptArmed;
+    private long _interceptChanged;
+    private long _interceptBlocked;
+    private double _averageRoundTripMs = -1;
 
     public AqwConnection(AqwConnectionOptions? options = null, WorldModel? world = null, TimeProvider? time = null)
     {
@@ -143,7 +159,45 @@ public sealed partial class AqwConnection : IAsyncDisposable
             Interlocked.Read(ref _afkClears),
             Interlocked.Read(ref _probes),
             Interlocked.Read(ref _subscriberErrors),
-            State == ConnectionState.Created ? null : _liveness.LastInbound);
+            State == ConnectionState.Created ? null : _liveness.LastInbound)
+        {
+            LastRoundTrip = RoundTrip(out TimeSpan? average),
+            AverageRoundTrip = average,
+            InterceptedChanged = Interlocked.Read(ref _interceptChanged),
+            InterceptedBlocked = Interlocked.Read(ref _interceptBlocked),
+        };
+    }
+
+    private TimeSpan? RoundTrip(out TimeSpan? average)
+    {
+        lock (_rttGate)
+        {
+            average = _averageRoundTripMs < 0 ? null : TimeSpan.FromMilliseconds(_averageRoundTripMs);
+            return _lastRoundTripTicks < 0 ? null : TimeSpan.FromTicks(_lastRoundTripTicks);
+        }
+    }
+
+    private void NoteRequestWritten(string? command)
+    {
+        if (command is null || !s_replyOf.TryGetValue(command, out string? reply))
+            return;
+        lock (_rttGate)
+            _awaitingReply.TryAdd(reply, Stopwatch.GetTimestamp());
+    }
+
+    private void NoteReply(string? command)
+    {
+        if (command is null)
+            return;
+        lock (_rttGate)
+        {
+            if (_awaitingReply.Count == 0 || !_awaitingReply.Remove(command, out long sent))
+                return;
+            TimeSpan rtt = Stopwatch.GetElapsedTime(sent);
+            _lastRoundTripTicks = rtt.Ticks;
+            // A moving average over about the last eight answers.
+            _averageRoundTripMs = _averageRoundTripMs < 0 ? rtt.TotalMilliseconds : _averageRoundTripMs * 0.875 + rtt.TotalMilliseconds * 0.125;
+        }
     }
 
     // ---------------------------------------------------------------- connect / login
@@ -353,13 +407,31 @@ public sealed partial class AqwConnection : IAsyncDisposable
 
     private async Task WriteAsync(Stream stream, OutboundItem item, CancellationToken cancellationToken)
     {
-        byte[] bytes = new byte[Encoding.UTF8.GetByteCount(item.Text) + 1];
-        Encoding.UTF8.GetBytes(item.Text, bytes);
-        string shown = Redact(item.Text);
+        string text = item.Text;
+        string? command = item.Command;
+        if (item.Paced && Volatile.Read(ref _interceptArmed) && Options.Interceptor is { IsActive: true } interceptor)
+        {
+            string? changed = InterceptOutbound(interceptor, text, command);
+            if (changed is null)
+            {
+                // Dropped by the interceptor: never written, so the pacer's clock does not move.
+                item.Complete(false);
+                return;
+            }
+            if (!ReferenceEquals(changed, text))
+            {
+                text = changed;
+                command = Packets.CommandOf(text);
+            }
+        }
+
+        byte[] bytes = new byte[Encoding.UTF8.GetByteCount(text) + 1];
+        Encoding.UTF8.GetBytes(text, bytes);
+        string shown = Redact(text);
         // Traced before the bytes leave: once they do, the reader may handle the reply (the first moveToArea ends the
         // trace) before this thread goes on, and the frame that asked for it would be missing from the trace.
         if (Volatile.Read(ref _tracing) == 1)
-            TraceFrame(">>", shown, verbatim: item.Command is null);
+            TraceFrame(">>", shown, verbatim: command is null);
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
         await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
         DateTimeOffset now = _time.GetUtcNow();
@@ -367,21 +439,92 @@ public sealed partial class AqwConnection : IAsyncDisposable
             _pacer.MarkWritten(now);
         Interlocked.Increment(ref _packetsOut);
         Interlocked.Add(ref _bytesOut, bytes.Length);
-        bool transfer = item.Command == "cmd" && item.Text.Contains("%tfer%", StringComparison.Ordinal);
-        if (item.Command is not null && (s_expectReply.Contains(item.Command) || transfer))
+        bool transfer = command == "cmd" && text.Contains("%tfer%", StringComparison.Ordinal);
+        if (command is not null && (s_expectReply.Contains(command) || transfer))
             _liveness.OnRequestExpectingReply(now);
+        NoteRequestWritten(command);
         if (transfer)
         {
             // [tfer, user, map, cell, pad]: remembered so the cell move after moveToArea goes where we asked.
-            string[] args = Packets.ArgsOf(item.Text);
+            string[] args = Packets.ArgsOf(text);
             if (args.Length >= 3)
                 _requestedSpot = (args[2].Split('-')[0], args.Length > 3 && args[3].Length > 0 ? args[3] : "Enter", args.Length > 4 && args[4].Length > 0 ? args[4] : "Spawn");
         }
         item.Complete(true);
 
-        World.ApplyOutbound(item.Text);
-        bool redacted = !string.Equals(shown, item.Text, StringComparison.Ordinal);
+        World.ApplyOutbound(text);
+        bool redacted = !string.Equals(shown, text, StringComparison.Ordinal);
         Raise(PacketSent, new PacketSentEventArgs(shown, redacted, now));
+    }
+
+    // ---------------------------------------------------------------- interception (see IPacketInterceptor)
+
+    /// <summary>The text to write (the same instance when unchanged), or null to drop the packet.</summary>
+    private string? InterceptOutbound(IPacketInterceptor interceptor, string text, string? command)
+    {
+        if (command is null || InterceptionRules.ProtectedOutbound.Contains(command) || !string.Equals(Redact(text), text, StringComparison.Ordinal))
+            return text;
+        InterceptedFrame frame = new(outbound: true, text, command);
+        if (!RunInterceptor(interceptor, frame))
+            return text;
+        if (frame.Blocked)
+        {
+            Interlocked.Increment(ref _interceptBlocked);
+            return null;
+        }
+        string changed = frame.Text ?? string.Empty;
+        if (string.Equals(changed, text, StringComparison.Ordinal))
+            return text;
+        if (!changed.StartsWith("%xt%", StringComparison.Ordinal) || changed.Contains('\0') || Packets.CommandOf(changed) is not string newCommand
+            || InterceptionRules.ProtectedOutbound.Contains(newCommand))
+        {
+            RaiseLog(HeadlessLogLevel.Warning, $"Packet interceptor: the changed {command} is not one game packet it may send; the original was sent.");
+            return text;
+        }
+        Interlocked.Increment(ref _interceptChanged);
+        return changed;
+    }
+
+    /// <summary>The packet to apply (the same instance when unchanged), or null to drop it.</summary>
+    private InboundPacket? InterceptInbound(IPacketInterceptor interceptor, InboundPacket packet)
+    {
+        if (packet.Kind is not (PacketKind.Xt or PacketKind.Json) || packet.Command is not string command
+            || InterceptionRules.ProtectedInbound.Contains(command) || !string.Equals(Redact(packet.Text), packet.Text, StringComparison.Ordinal))
+            return packet;
+        InterceptedFrame frame = new(outbound: false, packet.Text, command);
+        if (!RunInterceptor(interceptor, frame))
+            return packet;
+        if (frame.Blocked)
+        {
+            Interlocked.Increment(ref _interceptBlocked);
+            return null;
+        }
+        string changed = frame.Text ?? string.Empty;
+        if (string.Equals(changed, packet.Text, StringComparison.Ordinal))
+            return packet;
+        InboundPacket parsed = PacketCodec.Parse(changed, packet.WasCompressed);
+        if (parsed.Kind is not (PacketKind.Xt or PacketKind.Json) || parsed.Command is null || InterceptionRules.ProtectedInbound.Contains(parsed.Command))
+        {
+            RaiseLog(HeadlessLogLevel.Warning, $"Packet interceptor: the changed {command} does not parse as a game message it may change; the original was applied.");
+            return packet;
+        }
+        Interlocked.Increment(ref _interceptChanged);
+        return parsed;
+    }
+
+    private bool RunInterceptor(IPacketInterceptor interceptor, InterceptedFrame frame)
+    {
+        try
+        {
+            interceptor.Intercept(frame);
+            return true;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            Interlocked.Increment(ref _subscriberErrors);
+            RaiseLog(HeadlessLogLevel.Error, $"Packet interceptor failed on {frame.Command}: {e.GetType().Name}: {e.Message}; the original was used.");
+            return false;
+        }
     }
 
     // ---------------------------------------------------------------- receiving
@@ -445,6 +588,7 @@ public sealed partial class AqwConnection : IAsyncDisposable
         _liveness.OnInbound(_time.GetUtcNow());
         Interlocked.Increment(ref _packetsIn);
         InboundPacket packet = PacketCodec.Decode(frame);
+        NoteReply(packet.Command);
         if (packet.WasCompressed)
             Interlocked.Increment(ref _compressedIn);
         if (packet.Kind == PacketKind.Unknown)
@@ -462,6 +606,14 @@ public sealed partial class AqwConnection : IAsyncDisposable
             }
         }
 
+        if (Volatile.Read(ref _interceptArmed) && Options.Interceptor is { IsActive: true } interceptor)
+        {
+            InboundPacket? kept = InterceptInbound(interceptor, packet);
+            if (kept is null)
+                return; // dropped: not applied, not reported, no waiter completed
+            packet = kept;
+        }
+
         World.Apply(packet);
         try
         {
@@ -477,6 +629,10 @@ public sealed partial class AqwConnection : IAsyncDisposable
         if (ext is not null && packet.ToExtensionResponseJson() is string json)
             Raise(ext, new ExtensionResponseEventArgs(packet, json));
         CompleteWaiters(packet);
+        // The login ends when the character has loaded (after the first moveToArea, its character data and its
+        // inventory): only from the next message on may an interceptor see anything.
+        if (!Volatile.Read(ref _interceptArmed) && State == ConnectionState.Ready)
+            Volatile.Write(ref _interceptArmed, true);
     }
 
     private void HandleProtocol(InboundPacket p)

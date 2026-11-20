@@ -22,6 +22,9 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         GamePages = GameToolPages.AddTo(Tools, services);
         _notificationTools = NotificationTools.AddTo(Tools, services);
         SkillPages = SkillToolPages.AddTo(Tools, services);
+        DiagnosticPages = DiagnosticsToolPages.AddTo(Tools, services);
+        PacketPages = PacketToolPages.AddTo(Tools, services, GamePages.Store);
+        CalendarPages = CalendarToolPages.AddTo(Tools, services);
         Tools.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ToolsViewModel.CurrentTitle) || e.PropertyName == nameof(ToolsViewModel.CurrentPage))
@@ -34,6 +37,15 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 
     /// <summary>The skill tool pages of the hub (Advanced Skills, CoreBots options).</summary>
     public SkillToolPages SkillPages { get; }
+
+    /// <summary>The packet tool pages of the hub (Packet Spammer, Packet Interceptor).</summary>
+    public PacketToolPages PacketPages { get; }
+
+    /// <summary>The Calendar page of the hub.</summary>
+    public CalendarToolPages CalendarPages { get; }
+
+    /// <summary>The Diagnostics page of the hub.</summary>
+    public DiagnosticsToolPages DiagnosticPages { get; }
 
     /// <summary>"Settings", "Tools", or the open tool's title.</summary>
     public string Title => !ShowTools ? "Settings" : Tools.CurrentPage is null ? "Tools" : Tools.CurrentTitle;
@@ -59,10 +71,22 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 
     partial void OnIsActiveChanged(bool value) => UpdateToolsVisible();
 
+    private bool _uiVisible = true;
+
+    /// <summary>The app's UI shows (Android: activity started) or not; hidden, the tool pages read nothing.</summary>
+    public void SetUiVisible(bool visible)
+    {
+        _uiVisible = visible;
+        UpdateToolsVisible();
+    }
+
     private void UpdateToolsVisible()
     {
         if (_notificationTools is not null)
             _notificationTools.Visible = IsActive && ShowTools;
+        DiagnosticPages.Visible = IsActive && ShowTools && _uiVisible;
+        PacketPages.Visible = IsActive && ShowTools && _uiVisible;
+        CalendarPages.Visible = IsActive && ShowTools && _uiVisible;
     }
 
     [RelayCommand]
@@ -76,7 +100,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
     {
         if (!ShowTools)
             return false;
-        if (GamePages.CancelQuestion())
+        if (GamePages.CancelQuestion() || PacketPages.CancelQuestion())
             return true;
         if (SkillPages.GoBack())
             return true;
@@ -85,7 +109,13 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         return true;
     }
 
-    public void Dispose() => _notificationTools?.Dispose();
+    public void Dispose()
+    {
+        _notificationTools?.Dispose();
+        DiagnosticPages.Dispose();
+        PacketPages.Dispose();
+        CalendarPages.Dispose();
+    }
 
     [ObservableProperty]
     private bool _autoReconnect;
@@ -209,6 +239,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
     {
         GamePages.Apply(s);
         SkillPages.Apply(s);
+        PacketPages.Apply(s);
         MemoryText = $"{Formatting.Memory(s.Memory)}, peak {(s.Memory.PeakRssBytes < 0 ? "n/a" : $"{s.Memory.PeakRssBytes / 1048576.0:0} MB")}";
     }
 }

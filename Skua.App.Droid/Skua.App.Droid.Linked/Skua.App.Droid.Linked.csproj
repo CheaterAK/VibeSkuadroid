@@ -31,6 +31,8 @@
     <Compile Include="..\..\Skua.App.Avalonia\ViewModels\CoreBotsOptions\CBOClassSelectViewModel.cs" Link="CoreBotsOptions\CBOClassSelectViewModel.cs" />
     <Compile Include="..\..\Skua.App.Avalonia\ViewModels\CoreBotsOptions\CBOClassEquipmentViewModel.cs" Link="CoreBotsOptions\CBOClassEquipmentViewModel.cs" />
     <Compile Include="..\..\Skua.App.Avalonia\ViewModels\CoreBotsOptions\CBOLoadoutViewModel.cs" Link="CoreBotsOptions\CBOLoadoutViewModel.cs" />
+    <!-- The packet interceptor's command parser (every command a raw packet carries), for the Android interceptor's rules and log. -->
+    <Compile Include="..\..\Skua.App.Avalonia\ViewModels\Packets\PacketCommands.cs" Link="Packets\PacketCommands.cs" />
   </ItemGroup>
 
 </Project>

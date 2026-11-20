@@ -73,6 +73,12 @@ public interface IBotEngine : IAsyncDisposable
     /// <summary>Sends a raw packet exactly as typed (paced like every other packet). False when it was dropped.</summary>
     Task<bool> SendPacketAsync(string packet, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// <see cref="SendPacketAsync(string, CancellationToken)"/>; <paramref name="log"/> false leaves out the Console's
+    /// "Raw packet sent" line (the packet spammer logs its run once instead).
+    /// </summary>
+    Task<bool> SendPacketAsync(string packet, bool log, CancellationToken cancellationToken = default) => SendPacketAsync(packet, cancellationToken);
+
     /// <summary>Asks the server for the bank contents (the bank list is empty until this ran once).</summary>
     Task LoadBankAsync(CancellationToken cancellationToken = default);
 
@@ -166,6 +172,18 @@ public interface IBotEngine : IAsyncDisposable
     /// Center, junk, Discord webhook). Null when this engine has none (no Skua host).
     /// </summary>
     Notifications.IGameEvents? GameEvents => null;
+
+    /// <summary>
+    /// The packet interceptor of this engine's connections (rules that change or drop game messages; off by default);
+    /// null when this engine has none.
+    /// </summary>
+    Packets.PacketInterception? Interception => null;
+
+    /// <summary>The live socket connection's details and counters; null while there is none.</summary>
+    ConnectionDetails? GetConnectionDetails() => null;
+
+    /// <summary>The headless Flash bridge's gap log (calls it could not answer faithfully); null without a Skua host.</summary>
+    IReadOnlyList<FlashGapRow>? GetFlashGaps() => null;
 
     /// <summary>
     /// Registers long work done for the user outside the game (a script repository sync): it shows in

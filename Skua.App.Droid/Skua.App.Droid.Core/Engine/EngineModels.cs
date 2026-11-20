@@ -223,6 +223,67 @@ public sealed record WorldLists(
     public static WorldLists Empty { get; } = new([], [], [], false, [], [], [], 0);
 }
 
+/// <summary>The live socket connection as the Diagnostics page shows it (no credentials).</summary>
+/// <param name="ServerName">Game server name.</param>
+/// <param name="Endpoint">host:port of the game server.</param>
+/// <param name="State">Connection state (Connecting ... Ready, Closed).</param>
+/// <param name="ClientVersion">The client version the login sent.</param>
+/// <param name="PacketsIn">Messages read since the socket opened.</param>
+/// <param name="PacketsOut">Messages written since the socket opened.</param>
+/// <param name="BytesIn">Bytes read.</param>
+/// <param name="BytesOut">Bytes written.</param>
+/// <param name="Dropped">Outgoing packets dropped because the send queue was full.</param>
+/// <param name="Queued">Outgoing packets waiting now.</param>
+/// <param name="SlowDownWarnings">"Please slow down" warnings from the server.</param>
+/// <param name="Probes">Liveness probes sent.</param>
+/// <param name="LastInbound">When the server last sent anything.</param>
+/// <param name="RoundTrip">Time from the last answered request to its answer (null until one was answered).</param>
+/// <param name="AverageRoundTrip">Moving average of <paramref name="RoundTrip"/>.</param>
+/// <param name="SendGap">The send pacer's gap between two game packets.</param>
+/// <param name="SlowSendGap">The pacer's gap after a "slow down" warning.</param>
+public sealed record ConnectionDetails(
+    string? ServerName,
+    string? Endpoint,
+    string State,
+    string? ClientVersion,
+    long PacketsIn,
+    long PacketsOut,
+    long BytesIn,
+    long BytesOut,
+    long Dropped,
+    int Queued,
+    long SlowDownWarnings,
+    long Probes,
+    DateTimeOffset? LastInbound,
+    TimeSpan? RoundTrip,
+    TimeSpan? AverageRoundTrip,
+    TimeSpan SendGap,
+    TimeSpan SlowSendGap)
+{
+    public bool IsReady => State == "Ready";
+
+    /// <summary>Which socket this is: the same object for as long as one connection lives (compare by reference).</summary>
+    public object? Identity { get; init; }
+}
+
+/// <summary>
+/// A call of Skua (a script, a service) the headless Flash bridge could not answer faithfully: not implemented,
+/// impossible without Flash, or approximated. Counted by name and argument shape.
+/// </summary>
+public sealed record FlashGapRow(string Kind, string Name, string ArgsShape, long Count, DateTimeOffset FirstSeen, string Detail)
+{
+    public string Display => $"{Name}{ArgsShape}";
+
+    public string CountText => $"x{Count}";
+}
+
+/// <summary>Implemented by a script host whose Flash bridge records its gaps (the Skua.Core host adapter).</summary>
+public interface IFlashGapSource
+{
+    /// <summary>Every gap seen since the bridge started, most frequent first; empty when none.</summary>
+    IReadOnlyList<FlashGapRow> GetFlashGaps();
+}
+
 /// <summary>A failure with a message fit for the user (no secrets, no stack trace).</summary>
 public sealed class EngineException : Exception
 {

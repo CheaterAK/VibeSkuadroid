@@ -43,6 +43,7 @@ public sealed class HeadlessBotEngine : IBotEngine
     private readonly object _snapshotLock = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Task _publisher;
+    private readonly Packets.PacketInterception _interception;
 
     private AqwSession _session;
     private volatile ConnectionPhase _phase = ConnectionPhase.Offline;
@@ -77,6 +78,8 @@ public sealed class HeadlessBotEngine : IBotEngine
         _scripts.StatusChanged += OnScriptStatus;
         _scripts.Log += OnScriptLog;
         _sessionHost = _scripts as ISessionScriptHost;
+        _interception = new Packets.PacketInterception(Scrub, _time);
+        _interception.StateChanged += OnInterceptionChanged;
 
         _session = CreateSession();
         SampleMemory();
@@ -135,6 +138,52 @@ public sealed class HeadlessBotEngine : IBotEngine
     }
 
     public IReadOnlyList<PacketEntry> GetRecentPackets() => _packets.Snapshot();
+
+    public Packets.PacketInterception Interception => _interception;
+
+    private bool _interceptionWasActive;
+
+    private void OnInterceptionChanged(object? sender, EventArgs e)
+    {
+        bool active = _interception.IsActive;
+        if (active == _interceptionWasActive)
+            return;
+        _interceptionWasActive = active;
+        AddLog(EngineLogLevel.Warning, "interceptor", active
+            ? $"Packet interceptor on: {_interception.Rules.Count(r => r.Enabled)} rule(s) change or drop game messages from the next one on."
+            : "Packet interceptor off: game messages pass unchanged.");
+    }
+
+    public ConnectionDetails? GetConnectionDetails()
+    {
+        AqwConnection? c = _session.Connection;
+        if (c is null)
+            return null;
+        ConnectionStatistics st = c.GetStatistics();
+        return new ConnectionDetails(
+            c.Server?.Name,
+            c.Server is { } server ? $"{server.Host}:{server.Port}" : null,
+            c.State.ToString(),
+            c.ClientVersion,
+            st.PacketsIn,
+            st.PacketsOut,
+            st.BytesIn,
+            st.BytesOut,
+            st.OutboundDropped,
+            st.OutboundQueued,
+            st.SlowDownWarnings,
+            st.Probes,
+            st.LastInbound,
+            st.LastRoundTrip,
+            st.AverageRoundTrip,
+            c.Options.SendGap,
+            c.Options.SlowSendGap)
+        {
+            Identity = c,
+        };
+    }
+
+    public IReadOnlyList<FlashGapRow>? GetFlashGaps() => (_scripts as IFlashGapSource)?.GetFlashGaps();
 
     public void ClearPackets() => _packets.Clear();
 
@@ -372,14 +421,17 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
     }
 
-    public async Task<bool> SendPacketAsync(string packet, CancellationToken cancellationToken = default)
+    public Task<bool> SendPacketAsync(string packet, CancellationToken cancellationToken = default) => SendPacketAsync(packet, log: true, cancellationToken);
+
+    public async Task<bool> SendPacketAsync(string packet, bool log, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(packet))
             throw new EngineException("The packet is empty.");
         GameCommands commands = RequireOnline();
         string text = packet.TrimEnd('\r', '\n');
         bool sent = await commands.SendRawAsync(text).WaitAsync(cancellationToken).ConfigureAwait(false);
-        AddLog(sent ? EngineLogLevel.Info : EngineLogLevel.Warning, "packets", sent ? "Raw packet sent." : "Raw packet was dropped (queue full or disconnected).");
+        if (log || !sent)
+            AddLog(sent ? EngineLogLevel.Info : EngineLogLevel.Warning, "packets", sent ? "Raw packet sent." : "Raw packet was dropped (queue full or disconnected).");
         return sent;
     }
 
@@ -602,6 +654,9 @@ public sealed class HeadlessBotEngine : IBotEngine
             }
         }
         AqwSession session = owned ?? _options.SessionFactory();
+        // Every connection of this session offers its game messages to the interceptor (which passes them on
+        // untouched while it is off); AqwConnection keeps the handshake and the token out of its reach.
+        session.Options.Connection.Interceptor = _interception;
         session.StateChanged += OnSessionStateChanged;
         session.Disconnected += OnSessionDisconnected;
         session.Log += OnSessionLog;
