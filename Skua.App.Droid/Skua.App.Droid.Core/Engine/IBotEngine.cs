@@ -185,6 +185,26 @@ public interface IBotEngine : IAsyncDisposable
     /// <summary>The headless Flash bridge's gap log (calls it could not answer faithfully); null without a Skua host.</summary>
     IReadOnlyList<FlashGapRow>? GetFlashGaps() => null;
 
+    /// <summary>The game view has the account (<see cref="HoldForGameViewAsync"/> ran and <see cref="EndGameViewHoldAsync"/> did not yet).</summary>
+    bool GameViewHold => false;
+
+    /// <summary>
+    /// Hands the account to the game view: logs out on purpose (the server ends this session, so the view's login
+    /// does not kick it), keeps the login in memory for <see cref="EndGameViewHoldAsync"/>, and suppresses every
+    /// reconnect (the engine's own loop and Skua's relogin) until then. Completes when the socket is closed; the
+    /// phase is then <see cref="ConnectionPhase.GameView"/>. Logins and script starts are refused meanwhile.
+    /// </summary>
+    /// <exception cref="EngineException">A script is busy (stop it first), or this engine has no game view support.</exception>
+    Task HoldForGameViewAsync(CancellationToken cancellationToken = default) =>
+        throw new EngineException("The game view is not available in this engine.");
+
+    /// <summary>
+    /// Takes the account back from the game view: reconnects are allowed again and, when
+    /// <paramref name="reconnect"/> and the engine was logged in before the hold, it logs back in with the kept login
+    /// (one attempt, then the reconnect loop if auto reconnect is on). Without a hold, does nothing.
+    /// </summary>
+    Task EndGameViewHoldAsync(bool reconnect, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
     /// <summary>
     /// Registers long work done for the user outside the game (a script repository sync): it shows in
     /// <see cref="EngineSnapshot.BackgroundWork"/> and keeps the process (the foreground service) alive until disposed.

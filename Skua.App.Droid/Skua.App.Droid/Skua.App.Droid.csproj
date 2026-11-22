@@ -149,6 +149,22 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    The game view (GameView/GameViewActivity, ":gameview" process): its page, the pinned Ruffle 0.7.1 web build (with its
+    license files) and this repo's skua.swf, served by the app at https://game.aq.com/__vibeskua__/ (RequestPolicy).
+    Ruffle is not in git: ../fetch-ruffle.sh downloads and verifies it (build-droid.sh and CI run it first).
+  -->
+  <ItemGroup>
+    <AndroidAsset Include="GameView\web\index.html;GameView\web\gameview.js" Link="Assets\gameview\%(Filename)%(Extension)" />
+    <AndroidAsset Include="GameView\web\ruffle-0.7.1\*" Link="Assets\gameview\ruffle-0.7.1\%(Filename)%(Extension)" />
+    <AndroidAsset Include="..\..\Skua.App.Avalonia\skua.swf" Link="Assets\gameview\skua.swf" />
+  </ItemGroup>
+
+  <Target Name="DroidCheckRuffleAssets" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('GameView\web\ruffle-0.7.1\ruffle.js') Or !Exists('GameView\web\ruffle-0.7.1\172de42e6619eac8f371.wasm') Or !Exists('GameView\web\ruffle-0.7.1\878d548199cddef07035.wasm')"
+           Text="The game view's Ruffle web build is missing: run Skua.App.Droid/fetch-ruffle.sh first." />
+  </Target>
+
   <ItemGroup>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>Configuration</_Parameter1><_Parameter2>$(Configuration)</_Parameter2></AssemblyAttribute>
     <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute"><_Parameter1>PublishTrimmed</_Parameter1><_Parameter2>$(PublishTrimmed)</_Parameter2></AssemblyAttribute>

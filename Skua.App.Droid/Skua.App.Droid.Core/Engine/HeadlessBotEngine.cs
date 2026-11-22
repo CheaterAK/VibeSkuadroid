@@ -59,6 +59,9 @@ public sealed class HeadlessBotEngine : IBotEngine
     // The script start in progress (completes, never faults, when StartScriptAsync returns): a pause asked for meanwhile waits for it.
     private Task? _starting;
     private volatile bool _loggingOut;
+    // The game view has the account: no reconnect of any kind until EndGameViewHoldAsync.
+    private volatile bool _gameViewHold;
+    private bool _holdWasOnline;
     private readonly List<string> _work = new();
     private string? _lastToken;
     private CancellationTokenSource? _reconnectCts;
@@ -207,6 +210,8 @@ public sealed class HeadlessBotEngine : IBotEngine
             throw new EngineException("Enter the account name and password.");
         if (_scripts.Status.IsBusy)
             throw new EngineException("Stop the running script before logging in again.");
+        if (_gameViewHold)
+            throw new EngineException(GameViewHasTheAccount);
 
         CancelReconnect();
         if (_sessionHost is ISessionScriptHost host)
@@ -397,6 +402,137 @@ public sealed class HeadlessBotEngine : IBotEngine
         }
     }
 
+    internal const string GameViewHasTheAccount = "The game view has the account: close it first.";
+
+    public bool GameViewHold => _gameViewHold;
+
+    public async Task HoldForGameViewAsync(CancellationToken cancellationToken = default)
+    {
+        if (_scripts.Status.IsBusy)
+            throw new EngineException("Stop the script before opening the game view.");
+        await _opLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfDisposed();
+            if (_gameViewHold)
+                return;
+            if (_scripts.Status.IsBusy)
+                throw new EngineException("Stop the script before opening the game view.");
+            // First, before anything can drop: from here on no reconnect starts (OnSessionDisconnected, the loop).
+            _gameViewHold = true;
+            CancelReconnect();
+            _holdWasOnline = _account is not null && (_wantOnline || _phase is ConnectionPhase.Online or ConnectionPhase.Reconnecting or ConnectionPhase.Connecting);
+            _wantOnline = false;
+            if (_sessionHost is ISessionScriptHost host)
+                host.AutoRelogin = false;
+            _loggingOut = true;
+            try
+            {
+                if (_sessionHost is ISessionScriptHost h)
+                    await h.ReleaseSessionAsync(cancellationToken).ConfigureAwait(false);
+                else
+                    await DisconnectQuietlyAsync().ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is EngineException or InvalidOperationException or TimeoutException || IsNetworkFailure(e))
+            {
+                AddLog(EngineLogLevel.Debug, "engine", $"Logout for the game view: {Scrub(e.Message)}");
+            }
+            finally
+            {
+                _loggingOut = false;
+            }
+            if (_session.Connection is { State: not ConnectionState.Closed })
+                await DisconnectQuietlyAsync().ConfigureAwait(false);
+            SetPhase(ConnectionPhase.GameView, "The game view has the account.");
+            AddLog(EngineLogLevel.Info, "engine", _holdWasOnline
+                ? "Logged out for the game view; reconnects wait until it closes."
+                : "The game view has the account; nothing to reconnect afterwards (not logged in).");
+        }
+        catch
+        {
+            if (_gameViewHold && _phase != ConnectionPhase.GameView)
+            {
+                // Cancelled or failed before the hand-over completed: the engine owns the account again.
+                _gameViewHold = false;
+                if (_sessionHost is ISessionScriptHost host)
+                    host.AutoRelogin = _options.AutoReconnect;
+                _wantOnline = _holdWasOnline;
+            }
+            throw;
+        }
+        finally
+        {
+            _opLock.Release();
+            PublishNow();
+        }
+    }
+
+    public async Task EndGameViewHoldAsync(bool reconnect, CancellationToken cancellationToken = default)
+    {
+        await _opLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        bool startLoop = false;
+        try
+        {
+            if (!_gameViewHold || Volatile.Read(ref _disposed) != 0)
+                return;
+            _gameViewHold = false;
+            if (_sessionHost is ISessionScriptHost host)
+                host.AutoRelogin = _options.AutoReconnect;
+            if (!reconnect || !_holdWasOnline || _account is null)
+            {
+                _wantOnline = false;
+                SetPhase(ConnectionPhase.Offline, "Logged out (the game view had the account).");
+                AddLog(EngineLogLevel.Info, "engine", "The game view closed; the engine has the account again (not logged in).");
+                return;
+            }
+            _wantOnline = true;
+            _connecting = true;
+            SetPhase(ConnectionPhase.Connecting, "Logging back in after the game view...");
+            AddLog(EngineLogLevel.Info, "engine", "The game view closed; logging back in.");
+            try
+            {
+                if (_sessionHost is ISessionScriptHost h)
+                    await h.ReconnectAsync(_server, cancellationToken).ConfigureAwait(false);
+                else
+                    await _session.ReconnectAsync(cancellationToken).ConfigureAwait(false);
+                _scrubber.Add(_session.Account?.Token);
+                _server = _session.Server?.Name ?? _server;
+                SetPhase(ConnectionPhase.Online, $"Online on {_server}");
+                AddLog(EngineLogLevel.Info, "engine", $"Back online on {_server} after the game view.");
+            }
+            catch (AqwLoginException e) when (e.Kind == LoginFailureKind.Rejected)
+            {
+                _wantOnline = false;
+                Fail($"Logging back in after the game view was refused: {Scrub(e.Message)}");
+            }
+            catch (Exception e) when (e is AqwLoginException or EngineException or InvalidOperationException || IsNetworkFailure(e))
+            {
+                AddLog(EngineLogLevel.Warning, "engine", $"Logging back in after the game view failed: {Scrub(e.Message)}");
+                if (_options.AutoReconnect)
+                {
+                    SetPhase(ConnectionPhase.Reconnecting, "Reconnecting after the game view...");
+                    startLoop = true;
+                }
+                else
+                {
+                    _wantOnline = false;
+                    Fail($"Logging back in after the game view failed: {Scrub(e.Message)}");
+                }
+            }
+            finally
+            {
+                _connecting = false;
+            }
+        }
+        finally
+        {
+            _opLock.Release();
+            PublishNow();
+        }
+        if (startLoop)
+            StartReconnectLoop();
+    }
+
     public async Task JoinMapAsync(string map, string cell = "Enter", string pad = "Spawn", CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(map))
@@ -497,6 +633,8 @@ public sealed class HeadlessBotEngine : IBotEngine
             throw new EngineException(_scripts.Support.Reason ?? "Scripts are not available.");
         if (_scripts.Status.IsBusy)
             throw new EngineException("A script is already running.");
+        if (_gameViewHold)
+            throw new EngineException(GameViewHasTheAccount);
         if (_connecting)
             throw new EngineException("Wait for the login to finish.");
         if (scriptPath is not null)
@@ -683,7 +821,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         MarkDirty();
         // Skua (a script's relogin or server change) brought the session back without the engine.
         if (state == ConnectionState.Ready && _sessionHost is not null && ReferenceEquals(sender, _session)
-            && !_connecting && !_loggingOut && _account is not null && _phase != ConnectionPhase.Online)
+            && !_connecting && !_loggingOut && !_gameViewHold && _account is not null && _phase != ConnectionPhase.Online)
         {
             _wantOnline = true;
             _server = _session.Server?.Name;
@@ -729,7 +867,7 @@ public sealed class HeadlessBotEngine : IBotEngine
     private void OnSessionDisconnected(object? sender, DisconnectInfo info)
     {
         MarkDirty();
-        if (_connecting || _loggingOut || !ReferenceEquals(sender, _session))
+        if (_connecting || _loggingOut || _gameViewHold || !ReferenceEquals(sender, _session))
             return;
 
         if (_sessionHost is ISessionScriptHost host && _wantOnline)
@@ -782,6 +920,8 @@ public sealed class HeadlessBotEngine : IBotEngine
     {
         for (int attempt = 1; attempt <= _options.MaxReconnectAttempts; attempt++)
         {
+            if (_gameViewHold || cancellationToken.IsCancellationRequested)
+                return; // the game view took the account (or a login or logout cancelled the loop)
             TimeSpan delay = _options.ReconnectDelays.Count == 0
                 ? TimeSpan.FromSeconds(10)
                 : _options.ReconnectDelays[Math.Min(attempt - 1, _options.ReconnectDelays.Count - 1)];
@@ -818,7 +958,7 @@ public sealed class HeadlessBotEngine : IBotEngine
 
             try
             {
-                if (!_wantOnline)
+                if (!_wantOnline || _gameViewHold)
                     return;
                 _connecting = true;
                 SetPhase(ConnectionPhase.Connecting, $"Reconnecting (attempt {attempt})...");
@@ -861,6 +1001,8 @@ public sealed class HeadlessBotEngine : IBotEngine
             }
         }
 
+        if (_gameViewHold || cancellationToken.IsCancellationRequested)
+            return;
         _wantOnline = false;
         Fail($"Gave up reconnecting after {_options.MaxReconnectAttempts} attempts.");
     }

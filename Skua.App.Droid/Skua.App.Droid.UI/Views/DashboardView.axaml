@@ -2,79 +2,85 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
              x:Class="Skua.App.Droid.UI.Views.DashboardView"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
              x:DataType="vm:DashboardViewModel">
-  <ScrollViewer>
-    <StackPanel Margin="12">
+  <Panel>
+    <ScrollViewer>
+      <StackPanel Margin="12">
 
-      <Border Classes="card">
-        <StackPanel Spacing="6">
-          <Grid ColumnDefinitions="*,Auto">
-            <StackPanel>
-              <TextBlock Classes="title" Text="{Binding CharacterName}" />
-              <TextBlock Classes="muted" Text="{Binding LevelAndClass}" />
-            </StackPanel>
-            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
-              <TextBlock Text="{Binding Gold}" Foreground="{StaticResource GoldBrush}" FontWeight="Bold" HorizontalAlignment="Right" />
-              <TextBlock Classes="muted" Text="gold" HorizontalAlignment="Right" />
-            </StackPanel>
-          </Grid>
-          <Grid ColumnDefinitions="30,*,Auto" RowDefinitions="Auto,Auto" Margin="0,6,0,0">
-            <TextBlock Classes="caption" Text="HP" VerticalAlignment="Center" />
-            <ProgressBar Grid.Column="1" Classes="hp" Minimum="0" Maximum="{Binding HpMax}" Value="{Binding Hp}" VerticalAlignment="Center" />
-            <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" Text="{Binding HpText}" />
-            <TextBlock Grid.Row="1" Classes="caption" Text="MP" VerticalAlignment="Center" />
-            <ProgressBar Grid.Row="1" Grid.Column="1" Classes="mp" Minimum="0" Maximum="{Binding MpMax}" Value="{Binding Mp}" VerticalAlignment="Center" Margin="0,6,0,0" />
-            <TextBlock Grid.Row="1" Grid.Column="2" Classes="muted" Margin="8,6,0,0" Text="{Binding MpText}" />
-          </Grid>
-          <TextBlock Classes="muted" Text="{Binding StateFlags}" Foreground="{StaticResource OrangeBrush}" />
-        </StackPanel>
-      </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <Grid ColumnDefinitions="*,Auto">
+              <StackPanel>
+                <TextBlock Classes="title" Text="{Binding CharacterName}" />
+                <TextBlock Classes="muted" Text="{Binding LevelAndClass}" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                <TextBlock Text="{Binding Gold}" Foreground="{StaticResource GoldBrush}" FontWeight="Bold" HorizontalAlignment="Right" />
+                <TextBlock Classes="muted" Text="gold" HorizontalAlignment="Right" />
+              </StackPanel>
+            </Grid>
+            <Grid ColumnDefinitions="30,*,Auto" RowDefinitions="Auto,Auto" Margin="0,6,0,0">
+              <TextBlock Classes="caption" Text="HP" VerticalAlignment="Center" />
+              <ProgressBar Grid.Column="1" Classes="hp" Minimum="0" Maximum="{Binding HpMax}" Value="{Binding Hp}" VerticalAlignment="Center" />
+              <TextBlock Grid.Column="2" Classes="muted" Margin="8,0,0,0" Text="{Binding HpText}" />
+              <TextBlock Grid.Row="1" Classes="caption" Text="MP" VerticalAlignment="Center" />
+              <ProgressBar Grid.Row="1" Grid.Column="1" Classes="mp" Minimum="0" Maximum="{Binding MpMax}" Value="{Binding Mp}" VerticalAlignment="Center" Margin="0,6,0,0" />
+              <TextBlock Grid.Row="1" Grid.Column="2" Classes="muted" Margin="8,6,0,0" Text="{Binding MpText}" />
+            </Grid>
+            <TextBlock Classes="muted" Text="{Binding StateFlags}" Foreground="{StaticResource OrangeBrush}" />
+          </StackPanel>
+        </Border>
 
-      <Border Classes="card">
-        <StackPanel Spacing="4">
-          <TextBlock Classes="caption" Text="CONNECTION" />
-          <TextBlock Text="{Binding ConnectionStatus}" TextWrapping="Wrap" />
-          <TextBlock Classes="muted" Text="{Binding Location}" TextWrapping="Wrap" />
-          <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
-            <TextBox Text="{Binding MapInput}" PlaceholderText="map, e.g. battleon" TextInputOptions.AutoCapitalization="False" />
-            <TextBox Grid.Column="1" Width="110" Margin="6,0,0,0" Text="{Binding CellInput}" PlaceholderText="cell pad" TextInputOptions.AutoCapitalization="False" />
-            <Button Grid.Column="2" Classes="small primary" Margin="6,0,0,0" Content="Join" Command="{Binding JoinMapCommand}" />
-          </Grid>
-        </StackPanel>
-      </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="4">
+            <TextBlock Classes="caption" Text="CONNECTION" />
+            <TextBlock Text="{Binding ConnectionStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="muted" Text="{Binding Location}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,8,0,0">
+              <TextBox Text="{Binding MapInput}" PlaceholderText="map, e.g. battleon" TextInputOptions.AutoCapitalization="False" />
+              <TextBox Grid.Column="1" Width="110" Margin="6,0,0,0" Text="{Binding CellInput}" PlaceholderText="cell pad" TextInputOptions.AutoCapitalization="False" />
+              <Button Grid.Column="2" Classes="small primary" Margin="6,0,0,0" Content="Join" Command="{Binding JoinMapCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
 
-      <Border Classes="card">
-        <StackPanel Spacing="4">
-          <TextBlock Classes="caption" Text="SCRIPT" />
-          <TextBlock Text="{Binding ScriptName}" FontWeight="SemiBold" />
-          <TextBlock Classes="muted" Text="{Binding ScriptState}" TextWrapping="Wrap" />
-          <TextBlock Classes="muted" Text="{Binding QueueLine}" TextWrapping="Wrap" Foreground="{StaticResource PrimaryBrush}" IsVisible="{Binding QueueLine, Converter={x:Static ObjectConverters.IsNotNull}}" />
-          <TextBlock Classes="muted" Text="{Binding ScriptCounters}" IsVisible="{Binding ScriptCounters, Converter={x:Static ObjectConverters.IsNotNull}}" />
-          <TextBlock Classes="error" Text="{Binding ScriptMessage}" IsVisible="{Binding ScriptMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
-          <Grid ColumnDefinitions="*,*" Margin="0,6,0,0" IsVisible="{Binding ScriptBusy}">
-            <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Pause" Command="{Binding PauseScriptCommand}" IsVisible="{Binding !IsPaused}" />
-            <Button Classes="small primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Resume" Command="{Binding ResumeScriptCommand}" IsVisible="{Binding IsPaused}" />
-            <Button Grid.Column="1" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop script" Command="{Binding StopScriptCommand}" />
-          </Grid>
-        </StackPanel>
-      </Border>
+        <Border Classes="card">
+          <StackPanel Spacing="4">
+            <TextBlock Classes="caption" Text="SCRIPT" />
+            <TextBlock Text="{Binding ScriptName}" FontWeight="SemiBold" />
+            <TextBlock Classes="muted" Text="{Binding ScriptState}" TextWrapping="Wrap" />
+            <TextBlock Classes="muted" Text="{Binding QueueLine}" TextWrapping="Wrap" Foreground="{StaticResource PrimaryBrush}" IsVisible="{Binding QueueLine, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="muted" Text="{Binding ScriptCounters}" IsVisible="{Binding ScriptCounters, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <TextBlock Classes="error" Text="{Binding ScriptMessage}" IsVisible="{Binding ScriptMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <Grid ColumnDefinitions="*,*" Margin="0,6,0,0" IsVisible="{Binding ScriptBusy}">
+              <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Pause" Command="{Binding PauseScriptCommand}" IsVisible="{Binding !IsPaused}" />
+              <Button Classes="small primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Resume" Command="{Binding ResumeScriptCommand}" IsVisible="{Binding IsPaused}" />
+              <Button Grid.Column="1" Classes="danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Stop script" Command="{Binding StopScriptCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
 
-      <Border Classes="card">
-        <StackPanel Spacing="4">
-          <TextBlock Classes="caption" Text="MEMORY" />
-          <TextBlock Text="{Binding MemoryText}" />
-          <TextBlock Classes="muted" Text="{Binding MemoryDetail}" TextWrapping="Wrap" />
-          <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource OrangeBrush}" IsVisible="{Binding MemoryHigh}"
-                     Text="Memory is above the restart threshold. Script assemblies are never freed on Android; a restart returns the memory." />
-        </StackPanel>
-      </Border>
+        <v:GameViewCard DataContext="{Binding GameView}" />
 
-      <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
-        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Restart engine" Command="{Binding RestartEngineCommand}" />
-        <Button Grid.Column="1" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Log out" Command="{Binding LogoutCommand}" />
-      </Grid>
-      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsActing}" />
-      <TextBlock Classes="error" Text="{Binding ActionMessage}" IsVisible="{Binding ActionMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
-    </StackPanel>
-  </ScrollViewer>
+        <Border Classes="card">
+          <StackPanel Spacing="4">
+            <TextBlock Classes="caption" Text="MEMORY" />
+            <TextBlock Text="{Binding MemoryText}" />
+            <TextBlock Classes="muted" Text="{Binding MemoryDetail}" TextWrapping="Wrap" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource OrangeBrush}" IsVisible="{Binding MemoryHigh}"
+                       Text="Memory is above the restart threshold. Script assemblies are never freed on Android; a restart returns the memory." />
+          </StackPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="*,*" Margin="0,0,0,8">
+          <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Restart engine" Command="{Binding RestartEngineCommand}" />
+          <Button Grid.Column="1" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Log out" Command="{Binding LogoutCommand}" />
+        </Grid>
+        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsActing}" />
+        <TextBlock Classes="error" Text="{Binding ActionMessage}" IsVisible="{Binding ActionMessage, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      </StackPanel>
+    </ScrollViewer>
+    <v:ConfirmOverlay DataContext="{Binding GameView.Confirm}" />
+  </Panel>
 </UserControl>

@@ -521,19 +521,6 @@ public sealed partial class GameClient
         }
     }
 
-    /// <summary>skua.swf Player.walkTo / World.moveRequest: the clip is at the destination at once.</summary>
-    public void WalkTo(int x, int y, int speed)
-    {
-        lock (_gate)
-        {
-            _x = x;
-            _y = y;
-            if (speed == 8)
-                speed = _walkSpeed;
-        }
-        SendXt("mv", null, x, y, speed);
-    }
-
     /// <summary>World.rest: only when idle, throttled.</summary>
     public void Rest()
     {

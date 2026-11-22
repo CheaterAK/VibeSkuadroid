@@ -430,7 +430,7 @@ public partial class SessionIntegrationTests
     {
         await using FakeAqw aqw = new();
         aqw.Http.Routes["gamefiles/maps/test/testmap.swf"] = _ => MapFile(SyntheticSwf.Map(new[] { ("Enter", new[] { "Spawn" }), ("r2", new[] { "Left", "Right" }), ("r3", new[] { "Spawn" }), ("r4", new[] { "Down" }) }));
-        aqw.Http.Routes["gamefiles/maps/test/shopmap.swf"] = _ => MapFile(SyntheticSwf.Map(new[] { ("Enter", new[] { "Spawn" }) }, "ZWS"));
+        aqw.Http.Routes["gamefiles/maps/test/shopmap.swf"] = _ => MapFile("CWS\u000a\u0040\u0000\u0000\u0000not a zlib stream"u8.ToArray());
         SkuaScriptHostAdapter host = new(null, new ScriptAssemblyStore(), ClientFileSources.SkuaScriptsDIR, o =>
         {
             o.WebApi = new AqwWebApi(new AqwWebApiOptions { BaseUri = FakeAqw.BaseUri }, aqw.Http); // the bank loads over HTTPS from game.aq.com
@@ -571,7 +571,7 @@ public partial class SessionIntegrationTests
             Assert.Contains(control.ReadBank().Inventory, b => b.ItemId == 40);
             Assert.Contains("equipped", Assert.Throws<EngineException>(() => control.InventoryToBank(1)).Message);
 
-            // Join: refusals and bad names stay on the page; a map whose file cannot be read (LZMA) shows the room's cells.
+            // Join: refusals and bad names stay on the page; a map whose file cannot be read (corrupt) shows the room's cells.
             Assert.Throws<EngineException>(() => control.JoinMap("bad%map"));
             Assert.Contains("not available", (await Assert.ThrowsAsync<EngineException>(() => Task.Run(() => control.JoinMap("nosuchmap")))).Message);
             Assert.StartsWith("Joined shopmap-", await Task.Run(() => control.JoinMap("shopmap")));

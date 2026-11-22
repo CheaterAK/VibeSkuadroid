@@ -346,14 +346,20 @@ public class SwfReaderTests
     }
 
     [Fact]
-    public void LzmaIsRefusedAndReportedByTheCache()
+    public void LzmaMapsAreReadLikeTheOthers()
     {
         byte[] zws = SyntheticSwf.Map(s_cells, "ZWS");
         Assert.Equal(SwfCompression.Lzma, SwfReader.DetectCompression(zws));
-        Assert.Throws<NotSupportedException>(() => SwfReader.Read(zws));
+        SwfTimeline t = SwfReader.Read(zws);
+        Assert.Equal(SwfCompression.Lzma, t.Compression);
+        Assert.Equal(13, t.Version);
+        Assert.Equal(new[] { "Enter", "r2", "r3" }, t.Labels.Select(l => l.Name));
+        Assert.Equal(new[] { "Spawn", "Left" }, t.Pads["Enter"]);
+        Assert.Equal(new[] { "Left", "Right" }, t.Pads["r2"]);
         MapCells cells = MapCellCache.FromSwf("x.swf", zws);
-        Assert.False(cells.HasCells);
-        Assert.Equal("unsupported: lzma", cells.Source);
+        Assert.True(cells.HasCells);
+        Assert.Equal("swf", cells.Source);
+        Assert.Equal(new[] { "Enter", "r2", "r3" }, cells.Cells);
     }
 
     [Fact]

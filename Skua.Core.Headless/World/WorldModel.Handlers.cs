@@ -94,7 +94,17 @@ public sealed partial class WorldModel
                     {
                         leaf["strFrame"] = cell;
                         leaf["strPad"] = pad;
+                        // World.moveToCell: entering by a pad clears the walk target, so the avatar stands at the pad.
+                        if (!pad.Equals("none", StringComparison.OrdinalIgnoreCase))
+                        {
+                            leaf["tx"] = 0;
+                            leaf["ty"] = 0;
+                        }
                     }
+                    break;
+
+                case "addLoadout":
+                    ApplyLoadoutOutbound(cmd, args);
                     break;
 
                 case "gar" when args.Length >= 2:
@@ -648,7 +658,7 @@ public sealed partial class WorldModel
                 return true;
 
             default:
-                return false;
+                return ApplyLoadoutJson(cmd, d);
         }
     }
 

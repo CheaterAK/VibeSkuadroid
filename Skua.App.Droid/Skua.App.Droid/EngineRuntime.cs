@@ -44,6 +44,9 @@ internal static class EngineRuntime
 
     public static AndroidPlatformServices Platform => s_startup.Value?.Platform ?? throw NotInitialized();
 
+    /// <summary>The game view switch (null until the engine is composed).</summary>
+    public static Skua.App.Droid.Core.GameView.GameViewSwitch? GameView => s_startup.Value?.GameView;
+
     /// <summary>The engine was composed. False in the ":restart" process, while it is composing, or after a recorded failure.</summary>
     public static bool IsInitialized => s_startup.Value is not null;
 
@@ -151,7 +154,8 @@ internal static class EngineRuntime
     }
 
     /// <summary>What a successful composition produced; published as one object once everything is in place.</summary>
-    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications, Skua.App.Droid.Core.Army.ArmyCoordinator Army);
+    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications,
+        Skua.App.Droid.Core.GameView.GameViewSwitch GameView, Skua.App.Droid.Core.Army.ArmyCoordinator Army);
 
     /// <summary>The expensive part, on the background thread.</summary>
     private static Composition Compose()
@@ -210,8 +214,11 @@ internal static class EngineRuntime
             paths.ScriptsDir);
         // The memory watchdog of this process restarts only this process; never while light sessions live here.
         host.AutomaticRestartVeto = () => army.LightSessionsActive ? "light army sessions are online in this process" : null;
+        // The game view (its own ":gameview" process) and the switch that hands the account to it and back. It is for
+        // slot 1 (this engine) only; light army accounts have no Skua engine to hand over.
+        Skua.App.Droid.Core.GameView.GameViewSwitch gameView = new(host, new global::Skua.App.Droid.GameView.AndroidGameViewLauncher(application));
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
-        return new Composition(host, platform, library, notifications, army);
+        return new Composition(host, platform, library, notifications, gameView, army);
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
@@ -261,6 +268,7 @@ internal static class EngineRuntime
             Paths)
         {
             Notifications = composition.Notifications,
+            GameView = composition.GameView,
             Army = composition.Army,
             DeviceMemory = () => Army.AndroidArmyPlatform.Read(Volatile.Read(ref s_application)!),
         };

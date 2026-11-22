@@ -11,10 +11,14 @@ public sealed partial class DashboardViewModel : ObservableObject
 {
     private readonly EngineHost _host;
 
-    public DashboardViewModel(AppServices services)
+    public DashboardViewModel(AppServices services, GameViewViewModel? gameView = null)
     {
         _host = services.Host;
+        GameView = gameView ?? new GameViewViewModel(services);
     }
+
+    /// <summary>The Game view card (shared with the other page).</summary>
+    public GameViewViewModel GameView { get; }
 
     [ObservableProperty]
     private string _characterName = "-";

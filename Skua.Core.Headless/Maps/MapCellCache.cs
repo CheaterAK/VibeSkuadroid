@@ -13,6 +13,10 @@ namespace Skua.Core.Headless.Maps;
 /// <param name="Source">"swf", "cache" or why nothing was read ("unsupported: ...", "error: ...").</param>
 public sealed record MapCells(string MapFile, IReadOnlyList<string> Cells, IReadOnlyDictionary<string, IReadOnlyList<string>> Pads, string Source)
 {
+    /// <summary>Where each cell's pads sit on the stage (pixels), from the map file; empty when not known.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, PadPosition>> PadPositions { get; init; }
+        = new Dictionary<string, IReadOnlyDictionary<string, PadPosition>>();
+
     public bool HasCells => Cells.Count > 0;
 
     /// <summary>
@@ -86,7 +90,7 @@ public sealed class MapCellCache
         }
     }
 
-    /// <summary>Reads cells from SWF bytes. LZMA files come back with no cells and Source "unsupported: lzma".</summary>
+    /// <summary>Reads cells from SWF bytes (FWS, CWS or ZWS); a file that cannot be read comes back with no cells and an "error: ..." Source.</summary>
     public static MapCells FromSwf(string mapFile, byte[] swf)
     {
         try
@@ -98,7 +102,7 @@ public sealed class MapCellCache
                 if (!cells.Contains(name))
                     cells.Add(name);
             }
-            return new MapCells(mapFile, cells, t.Pads, "swf");
+            return new MapCells(mapFile, cells, t.Pads, "swf") { PadPositions = t.PadPositions };
         }
         catch (NotSupportedException)
         {
@@ -126,13 +130,30 @@ public sealed class MapCellCache
             JsonObject? o = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
             if (o?["cells"] is not JsonArray cells)
                 return null;
+            // Entries written before pad positions were kept are read again from the map file (once).
+            if (o["padPositions"] is not JsonObject positions)
+                return null;
+            Dictionary<string, IReadOnlyDictionary<string, PadPosition>> padPositions = new(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, JsonNode?> cell in positions)
+            {
+                Dictionary<string, PadPosition> at = new(StringComparer.Ordinal);
+                if (cell.Value is JsonObject onCell)
+                {
+                    foreach (KeyValuePair<string, JsonNode?> pad in onCell)
+                    {
+                        if (pad.Value is JsonArray xy && xy.Count == 2)
+                            at[pad.Key] = new PadPosition(JsonUtil.AsInt(xy[0]), JsonUtil.AsInt(xy[1]));
+                    }
+                }
+                padPositions[cell.Key] = at;
+            }
             Dictionary<string, IReadOnlyList<string>> pads = new(StringComparer.Ordinal);
             if (o["pads"] is JsonObject p)
             {
                 foreach (KeyValuePair<string, JsonNode?> pair in p)
                     pads[pair.Key] = (pair.Value as JsonArray)?.Select(x => JsonUtil.AsString(x) ?? string.Empty).ToList() ?? new List<string>();
             }
-            return new MapCells(mapFile, cells.Select(x => JsonUtil.AsString(x) ?? string.Empty).ToList(), pads, "cache");
+            return new MapCells(mapFile, cells.Select(x => JsonUtil.AsString(x) ?? string.Empty).ToList(), pads, "cache") { PadPositions = padPositions };
         }
         catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException)
         {
@@ -152,6 +173,8 @@ public sealed class MapCellCache
                 ["mapFile"] = cells.MapFile,
                 ["cells"] = new JsonArray(cells.Cells.Select(x => (JsonNode)JsonValue.Create(x)!).ToArray()),
                 ["pads"] = pads,
+                ["padPositions"] = new JsonObject(cells.PadPositions.Select(c => new KeyValuePair<string, JsonNode?>(c.Key,
+                    new JsonObject(c.Value.Select(p => new KeyValuePair<string, JsonNode?>(p.Key, new JsonArray(p.Value.X, p.Value.Y))))))),
             };
             string tmp = path + ".tmp";
             File.WriteAllText(tmp, o.ToJsonString());

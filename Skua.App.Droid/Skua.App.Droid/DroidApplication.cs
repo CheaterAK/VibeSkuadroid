@@ -22,8 +22,9 @@ namespace Skua.App.Droid;
 /// So the plain-Android <see cref="LaunchActivity"/> and <see cref="CrashActivity"/> work even when Avalonia's startup
 /// is what crashes, and a process started only for the service never loads Skia or EGL.</item>
 /// </list>
-/// The restart trampoline (<see cref="RestartActivity"/>) runs in a separate ":restart" process; there neither the
-/// engine nor Avalonia is initialised.
+/// The restart trampoline (<see cref="RestartActivity"/>) runs in a separate ":restart" process and the game view
+/// (<see cref="GameView.GameViewActivity"/>) in ":gameview"; there neither the engine nor Avalonia is initialised (crash
+/// handlers only, no startup tracking).
 /// </remarks>
 [Application]
 [Register("com.vibeskua.droid.DroidApplication")]
@@ -51,10 +52,7 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     public override void OnCreate()
     {
         CrashCapture.InstallHandlers();
-        bool restartProcess = ProcessInfo.IsRestartProcess(this);
         AttachDiagnostics();
-        if (restartProcess)
-            return; // Application.onCreate itself does nothing; skipping base also skips Avalonia here.
         if (Army.SlotRuntime.Detect() is int slot)
         {
             // A full army slot process (":acctN"): its own HOME and folders, its own engine, no UI, no Avalonia.
@@ -64,6 +62,8 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
             _ = Army.SlotRuntime.StartInitialization();
             return;
         }
+        if (ProcessInfo.IsAuxiliaryProcess(this))
+            return; // Application.onCreate itself does nothing; skipping base also skips Avalonia here.
 
         CrashCapture.Step(StartupStep.ApplicationCreate);
         // How the previous run ended, by Android's own records (native crash, ANR, killed for memory): before any
@@ -92,7 +92,7 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     }
 
     /// <summary>
-    /// Main process: files/diagnostics with startup tracking. ":restart": the same folder, no tracking. Army slot
+    /// Main process: files/diagnostics with startup tracking. ":restart", ":gameview": the same folder, no tracking. Army slot
     /// process: its own folder (files/slots/acctN/diagnostics), no startup tracking, so its reports never replace the
     /// main process's and the main crash screen is not shown for a slot's death (the main process logs it).
     /// </summary>
@@ -104,7 +104,7 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
             CrashCapture.Attach(this, trackStartup: false, Path.Combine(main, "slots", $"acct{slot}", "diagnostics"));
             return;
         }
-        CrashCapture.Attach(this, trackStartup: !ProcessInfo.IsRestartProcess(this));
+        CrashCapture.Attach(this, trackStartup: !ProcessInfo.IsAuxiliaryProcess(this));
     }
 
     /// <summary>Starts Avalonia (AppBuilder setup) once per process, on the main thread, before the first Avalonia activity.</summary>
@@ -126,14 +126,14 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     public override void OnTrimMemory([GeneratedEnum] TrimMemory level)
     {
         base.OnTrimMemory(level);
-        if (!ProcessInfo.IsRestartProcess(this))
+        if (!ProcessInfo.IsAuxiliaryProcess(this))
             CrashCapture.Lifecycle($"trimMemory {(int)level} {level}");
     }
 
     public override void OnLowMemory()
     {
         base.OnLowMemory();
-        if (!ProcessInfo.IsRestartProcess(this))
+        if (!ProcessInfo.IsAuxiliaryProcess(this))
             CrashCapture.Lifecycle("lowMemory");
     }
 }

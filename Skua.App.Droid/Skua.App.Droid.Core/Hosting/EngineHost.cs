@@ -224,7 +224,8 @@ public sealed class EngineHost : IAsyncDisposable
     /// <summary>Restarts the process (a fresh Mono runtime returns all script assembly memory). Refused while a script runs.</summary>
     public bool RequestRestart(string reason)
     {
-        if (!Platform.CanRestartProcess || Engine.Snapshot.Script.IsBusy)
+        // Never while the game view has the account: the restart would lose the hand-back (it resumes only sessions it saw online).
+        if (!Platform.CanRestartProcess || Engine.Snapshot.Script.IsBusy || Engine.GameViewHold)
             return false;
         if (Interlocked.Exchange(ref _restartRequested, 1) != 0)
             return true;

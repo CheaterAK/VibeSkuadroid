@@ -144,11 +144,13 @@ public sealed partial class HeadlessFlashUtil
                 l = Resolve("world.myAvatar.objData");
             return As3.Stringify(l.Node, l.Defined);
         });
-        // world.objInfo.customs.loadouts comes from loadPrefs, which the model does not keep.
-        c["getLoadouts"] = (BridgeSupport.Missing, a =>
+        // Player.getLoadouts: JSON.stringify(world.objInfo["customs"].loadouts). Before loadPrefs (no customs) AS3 throws
+        // and the Windows bridge answers the default; a customs without loadouts stringifies to undefined.
+        Add("getLoadouts", _ =>
         {
-            Gaps.Record(FlashGapKind.Missing, "getLoadouts", a, "outfit loadouts (loadPrefs) are not modelled; answered undefined");
-            return null;
+            if (!Game.IsInGame || !Game.World.HasLoadPrefs)
+                return null;
+            return Game.World.TryGetGameObjectNode("world.objInfo.customs.loadouts", out JsonNode? loadouts) ? As3.Stringify(loadouts) : null;
         });
         Add("gender", _ => $"\"{(JsonUtil.AsString(Game.World.GetPlayer()?.ObjData["strGender"]) ?? string.Empty).ToUpperInvariant()}\"");
         // Player.rejectExcept: every offered drop whose lower-case name is not in the comma-separated whitelist has its
