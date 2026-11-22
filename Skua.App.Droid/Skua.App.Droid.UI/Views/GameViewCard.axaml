@@ -1,0 +1,49 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.GameViewCard"
+             x:DataType="vm:GameViewViewModel"
+             IsVisible="{Binding IsAvailable}">
+  <!-- The Game view entry (Dashboard and Control page). Its question is the page's ConfirmOverlay on vm:GameViewViewModel.Confirm. -->
+  <Border Classes="card">
+    <StackPanel Spacing="6">
+      <TextBlock Classes="caption" Text="GAME VIEW" />
+      <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+      <TextBlock Classes="error" Text="{Binding Notice}" TextWrapping="Wrap" IsVisible="{Binding Notice, Converter={x:Static ObjectConverters.IsNotNull}}" />
+      <Grid ColumnDefinitions="*,Auto,Auto" IsVisible="{Binding HasRestartOffer}">
+        <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="{Binding RestartScript, StringFormat='Start {0} again?'}" />
+        <Button Grid.Column="1" Classes="small primary" Margin="6,0,0,0" Content="Start" Command="{Binding RestartCommand}" />
+        <Button Grid.Column="2" Classes="small" Margin="6,0,0,0" Content="Dismiss" Command="{Binding DismissCommand}" />
+      </Grid>
+      <Grid ColumnDefinitions="*,Auto">
+        <Button Classes="primary" HorizontalAlignment="Stretch" Content="Open game view" Command="{Binding OpenCommand}" IsVisible="{Binding !IsBusy}" />
+        <Button Classes="danger" HorizontalAlignment="Stretch" Content="Return to headless" Command="{Binding ReturnToHeadlessCommand}" IsVisible="{Binding IsBusy}" />
+        <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Options" Command="{Binding ToggleOptionsCommand}" />
+      </Grid>
+      <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsWorking}" />
+      <TextBlock Classes="error" Text="{Binding Message}" TextWrapping="Wrap" IsVisible="{Binding Message, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+      <StackPanel Spacing="6" IsVisible="{Binding ShowOptions}" Margin="0,4,0,0">
+        <TextBlock Classes="muted" TextWrapping="Wrap"
+                   Text="Applied the next time the view opens. Defaults (webgl, pixel ratio 1, 4 fps, low) were the fastest and most stable on a Galaxy S21 Ultra." />
+        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto">
+          <TextBlock Classes="muted" VerticalAlignment="Center" Text="Frame rate (fps)" />
+          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:GameViewViewModel.FrameRateChoices}" SelectedItem="{Binding FrameRate}" />
+          <TextBlock Grid.Row="1" Classes="muted" VerticalAlignment="Center" Text="Renderer" />
+          <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,4,0,0" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:GameViewViewModel.RendererChoices}" SelectedItem="{Binding Renderer}" />
+          <TextBlock Grid.Row="2" Classes="muted" VerticalAlignment="Center" Text="Pixel ratio" />
+          <ComboBox Grid.Row="2" Grid.Column="1" Margin="0,4,0,0" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:GameViewViewModel.PixelRatioChoices}" SelectedItem="{Binding PixelRatio}" />
+          <TextBlock Grid.Row="3" Classes="muted" VerticalAlignment="Center" Text="Quality" />
+          <ComboBox Grid.Row="3" Grid.Column="1" Margin="0,4,0,0" HorizontalAlignment="Stretch" ItemsSource="{x:Static vm:GameViewViewModel.QualityChoices}" SelectedItem="{Binding Quality}" />
+        </Grid>
+        <CheckBox IsChecked="{Binding HidePlayers}" Content="Hide other players" />
+        <CheckBox IsChecked="{Binding DisableFX}" Content="Disable skill effects" />
+        <CheckBox IsChecked="{Binding KillLag}" Content="Kill lag: hide the whole world (UI only)" />
+        <CheckBox IsChecked="{Binding Mute}" Content="Mute" />
+        <CheckBox IsChecked="{Binding ShowHud}" Content="Show the measurement overlay (fps, memory)" />
+        <TextBlock Classes="muted" Text="Close the view when it uses more than (MB)" />
+        <NumericUpDown Value="{Binding MemoryLimitMb}" Minimum="{Binding MinMemoryLimit}" Maximum="{Binding MaxMemoryLimit}" Increment="128" FormatString="0" />
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</UserControl>

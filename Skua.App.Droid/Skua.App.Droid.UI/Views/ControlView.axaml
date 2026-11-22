@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
              x:Class="Skua.App.Droid.UI.Views.ControlView"
+             xmlns:v="using:Skua.App.Droid.UI.Views"
              x:DataType="vm:ControlViewModel">
   <UserControl.Styles>
     <!-- Map tiles: one per cell; the character's cell is lit, cells with live monsters get an orange edge. -->
@@ -59,6 +60,8 @@
   <Panel>
     <ScrollViewer>
       <StackPanel Margin="12,8">
+
+        <v:GameViewCard DataContext="{Binding GameView}" Margin="0,0,0,8" />
 
         <!-- Inline state of the page: a running script, the action in progress, errors and results -->
         <Border Classes="banner" Margin="0,0,0,8" IsVisible="{Binding ScriptBusy}">
@@ -336,5 +339,6 @@
         </StackPanel>
       </Border>
     </Border>
+    <v:ConfirmOverlay DataContext="{Binding GameView.Confirm}" />
   </Panel>
 </UserControl>

@@ -114,6 +114,13 @@ public interface ISessionScriptHost : IScriptHost
     /// <summary>Stops the script, logs out (intentionally: no relogin) and forgets every credential and token.</summary>
     Task LogoutAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Logs out on purpose for the game view (no relogin, Skua's relogin option off) but keeps the login, so
+    /// <see cref="ReconnectAsync"/> can bring the session back afterwards. Completes when the socket is closed (bounded).
+    /// Hosts that cannot keep the login log out as <see cref="LogoutAsync"/> does (the reconnect then fails and says so).
+    /// </summary>
+    Task ReleaseSessionAsync(CancellationToken cancellationToken) => LogoutAsync(cancellationToken);
+
     /// <summary>Compiles the script (or reuses its compile) and returns its options with their saved values.</summary>
     Task<ScriptOptionSet> GetOptionsAsync(string scriptPath, CancellationToken cancellationToken);
 

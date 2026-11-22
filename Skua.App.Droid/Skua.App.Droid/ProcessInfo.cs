@@ -7,6 +7,9 @@ internal static class ProcessInfo
 {
     public const string RestartProcessSuffix = ":restart";
 
+    /// <summary>The game view's own process (GameView/GameViewActivity): Ruffle's memory and crashes stay out of the engine's.</summary>
+    public const string GameViewProcessSuffix = ":gameview";
+
     /// <summary>This process's name ("com.vibeskua.droid" or "com.vibeskua.droid:restart").</summary>
     public static string CurrentName()
     {
@@ -23,6 +26,12 @@ internal static class ProcessInfo
     }
 
     public static bool IsRestartProcess(Context context) => CurrentName().EndsWith(RestartProcessSuffix, StringComparison.Ordinal);
+
+    /// <summary>
+    /// A process other than the main one (":restart", ":gameview"): no engine, no Avalonia, no startup tracking, no
+    /// exit-reason scan there.
+    /// </summary>
+    public static bool IsAuxiliaryProcess(Context context) => CurrentName().Contains(':', StringComparison.Ordinal);
 
     public static int MyPid() => Process.MyPid();
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds and tests VibeSkua for Android: platform-neutral tests, then the Debug and Release APKs.
+# Builds and tests VibeSkua for Android: fetches the game view's Ruffle build, platform-neutral tests, then the Debug
+# and Release APKs.
 # Usage: Skua.App.Droid/build-droid.sh [apk-output-dir]
 # Needs the .NET 10 SDK with the android workload and the Android SDK from build/android/setup-android-sdk.sh.
 # Optional release signing: set DROID_KEYSTORE (path), DROID_KEY_ALIAS, DROID_KEYSTORE_PASSWORD, DROID_KEY_PASSWORD.
@@ -20,6 +21,8 @@ if [ -n "${DROID_KEYSTORE:-}" ]; then
 fi
 OUT="${1:-}"
 
+# The game view's Ruffle web build (pinned and checksummed; not in git).
+./fetch-ruffle.sh
 dotnet test Skua.App.Droid.Tests -c Release
 # The APKs are always built from a clean Android head: incremental Android builds can reuse generated Java
 # wrappers and native tables from an earlier build (see AndroidEnableMarshalMethods in the .csproj).

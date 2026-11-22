@@ -473,6 +473,38 @@ public sealed class ScriptScheduler : IDisposable
     /// <summary>Stops the queue and its script. The position is kept (Continue resumes there).</summary>
     public Task StopAsync() => StopCoreAsync("Stopped.", stopScript: true);
 
+    /// <summary>
+    /// The game view takes the account (one session per account): stops the queue and its script, keeping the position;
+    /// the interrupted run is not counted and runs again on <see cref="ContinueAfterGameView"/>. True when it was running.
+    /// </summary>
+    public async Task<bool> SuspendForGameViewAsync()
+    {
+        int entry;
+        lock (_gate)
+        {
+            if (_phase == QueuePhase.Idle)
+                return false;
+            entry = _state.Index + 1;
+        }
+        await StopCoreAsync($"Paused for the game view; continues at entry {entry} when it closes.", stopScript: true).ConfigureAwait(false);
+        return true;
+    }
+
+    /// <summary>Continues the queue <see cref="SuspendForGameViewAsync"/> paused (it waits for the login like any run).</summary>
+    public bool ContinueAfterGameView()
+    {
+        try
+        {
+            Begin(fromStart: false, "Continuing the queue after the game view.");
+            return true;
+        }
+        catch (EngineException e)
+        {
+            Log(EngineLogLevel.Warning, $"The queue could not continue after the game view: {e.Message}");
+            return false;
+        }
+    }
+
     private async Task StopCoreAsync(string text, bool stopScript)
     {
         CancellationTokenSource? cts;
