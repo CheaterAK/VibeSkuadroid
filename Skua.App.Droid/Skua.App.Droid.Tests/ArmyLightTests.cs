@@ -199,6 +199,44 @@ public class ArmyLightTests
     }
 
     [Fact]
+    public async Task ALightAccountsSecretsAreInTheDiagnosticsRegistryUntilLogout()
+    {
+        await using FakeAqw aqw = new();
+        LightAccount light = NewLight(aqw, "scrubbed");
+        await light.LoginAsync(FakeAqw.Password, null);
+        await Sandbox.Until(() => light.Engine.Snapshot.IsOnline);
+        string token = light.Engine.Session.Account!.Token!;
+        Assert.False(string.IsNullOrEmpty(token));
+        // Crash and exit reports, canary samples and the bundle all go through DiagnosticText.
+        Assert.DoesNotContain(token, Skua.App.Droid.Core.Diagnostics.DiagnosticText.Scrub("socket login with " + token));
+        Assert.DoesNotContain(FakeAqw.Password, Skua.App.Droid.Core.Diagnostics.DiagnosticText.Scrub("pw " + FakeAqw.Password));
+
+        await light.Engine.LogoutAsync();
+        Assert.Contains(token, Skua.App.Droid.Core.Diagnostics.DiagnosticText.Scrub("socket login with " + token));
+        await light.DisposeAsync();
+    }
+
+    [Fact]
+    public void ALinkedScrubbersSecretsAreScrubbedUntilClearedOrUnlinked()
+    {
+        Skua.App.Droid.Core.Security.SecretScrubber registry = new(), a = new(), b = new();
+        registry.Add("registry-secret");
+        registry.Link(a);
+        registry.Link(b);
+        a.Add("account-a-pass");
+        b.Add("account-b-token");
+        b.Add("account-a-pass-and-more"); // longer, containing a's: replaced whole
+        Assert.Equal("<redacted> <redacted> <redacted> <redacted>", registry.Scrub("registry-secret account-a-pass account-b-token account-a-pass-and-more"));
+        a.Clear(); // a's logout: b and the registry keep theirs
+        Assert.Equal("<redacted> account-a-pass <redacted>", registry.Scrub("registry-secret account-a-pass account-b-token"));
+        registry.Clear(); // the main engine's logout: linked accounts keep theirs
+        Assert.Equal("registry-secret <redacted>", registry.Scrub("registry-secret account-b-token"));
+        registry.Unlink(b);
+        Assert.Equal("account-b-token", registry.Scrub("account-b-token"));
+        Assert.Equal("<redacted>", b.Scrub("account-b-token"));
+    }
+
+    [Fact]
     public async Task LightSessionsReloginThroughTheStagger()
     {
         await using FakeAqw a = new();

@@ -135,6 +135,7 @@ public sealed class LightAccount : IAsyncDisposable
     private readonly LightOptions _options;
     private readonly TimeProvider _time;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly SecretScrubber _secrets = new();
     private readonly Task _loop;
     private readonly object _gate = new();
     private FollowTargetPosition? _followName;
@@ -163,8 +164,9 @@ public sealed class LightAccount : IAsyncDisposable
         HeadlessEngineOptions engineOptions = new()
         {
             SessionFactory = _options.SessionFactory ?? (() => new AqwSession()),
-            // Its own scrubber: a light logout must not clear the other accounts' secrets.
-            Scrubber = new SecretScrubber(),
+            // Its own scrubber: a light logout must not clear the other accounts' secrets. Linked into the process-wide
+            // diagnostics registry (crash and exit reports, canary samples, the bundle) until this account is disposed.
+            Scrubber = _secrets,
             LogCapacity = _options.LogCapacity,
             PacketCapacity = 1,
             PublishInterval = TimeSpan.FromMilliseconds(500),
@@ -173,6 +175,7 @@ public sealed class LightAccount : IAsyncDisposable
             ReconnectDelays = _options.ReconnectDelays ?? new HeadlessEngineOptions().ReconnectDelays,
         };
         Engine = new HeadlessBotEngine(engineOptions, _client, time: _options.Time);
+        Diagnostics.DiagnosticText.Secrets.Link(_secrets);
         _loop = Task.Run(LoopAsync);
     }
 
@@ -584,6 +587,8 @@ public sealed class LightAccount : IAsyncDisposable
         {
         }
         await Engine.DisposeAsync().ConfigureAwait(false);
+        _secrets.Clear();
+        Diagnostics.DiagnosticText.Secrets.Unlink(_secrets);
         _lifetime.Dispose();
     }
 }
