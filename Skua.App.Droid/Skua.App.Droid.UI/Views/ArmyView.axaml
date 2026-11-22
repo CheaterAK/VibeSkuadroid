@@ -81,7 +81,7 @@
           <StackPanel Spacing="6">
             <TextBlock Classes="caption" Text="LOAD SCRIPT TO ALL (FULL SLOTS)" />
             <TextBox Text="{Binding ScriptPath}" PlaceholderText="script path, e.g. Story/Doom.cs" TextInputOptions.AutoCapitalization="False" />
-            <CheckBox IsChecked="{Binding ProfilePerAccount}" Content="Own option profile per account (edit it in Scripts, Options)" />
+            <CheckBox IsChecked="{Binding ProfilePerAccount}" Content="Separate option profile per account (Army_script_accountid; a new one starts from the script defaults)" />
             <Button Classes="small primary" HorizontalAlignment="Stretch" Content="Start on every full slot" Command="{Binding LoadScriptToAllCommand}" />
             <TextBlock Classes="muted" TextWrapping="Wrap" Text="Light accounts cannot run scripts; they are skipped with a message. Give them Fight or Quest below." />
           </StackPanel>
