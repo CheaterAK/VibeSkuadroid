@@ -15,6 +15,9 @@ public enum AppPage
     Console,
     Plugins,
     Settings,
+
+    /// <summary>The army (multi-account): opened from the top bar, not the bottom bar.</summary>
+    Army,
 }
 
 /// <summary>
@@ -54,6 +57,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 OnPropertyChanged(nameof(Title));
         };
 
+        if (services.Army is { } army)
+            Army = new ArmyViewModel(services, army) { PlatformMemory = services.DeviceMemory };
+
         _host.Engine.SnapshotChanged += OnSnapshotChanged;
         _host.MemoryVerdictChanged += OnMemoryVerdictChanged;
         Apply(_host.Engine.Snapshot);
@@ -79,8 +85,13 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
     public SettingsViewModel Settings { get; }
 
+    /// <summary>The Army page; null when the host has no army.</summary>
+    public ArmyViewModel? Army { get; }
+
+    public bool HasArmy => Army is not null;
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CurrentContent), nameof(Title), nameof(IsHomePage), nameof(IsScriptsPage), nameof(IsWorldPage), nameof(IsControlPage), nameof(IsConsolePage), nameof(IsPluginsPage), nameof(IsSettingsPage))]
+    [NotifyPropertyChangedFor(nameof(CurrentContent), nameof(Title), nameof(IsHomePage), nameof(IsScriptsPage), nameof(IsWorldPage), nameof(IsControlPage), nameof(IsConsolePage), nameof(IsPluginsPage), nameof(IsSettingsPage), nameof(IsArmyPage))]
     private AppPage _currentPage = AppPage.Home;
 
     [ObservableProperty]
@@ -123,6 +134,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         AppPage.World => World,
         AppPage.Console => Console,
         AppPage.Plugins => Plugins,
+        AppPage.Army when Army is not null => Army,
         _ => Settings,
     };
 
@@ -134,6 +146,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         AppPage.World => "World",
         AppPage.Console => "Console",
         AppPage.Plugins => Plugins.Title,
+        AppPage.Army when Army is not null => "Army",
         _ => Settings.Title,
     };
 
@@ -151,6 +164,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public bool IsPluginsPage => CurrentPage == AppPage.Plugins;
 
     public bool IsSettingsPage => CurrentPage == AppPage.Settings;
+
+    public bool IsArmyPage => CurrentPage == AppPage.Army;
 
     [RelayCommand]
     private void Navigate(string? page)
@@ -174,6 +189,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             return true;
         }
         if (CurrentPage == AppPage.Settings && Settings.CloseSubPage())
+            return true;
+        if (CurrentPage == AppPage.Army && Army?.CloseOverlay() == true)
             return true;
         if (CurrentPage != AppPage.Home)
         {
@@ -220,6 +237,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Console.IsActive = value == AppPage.Console;
         Plugins.IsActive = value == AppPage.Plugins;
         Settings.IsActive = value == AppPage.Settings;
+        if (Army is not null)
+            Army.IsActive = value == AppPage.Army;
         if (value == AppPage.Scripts)
             Scripts.Refresh();
     }
@@ -237,6 +256,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         World.SetUiVisible(visible);
         Settings.SetUiVisible(visible);
         Scripts.Queue?.SetUiVisible(visible);
+        Army?.SetUiVisible(visible);
         if (visible)
             PostSnapshot();
     }
@@ -318,5 +338,6 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Plugins.Dispose();
         Settings.Dispose();
         Scripts.Queue?.Dispose();
+        Army?.Dispose();
     }
 }

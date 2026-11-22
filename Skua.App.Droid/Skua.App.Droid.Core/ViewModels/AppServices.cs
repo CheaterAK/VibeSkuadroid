@@ -22,4 +22,10 @@ public sealed record AppServices(
 
     /// <summary>The Calendar page's source; null for artix.com over HTTPS (<see cref="Calendar.ArtixCalendarSource"/>).</summary>
     public Calendar.ICalendarSource? Calendar { get; init; }
+
+    /// <summary>The army (accounts, light sessions, full slot processes); null where the host has none: no Army page.</summary>
+    public Army.ArmyCoordinator? Army { get; init; }
+
+    /// <summary>Reads the device's memory for the Army page (Android's ActivityManager.MemoryInfo).</summary>
+    public Func<Army.DeviceMemory>? DeviceMemory { get; init; }
 }

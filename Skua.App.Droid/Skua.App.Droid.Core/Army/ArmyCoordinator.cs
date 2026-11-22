@@ -137,6 +137,31 @@ public sealed class ArmyCoordinator : IAsyncDisposable
 
     public ArmyMember? Find(string accountId) => Members.FirstOrDefault(m => m.Account.Id == accountId);
 
+    /// <summary>A password is saved for the account (nothing is decrypted).</summary>
+    public bool HasPassword(string accountId) => AccountStore.IsValidId(accountId) && _vault.HasPassword(accountId);
+
+    /// <summary>
+    /// The account manager's save: the account (validated) and, when given, its password into its own vault entry
+    /// (a renamed account must be given its password again: the entry is bound to the name).
+    /// </summary>
+    public void SaveAccount(ArmyAccount account, string? password)
+    {
+        AccountStore.Validate(account);
+        ArmyAccount? before = Accounts.Find(account.Id);
+        if (password is null && before is not null && !string.Equals(before.Username, account.Username, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("The account name changed: enter its password.");
+        if (password is not null)
+            _vault.Save(account, password);
+        Accounts.Save(account);
+    }
+
+    /// <summary>Removes the account and its saved password (logged out first where it runs).</summary>
+    public void RemoveAccount(string accountId)
+    {
+        Accounts.Remove(accountId);
+        _vault.Forget(accountId);
+    }
+
     /// <summary>Makes the members follow the account list (modes, slots, removals).</summary>
     public void Sync()
     {

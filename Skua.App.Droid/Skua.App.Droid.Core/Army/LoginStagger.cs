@@ -28,7 +28,7 @@ public sealed record StaggerOptions
 /// <summary>One login a <see cref="LoginStagger"/> runs.</summary>
 /// <param name="Key">The account id (one entry per account and run).</param>
 /// <param name="Label">For messages.</param>
-/// <param name="Login">The login itself; an <see cref="EngineException"/> is a failure, retried when <see cref="ShouldRetry"/> says so.</param>
+/// <param name="Login">The login itself; an <see cref="EngineException"/> is a failure, retried when <see cref="LoginStagger.ShouldRetry"/> says so.</param>
 public sealed record StaggeredLogin(string Key, string Label, Func<CancellationToken, Task> Login);
 
 /// <summary>How one login of a staggered run ended.</summary>

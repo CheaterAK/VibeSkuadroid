@@ -15,18 +15,22 @@
     <DataTemplate DataType="vm:ConsoleViewModel"><v:ConsoleView /></DataTemplate>
     <DataTemplate DataType="vm:PluginsViewModel"><v:PluginsView /></DataTemplate>
     <DataTemplate DataType="vm:SettingsViewModel"><v:SettingsView /></DataTemplate>
+    <DataTemplate DataType="vm:ArmyViewModel"><v:ArmyView /></DataTemplate>
   </UserControl.DataTemplates>
 
   <Grid x:Name="Root" RowDefinitions="Auto,Auto,*,Auto">
 
     <!-- Top bar: title, connection pill, memory -->
     <Border Grid.Row="0" Background="{StaticResource SurfaceBrush}" BorderBrush="{StaticResource BorderBrushMain}" BorderThickness="0,0,0,1" Padding="14,10">
-      <Grid ColumnDefinitions="*,Auto">
+      <Grid ColumnDefinitions="*,Auto,Auto">
         <StackPanel>
           <TextBlock Classes="title" Text="{Binding Title}" />
           <TextBlock Classes="muted" Text="{Binding MemoryText}" />
         </StackPanel>
-        <Border Grid.Column="1" Classes="pill" VerticalAlignment="Center"
+        <!-- Army: in the top bar, one tap from every page; the six bottom entries stay as they are. -->
+        <Button Grid.Column="1" Classes="small" Classes.primary="{Binding IsArmyPage}" Margin="0,0,8,0" VerticalAlignment="Center"
+                Content="Army" Command="{Binding NavigateCommand}" CommandParameter="Army" IsVisible="{Binding HasArmy}" />
+        <Border Grid.Column="2" Classes="pill" VerticalAlignment="Center"
                 Classes.online="{Binding IsOnline}" Classes.busy="{Binding IsBusy}" Classes.failed="{Binding IsFailed}">
           <TextBlock Text="{Binding ConnectionText}" FontSize="13" />
         </Border>

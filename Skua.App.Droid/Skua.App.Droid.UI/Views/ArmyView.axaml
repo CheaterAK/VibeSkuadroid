@@ -1,0 +1,164 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Skua.App.Droid.Core.ViewModels"
+             x:Class="Skua.App.Droid.UI.Views.ArmyView"
+             x:DataType="vm:ArmyViewModel">
+  <Grid>
+    <ScrollViewer>
+      <StackPanel Margin="12,8">
+
+        <!-- Army controls (desktop: Start All, Stop All, Log out) -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="ARMY" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding MemoryText}" />
+            <Grid ColumnDefinitions="*,*,*">
+              <Button Classes="primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Start all" Command="{Binding StartAllCommand}" />
+              <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Stop all" Command="{Binding StopAllCommand}" />
+              <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Log out all" Command="{Binding LogoutAllCommand}" />
+            </Grid>
+            <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" />
+            <TextBlock TextWrapping="Wrap" Text="{Binding StatusText}" IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          </StackPanel>
+        </Border>
+
+        <!-- Status cards -->
+        <TextBlock Classes="muted" Margin="4,0,4,8" TextWrapping="Wrap" IsVisible="{Binding IsEmpty}"
+                   Text="No army accounts yet. Add accounts below: light accounts (default) run in this app's process for a few MB each (follow, fight, drops, quests); full accounts run real scripts in a slot of their own (about 450 MB each)." />
+        <ItemsControl ItemsSource="{Binding Cards}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:ArmyCardViewModel">
+              <Border Classes="card">
+                <StackPanel Spacing="3">
+                  <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel>
+                      <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
+                      <TextBlock Classes="muted" Text="{Binding Kind}" />
+                    </StackPanel>
+                    <Border Grid.Column="1" Classes="pill" VerticalAlignment="Top" Classes.online="{Binding IsOnline}">
+                      <TextBlock Text="{Binding Connection}" FontSize="12" />
+                    </Border>
+                  </Grid>
+                  <TextBlock Classes="muted" Text="{Binding Location}" IsVisible="{Binding IsOnline}" />
+                  <TextBlock Classes="muted" Text="{Binding Vitals}" IsVisible="{Binding IsOnline}" />
+                  <TextBlock TextWrapping="Wrap" Text="{Binding Activity}" />
+                  <TextBlock Classes="muted" Text="{Binding Memory}" />
+                  <TextBlock Classes="muted" Foreground="{StaticResource PrimaryBrush}" Text="{Binding Role}" IsVisible="{Binding Role, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                  <TextBlock Classes="muted" TextWrapping="Wrap" Foreground="{StaticResource OrangeBrush}" Text="{Binding Note}" IsVisible="{Binding Note, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                  <WrapPanel Margin="0,4,0,0">
+                    <Button Classes="small primary" Margin="0,0,6,6" Content="Log in" Command="{Binding LoginCommand}" IsVisible="{Binding !IsOnline}" />
+                    <Button Classes="small" Margin="0,0,6,6" Content="Log out" Command="{Binding LogoutCommand}" IsVisible="{Binding IsOnline}" />
+                    <Button Classes="small" Margin="0,0,6,6" Content="Edit" Command="{Binding EditCommand}" />
+                    <Button Classes="small" Margin="0,0,6,6" Content="Master" Command="{Binding MakeMasterCommand}" />
+                    <Button Classes="small" Margin="0,0,6,6" Content="Follower" Command="{Binding ToggleFollowerCommand}" />
+                  </WrapPanel>
+                </StackPanel>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <Button Classes="small" HorizontalAlignment="Stretch" Margin="0,0,0,8" Content="Add account" Command="{Binding AddAccountCommand}" />
+
+        <!-- Jump All (desktop: Jump All to Map/Cell, Jump All to Player) -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="JUMP ALL" />
+            <Grid ColumnDefinitions="*,80,80">
+              <TextBox Text="{Binding JumpMap}" PlaceholderText="map (or map-room)" TextInputOptions.AutoCapitalization="False" />
+              <TextBox Grid.Column="1" Margin="6,0,0,0" Text="{Binding JumpCell}" PlaceholderText="cell" TextInputOptions.AutoCapitalization="False" />
+              <TextBox Grid.Column="2" Margin="6,0,0,0" Text="{Binding JumpPad}" PlaceholderText="pad" TextInputOptions.AutoCapitalization="False" />
+            </Grid>
+            <Button Classes="small primary" HorizontalAlignment="Stretch" Content="Jump all to map" Command="{Binding JumpAllCommand}" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Text="{Binding JumpPlayer}" PlaceholderText="player name" TextInputOptions.AutoCapitalization="False" />
+              <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Jump all to player" Command="{Binding JumpAllToPlayerCommand}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+
+        <!-- Load Script to All: full slots only -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="LOAD SCRIPT TO ALL (FULL SLOTS)" />
+            <TextBox Text="{Binding ScriptPath}" PlaceholderText="script path, e.g. Story/Doom.cs" TextInputOptions.AutoCapitalization="False" />
+            <CheckBox IsChecked="{Binding ProfilePerAccount}" Content="Own option profile per account (edit it in Scripts, Options)" />
+            <Button Classes="small primary" HorizontalAlignment="Stretch" Content="Start on every full slot" Command="{Binding LoadScriptToAllCommand}" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Light accounts cannot run scripts; they are skipped with a message. Give them Fight or Quest below." />
+          </StackPanel>
+        </Border>
+
+        <!-- Light tasks -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="LIGHT ACCOUNTS" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBox Text="{Binding FightMonsters}" PlaceholderText="monsters (a|b, * = any)" TextInputOptions.AutoCapitalization="False" />
+              <Button Grid.Column="1" Classes="small" Margin="6,0,0,0" Content="Fight" Command="{Binding FightAllCommand}" />
+            </Grid>
+            <Grid ColumnDefinitions="*,70,Auto">
+              <TextBox Text="{Binding QuestId}" PlaceholderText="quest ID" />
+              <TextBox Grid.Column="1" Margin="6,0,0,0" Text="{Binding QuestLimit}" PlaceholderText="max" />
+              <Button Grid.Column="2" Classes="small" Margin="6,0,0,0" Content="Quest" Command="{Binding QuestAllCommand}" />
+            </Grid>
+            <TextBox Text="{Binding PickupList}" PlaceholderText="pick up (item|item, * = all)" />
+            <TextBox Text="{Binding JunkList}" PlaceholderText="junk, always rejected (item|item)" />
+            <CheckBox IsChecked="{Binding RejectOthers}" Content="Reject every other drop" />
+            <Button Classes="small" HorizontalAlignment="Stretch" Content="Apply drop rules" Command="{Binding ApplyPickupCommand}" />
+          </StackPanel>
+        </Border>
+
+        <!-- ButlerV5 army -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="BUTLER (MASTER AND FOLLOWERS)" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding RosterText}" />
+            <Grid ColumnDefinitions="*,*,*">
+              <Button Classes="small primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Summon all" Command="{Binding SummonAllCommand}" />
+              <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Release" Command="{Binding ReleaseAllCommand}" />
+              <Button Grid.Column="2" Classes="small" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Sync quests" Command="{Binding SyncQuestsCommand}" />
+            </Grid>
+            <CheckBox IsChecked="{Binding AutoQuestSync}" Content="Keep quests in sync (every 5 s)" />
+          </StackPanel>
+        </Border>
+
+        <!-- Settings -->
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="caption" Text="FULL SLOTS" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Text="Full slots allowed (slot 1 is this app's own engine)" />
+              <ComboBox Grid.Column="1" Width="90" ItemsSource="{Binding SlotChoices}" SelectedItem="{Binding FullSlots}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- Account editor -->
+    <Border Background="#CC000000" IsVisible="{Binding IsEditing}">
+      <ScrollViewer>
+        <Border Classes="card" Margin="12,24" VerticalAlignment="Top">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="title" Text="Account" />
+            <TextBox Text="{Binding EditUsername}" PlaceholderText="account name" TextInputOptions.AutoCapitalization="False" />
+            <TextBox Text="{Binding EditPassword}" PasswordChar="•" PlaceholderText="{Binding EditPasswordHint}" TextInputOptions.ContentType="Password" />
+            <TextBox Text="{Binding EditDisplayName}" PlaceholderText="display name (optional)" />
+            <TextBox Text="{Binding EditServer}" PlaceholderText="server (optional; least full when empty)" TextInputOptions.AutoCapitalization="False" />
+            <TextBox Text="{Binding EditTags}" PlaceholderText="tags, comma separated" />
+            <Grid ColumnDefinitions="*,*">
+              <ComboBox HorizontalAlignment="Stretch" Margin="0,0,4,0" ItemsSource="{Binding Modes}" SelectedItem="{Binding EditMode}" />
+              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" Margin="4,0,0,0" ItemsSource="{Binding SlotChoices}" SelectedItem="{Binding EditSlot}" />
+            </Grid>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="Light: in this process, native tasks, a few MB. Full: real scripts in slot N (1 = this app's engine, 2-6 = their own process, about 450 MB each)." />
+            <TextBlock Classes="error" TextWrapping="Wrap" Text="{Binding EditError}" IsVisible="{Binding EditError, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            <Grid ColumnDefinitions="*,*,*">
+              <Button Classes="small primary" HorizontalAlignment="Stretch" Margin="0,0,4,0" Content="Save" Command="{Binding SaveAccountCommand}" />
+              <Button Grid.Column="1" Classes="small" HorizontalAlignment="Stretch" Margin="2,0" Content="Cancel" Command="{Binding CancelEditCommand}" />
+              <Button Grid.Column="2" Classes="small danger" HorizontalAlignment="Stretch" Margin="4,0,0,0" Content="Delete" Command="{Binding DeleteAccountCommand}" IsVisible="{Binding EditId, Converter={x:Static ObjectConverters.IsNotNull}}" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </ScrollViewer>
+    </Border>
+  </Grid>
+</UserControl>

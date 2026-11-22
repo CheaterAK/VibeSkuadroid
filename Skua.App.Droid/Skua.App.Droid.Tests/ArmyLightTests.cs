@@ -203,7 +203,7 @@ public class ArmyLightTests
     {
         await using FakeAqw a = new();
         await using FakeAqw b = new();
-        LoginStagger stagger = new(new StaggerOptions { Spacing = TimeSpan.FromMilliseconds(300), JitterMinMs = 0, JitterMaxMs = 0 });
+        LoginStagger stagger = new(new StaggerOptions { Spacing = TimeSpan.FromMilliseconds(800), JitterMinMs = 0, JitterMaxMs = 0 });
         await using LightAccount la = NewLight(a, "la", stagger);
         await using LightAccount lb = NewLight(b, "lb", stagger);
         await la.LoginAsync(FakeAqw.Password, null);
@@ -212,9 +212,10 @@ public class ArmyLightTests
         b.Server.LastSession!.Close();
         await Sandbox.Until(() => a.Server.Sessions.Count == 2 && b.Server.Sessions.Count == 2 && la.Engine.Snapshot.IsOnline && lb.Engine.Snapshot.IsOnline, 15000);
         // The two relogins did not start together.
-        long first = a.Server.Sessions[1].Received.First().Timestamp;
-        long second = b.Server.Sessions[1].Received.First().Timestamp;
-        Assert.True(Math.Abs(first - second) >= System.Diagnostics.Stopwatch.Frequency / 5, "relogins were not spaced");
+        long first = a.Server.LastSession!.Received.First().Timestamp;
+        long second = b.Server.LastSession!.Received.First().Timestamp;
+        string logs = string.Join("\n", la.Engine.GetRecentLog().Concat(lb.Engine.GetRecentLog()).OrderBy(l => l.At).Select(l => $"{l.At:HH:mm:ss.fff} {l.Message}"));
+        Assert.True(Math.Abs(first - second) >= System.Diagnostics.Stopwatch.Frequency / 4, $"relogins were not spaced: {(first - second) * 1000.0 / System.Diagnostics.Stopwatch.Frequency} ms\n{logs}");
     }
 
     /// <summary>

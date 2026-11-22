@@ -151,7 +151,7 @@ internal static class EngineRuntime
     }
 
     /// <summary>What a successful composition produced; published as one object once everything is in place.</summary>
-    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications);
+    private sealed record Composition(EngineHost Host, AndroidPlatformServices Platform, ScriptLibrary Library, NotificationHub Notifications, Skua.App.Droid.Core.Army.ArmyCoordinator Army);
 
     /// <summary>The expensive part, on the background thread.</summary>
     private static Composition Compose()
@@ -198,8 +198,18 @@ internal static class EngineRuntime
         engine.SnapshotChanged += (_, snapshot) => EngineService.EnsureRunningFor(application, snapshot);
         // Heartbeats record the script and connection state (read from the immutable snapshot; no subscription).
         CrashCapture.EngineState = () => (engine.Snapshot.Script.IsPaused ? "Paused" : engine.Snapshot.Script.State.ToString(), engine.Snapshot.Connection.ToString());
+        // The army: light sessions in this process, full slots 1 (this engine) and 2..6 (their own processes).
+        Skua.App.Droid.Core.Army.LoginStagger stagger = new();
+        Skua.App.Droid.Core.Army.ArmyCoordinator army = new(
+            new Army.AndroidArmyPlatform(application),
+            new Skua.App.Droid.Core.Army.AccountStore(Skua.App.Droid.Core.Army.SlotLayout.AccountsFileOf(paths)),
+            new Skua.App.Droid.Core.Army.AccountVault(secrets),
+            engine,
+            stagger,
+            account => new Skua.App.Droid.Core.Army.LightAccount(account, new Skua.App.Droid.Core.Army.LightOptions { Stagger = stagger }),
+            paths.ScriptsDir);
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
-        return new Composition(host, platform, library, notifications);
+        return new Composition(host, platform, library, notifications, army);
     }
 
     /// <summary>The Keystore-backed store, or a store that remembers nothing if the Keystore cannot be used at all.</summary>
@@ -249,6 +259,8 @@ internal static class EngineRuntime
             Paths)
         {
             Notifications = composition.Notifications,
+            Army = composition.Army,
+            DeviceMemory = () => Army.AndroidArmyPlatform.Read(Volatile.Read(ref s_application)!),
         };
     }
 

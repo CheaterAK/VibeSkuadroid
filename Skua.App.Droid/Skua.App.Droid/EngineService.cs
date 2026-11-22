@@ -74,10 +74,31 @@ public sealed class EngineService : Service
 
     public static bool IsRunning => s_running;
 
+    /// <summary>
+    /// Light army sessions are online in this process: the service must keep it alive even while the main engine is
+    /// offline (set by the army platform).
+    /// </summary>
+    public static volatile bool ArmyActive;
+
+    /// <summary>The army's line for the one persistent notification (null: no army running).</summary>
+    public static volatile string? ArmySummary;
+
+    private static EngineService? s_instance;
+
+    /// <summary>Re-posts the notification with the army line (the service throttles it); false when the service is not running.</summary>
+    internal static bool RefreshArmyLine()
+    {
+        EngineService? service = s_instance;
+        if (service?._host is null)
+            return false;
+        service.OnSnapshot(service, service._host.Engine.Snapshot);
+        return true;
+    }
+
     /// <summary>Starts the service if the engine needs it (session or script active) and it is not running.</summary>
     public static void EnsureRunningFor(Context context, EngineSnapshot snapshot)
     {
-        if (!snapshot.NeedsForegroundService || s_running)
+        if (!(snapshot.NeedsForegroundService || ArmyActive) || s_running)
             return;
         // At most one attempt per 5 s: snapshots arrive several times a second.
         long now = System.Environment.TickCount64;
@@ -109,6 +130,7 @@ public sealed class EngineService : Service
     {
         base.OnCreate();
         _main = new Handler(Looper.MainLooper!);
+        s_instance = this;
         CreateChannels(this);
         s_running = true;
         // Started by the system (sticky restart) or the restart alarm in a fresh process: compose the engine if
@@ -193,6 +215,7 @@ public sealed class EngineService : Service
         }
         ReleaseLocks();
         s_running = false;
+        s_instance = null;
         CrashCapture.Lifecycle("service destroyed");
         base.OnDestroy();
     }
@@ -298,7 +321,7 @@ public sealed class EngineService : Service
         // The wake lock also covers the queue's waits between runs (a dozing CPU would stall the delay).
         UpdateLocks(snapshot.Script.IsBusy || _host.Scheduler?.IsRunning == true);
 
-        bool idle = !snapshot.NeedsForegroundService && _host.Scheduler?.IsRunning != true;
+        bool idle = !snapshot.NeedsForegroundService && _host.Scheduler?.IsRunning != true && !ArmyActive;
         if (idle)
         {
             _idleSince ??= DateTimeOffset.UtcNow;
@@ -365,6 +388,9 @@ public sealed class EngineService : Service
         else if (s.BackgroundWork is string work)
             script = s.Script.IsBusy ? $"{script} · {work}" : work;
         string memory = s.Memory.RssBytes > 0 ? $" · {s.Memory.RssMb:0} MB" : string.Empty;
+        // The army's line: this notification is the app's only persistent one (every slot process shares its id).
+        if (ArmySummary is string army)
+            memory += "\n" + army;
         string character = s.Character is CharacterState c ? $"{c.Name} (lvl {c.Level}) · {c.Map} · " : string.Empty;
 
         PendingIntent open = PendingIntent.GetActivity(this, 0,
