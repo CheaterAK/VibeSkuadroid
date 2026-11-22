@@ -23,7 +23,7 @@ repo-root ones (Avalonia 11) do not apply here.
 Toolchain as in `build/android/README.md`, then:
 
 ```sh
-Skua.App.Droid/build-droid.sh [apk-output-dir]     # tests, Debug APK, Release APK
+Skua.App.Droid/build-droid.sh [apk-output-dir]     # Ruffle fetch (game view), tests, Debug APK, Release APK
 dotnet run --project Skua.App.Droid/Skua.App.Droid.Desktop   # desktop preview
 ```
 
@@ -310,6 +310,76 @@ show on the page and go to the Console (source `control`); nothing there throws 
 Cost: the page reads the game only while it is open and the app is in the foreground, at most every 400 ms (2.5 UI
 updates per second), on a worker thread; a list is replaced only when its content changed. In the background it does
 nothing; returning reads the latest state once.
+
+## Game view (Dashboard and Control page)
+
+The real game, on demand: Ruffle (the Flash emulator's web build) in a WebView, ported from the spike in
+`Skua.Droid.RuffleSpike`. AQW allows one session per account (a second login kicks the first), so the view is a switch,
+not a second session: while it is open the bot is logged out.
+
+**The switch** (`Core/GameView/GameViewSwitch.cs`, states Headless, Preparing, Opening, Open, Returning):
+
+* *Open game view* asks first when a script or the queue runs. The queue is stopped keeping its position
+  (`ScriptScheduler.SuspendForGameViewAsync`; the interrupted run is not counted). A single script is stopped (not
+  paused: a paused script keeps Skua's relogin in charge, which would log back in and kick the view) and offered again
+  afterwards ("Start X again?").
+* The engine then hands the account over (`IBotEngine.HoldForGameViewAsync`): an intentional logout through Skua
+  (`ISessionScriptHost.ReleaseSessionAsync`, relogin option off) that keeps the login in memory, phase `GameView`,
+  its reconnect loop cancelled and refused, logins and script starts refused, no automatic memory restart. The
+  foreground service stays up (the phase counts as active), so the engine process keeps its priority.
+* The view is started with nothing but a random session id. It must connect within 45 s or the switch takes the
+  account back.
+* When the view closes (X, Back, *Return to headless* in the app, two minutes in the background, the memory guard, a
+  renderer crash) it logs out in the game, waits up to 3 s for its game sockets to close, destroys the WebView, clears
+  its storage and cookies, tells the engine process and ends its own process. The engine waits 2 s (3 s when the view
+  died or did not confirm), logs back in with the kept login (`EndGameViewHoldAsync`: one attempt, then the reconnect
+  loop if auto reconnect is on), and the queue continues at its entry.
+* If the view's process dies (crash, killed for memory), the engine process sees the binder die and returns to
+  headless the same way, with a notice on the card.
+
+**Process model.** `GameViewActivity` runs in its own `:gameview` process (not exported). The WebView's GPU side is
+accounted to the hosting process: with the wrong renderer it reached 2.7 GB in 20 s on the measured phone; separately,
+that memory and any crash cannot take the engine down, and ending the process gives everything back. The application
+class starts nothing there (no engine, Avalonia, startup tracking or exit-reason scan; crash handlers only). The view
+binds the non-exported `GameViewLinkService` in the engine process (BIND_AUTO_CREATE | BIND_IMPORTANT), which also
+lends the engine process the visible view's priority; the engine process never binds the view, so a view left in the
+background can be reclaimed by Android (and is closed by the view itself after two minutes).
+
+**Link** (`GameView/GameViewLink.cs`): a `Messenger` on the non-exported service; every message is checked for this
+app's uid, every request names the session id, and the switch ignores anything for another session (a stale view
+restored from Recents is rejected and closes).
+
+**Auto-login.** On the game's login screen the view offers *Log in as ACCOUNT* when a password is remembered. The
+switch decrypts the Keystore vault in the engine process only for the connected view of the current session (at most 5
+times per view) and replies in the Messenger's Bundle; the view registers it with its report's scrubber and hands it to
+the page over its private `WebMessagePort`, which calls the game's own `login(user, pass)` once the login screen shows
+and drops it. Never in Intent extras, files, logs, the report or WebView storage (tests scan the sources). Otherwise
+the user types on the game's screen (do not tick its Save boxes; storage is wiped anyway).
+
+**Page, bridge, allowlists** (as in the spike, `Core/GameView`): the page is answered by the app at
+`https://game.aq.com/__vibeskua__/`; `https://game.aq.com/game/...` goes to the network; game sockets go over the
+private channel to `ChannelBridge`, which connects only to host:port pairs of the live server list under aq.com/artix.com;
+any other WebSocket is refused by the page. One extra request is allowed, the only one the decompiled client makes by
+itself outside `/game/`: `GET https://www.aq.com/game/quest.asp?userid=N&qvalue=N` (its funnel tracking), fetched by the
+app (https, GET, that exact query shape, no cookies, 64 KB) and answered with CORS headers for `https://game.aq.com`
+only. Everything else is blocked and counted in the report.
+
+**In game** is what the client sets when it joins a map: `sfc.isConnected`, `world.myAvatar` set and
+`world.mapLoadInProgress` false (the spike polled `world.myAvatar.pMC` and never saw it), or the `moveToArea` packet
+alone when game objects cannot be read. The page reports the login screen, in game and left game to the card.
+
+**Settings** (*Options* on the card, applied at the next open): renderer webgl, pixel ratio 1, 4 fps (2/4/8), quality
+low, hide players and disable FX on, kill lag off, mute on, HUD off, memory limit 1536 MB: the fastest and most stable
+combination measured on a Galaxy S21 Ultra (5.2 fps, main thread ~8% busy, PSS ~820 MB).
+
+**Memory guard** (`GameViewMemoryGuard`): the view samples its PSS every 3 s, warns once at 85% of the limit, and closes
+back to headless at the first sample over it or when the renderer dies; if its main thread cannot close within 8 s,
+the process tells the engine and ends itself. The HUD (fps, main-thread load, memory) is an optional overlay and the
+report (*Report*, shareable) is the spike's.
+
+**Ruffle** 0.7.1 (npm `@ruffle-rs/ruffle`, MIT OR Apache-2.0, licenses shipped) is pinned and checksummed in
+`ruffle-build.sha256`, downloaded by `fetch-ruffle.sh` (build-droid.sh and CI run it) into
+`Skua.App.Droid/GameView/web/ruffle-0.7.1/`, which is not in git. The build fails with a message if it is missing.
 
 ## Fast Travel, Loader and Grabber (Settings > Tools)
 
