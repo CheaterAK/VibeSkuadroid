@@ -152,7 +152,7 @@ public class CalendarTests
         FakeHttp http = CalendarHttp();
         http.Routes["/calendar/"] = _ =>
         {
-            HttpResponseMessage r = new(HttpStatusCode.OK) { Content = new StreamContent(new UnseekableZeros(AqwCalendar.MaxCalendarBytes + 1)) };
+            HttpResponseMessage r = new(HttpStatusCode.OK) { Content = Announced(AqwCalendar.MaxCalendarBytes + 1) };
             r.Headers.Date = Now;
             return r;
         };
@@ -161,14 +161,25 @@ public class CalendarTests
 
         // An oversized event page keeps the default length; the calendar is read.
         http = CalendarHttp();
-        http.Routes["/news/weekend"] = _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new UnseekableZeros(AqwCalendar.MaxEventPageBytes + 1)) };
+        http.Routes["/news/weekend"] = _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = Announced(AqwCalendar.MaxEventPageBytes + 1) };
         using HttpClient client = new(http);
         client.DefaultRequestHeaders.UserAgent.ParseAdd(AqwCalendar.UserAgent);
         (List<CalendarEvent> rows, _) = await AqwCalendar.FetchAsync(client, AqwCalendar.IsArtixHttps);
         Assert.Null(rows.Single(r => r.Title.StartsWith("Weekend", StringComparison.Ordinal)).Hours); // its page said a week
         Assert.Contains("/news/weekend", http.Requests);
+        // Without a length (chunked): read up to the cap, then refused.
+        await Assert.ThrowsAsync<InvalidDataException>(() => AqwCalendar.ReadTextAsync(new StreamContent(new UnseekableZeros(100_001)), 100_000));
+        Assert.Equal(100_000, (await AqwCalendar.ReadTextAsync(new StreamContent(new UnseekableZeros(100_000)), 100_000)).Length);
         await Assert.ThrowsAsync<InvalidDataException>(() => AqwCalendar.ReadTextAsync(new ByteArrayContent(new byte[11]), 10));
         Assert.Equal("abc", await AqwCalendar.ReadTextAsync(new StringContent("abc"), 10));
+    }
+
+    /// <summary>A small body whose Content-Length announces <paramref name="length"/> bytes (refused before reading).</summary>
+    private static HttpContent Announced(long length)
+    {
+        ByteArrayContent content = new(new byte[16]);
+        content.Headers.ContentLength = length;
+        return content;
     }
 
     /// <summary>A body of zeros without a length (as a chunked answer).</summary>

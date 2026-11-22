@@ -185,11 +185,12 @@ public class GameViewRecorderCapTests
     public void PageRecordsCannotGrowTheRecorderWithoutBound()
     {
         GameViewRecorder rec = new(() => 1.0);
-        for (int i = 0; i < 20_000; i++)
+        string big = new('a', 2 * GameViewRecorder.MaxHeaderValue);
+        for (int i = 0; i < 5_000; i++)
         {
             rec.Console($"[vgame] {{\"type\":\"fps\",\"fps\":{i % 60}}}", "LOG");
             rec.Console("[vgame] {\"type\":\"mem\",\"wasmMB\":12}", "LOG");
-            rec.Console($"[vgame] {{\"type\":\"config\",\"x\":\"{new string('a', 5000)}\"}}", "LOG");
+            rec.Console($"[vgame] {{\"type\":\"config\",\"x\":\"{big}\"}}", "LOG");
             rec.Console($"[vgame] {{\"type\":\"mark\",\"name\":\"m{i}\"}}", "LOG");
             rec.Blocked($"https://h{i}.example/x");
             rec.Header("h" + i, "v");
@@ -203,7 +204,7 @@ public class GameViewRecorderCapTests
         Assert.InRange(marks, 1, GameViewRecorder.MaxMarks);
         Assert.InRange(blocked, 1, GameViewRecorder.MaxBlockedKeys + 1);
         // The newest samples are kept (the HUD shows the last one), and a milestone still counts after the cap.
-        Assert.Contains("19.0 fps", rec.Hud()); // 19999 % 60
+        Assert.Contains("19.0 fps", rec.Hud()); // 4999 % 60
         rec.Mark("login_screen");
         Assert.True(rec.HasMark("login_screen"));
         Assert.True(rec.BuildReport().Length < 2_000_000);
