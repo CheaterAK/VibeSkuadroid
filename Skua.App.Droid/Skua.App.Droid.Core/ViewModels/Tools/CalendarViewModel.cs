@@ -153,8 +153,9 @@ public sealed partial class CalendarViewModel : ObservableObject, IDisposable
             _events = events;
             Note = string.Empty;
         }
-        catch (Exception e) when (e is InvalidOperationException or HttpRequestException or TaskCanceledException)
+        catch (Exception e)
         {
+            // Anything the source throws (also a page it cannot parse) is a note, never an unhandled command error.
             Note = _events.Count == 0 ? e.Message : $"{e.Message}; showing the last list";
         }
         finally

@@ -112,6 +112,87 @@ public class CalendarTests
         Assert.Equal(2, page.ActiveBoosts.Count);
     }
 
+    [Theory]
+    [InlineData(@"Double \q Boost", @"Double \q Boost")]
+    [InlineData(@"Double Boost \", "Double Boost ")]              // .NET 10's Regex.Unescape drops a trailing '\' (no exception)
+    [InlineData(@"Double \x4 Boost", @"Double \x4 Boost")]
+    [InlineData(@"Double ALL Boost", "Double ALL Boost")]   // a valid escape is still undone (the desktop's behaviour)
+    [InlineData(@"Double Gold\t Boost", "Double Gold\t Boost")]
+    public void ABadEscapeInATitleKeepsTheTitleAndTheOtherEntries(string raw, string expected)
+    {
+        string html = $"var events = [{{title: '{raw}', url: 'https://www.artix.com/news/a', start: '2026-11-20'}},\n"
+            + "{title: 'Double ALL Boost 11.19.26', url: 'https://www.artix.com/news/b', start: '2026-11-19'}];";
+        List<CalendarEvent> boosts = AqwCalendar.ParseBoosts(html);
+        Assert.Equal(2, boosts.Count);
+        Assert.Equal(expected, boosts.Single(b => b.Url.EndsWith("/a", StringComparison.Ordinal)).Title);
+        Assert.Equal(expected, AqwCalendar.UnescapeTitle(raw));
+    }
+
+    private sealed class ThrowingSource(Exception e) : ICalendarSource
+    {
+        public Task<(IReadOnlyList<CalendarEvent> Events, TimeSpan Skew)> FetchAsync(CancellationToken cancellationToken) => throw e;
+    }
+
+    [Fact]
+    public async Task AnyErrorOfTheSourceIsANoteNotACrash()
+    {
+        await using TestApp app = new();
+        foreach (Exception e in new Exception[] { new ArgumentException("Unrecognized escape sequence \\q."), new InvalidDataException("too large"), new NullReferenceException() })
+        {
+            CalendarViewModel page = new(app.Services with { Calendar = new ThrowingSource(e) });
+            await page.RefreshCommand.ExecuteAsync(null);
+            Assert.Equal(e.Message, page.Note);
+            Assert.False(page.IsLoading);
+        }
+    }
+
+    [Fact]
+    public async Task TheCalendarAndEventPagesAreReadUpToTheirCaps()
+    {
+        FakeHttp http = CalendarHttp();
+        http.Routes["/calendar/"] = _ =>
+        {
+            HttpResponseMessage r = new(HttpStatusCode.OK) { Content = new StreamContent(new UnseekableZeros(AqwCalendar.MaxCalendarBytes + 1)) };
+            r.Headers.Date = Now;
+            return r;
+        };
+        InvalidOperationException e = await Assert.ThrowsAsync<InvalidOperationException>(() => AqwCalendar.FetchAsync(new HttpClient(http)));
+        Assert.Contains("larger than", e.Message);
+
+        // An oversized event page keeps the default length; the calendar is read.
+        http = CalendarHttp();
+        http.Routes["/news/weekend"] = _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new UnseekableZeros(AqwCalendar.MaxEventPageBytes + 1)) };
+        using HttpClient client = new(http);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(AqwCalendar.UserAgent);
+        (List<CalendarEvent> rows, _) = await AqwCalendar.FetchAsync(client, AqwCalendar.IsArtixHttps);
+        Assert.Null(rows.Single(r => r.Title.StartsWith("Weekend", StringComparison.Ordinal)).Hours); // its page said a week
+        Assert.Contains("/news/weekend", http.Requests);
+        await Assert.ThrowsAsync<InvalidDataException>(() => AqwCalendar.ReadTextAsync(new ByteArrayContent(new byte[11]), 10));
+        Assert.Equal("abc", await AqwCalendar.ReadTextAsync(new StringContent("abc"), 10));
+    }
+
+    /// <summary>A body of zeros without a length (as a chunked answer).</summary>
+    private sealed class UnseekableZeros(long length) : Stream
+    {
+        private long _left = length;
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = (int)Math.Min(count, _left);
+            Array.Clear(buffer, offset, n);
+            _left -= n;
+            return n;
+        }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
     [AvaloniaFact]
     public async Task TheCalendarPageRendersAndTicksOnlyWhileShown()
     {

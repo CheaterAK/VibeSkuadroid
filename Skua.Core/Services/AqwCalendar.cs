@@ -119,7 +119,7 @@ public static partial class AqwCalendar
         List<CalendarEvent> rows = new();
         foreach (Match m in EventRegex().Matches(html))
         {
-            string title = Regex.Unescape(m.Groups["t"].Value);
+            string title = UnescapeTitle(m.Groups["t"].Value);
             if (!title.Contains("boost", StringComparison.OrdinalIgnoreCase))
                 continue;
             if (!DateTime.TryParseExact(m.Groups["s"].Value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime day))
@@ -130,6 +130,58 @@ public static partial class AqwCalendar
         }
         rows.Sort((a, b) => a.Day.CompareTo(b.Day));
         return rows;
+    }
+
+    /// <summary>
+    /// A title as the page's script writes it, its escapes undone (<see cref="Regex.Unescape"/>, as before); a title
+    /// with an escape Regex.Unescape refuses (<c>\q</c>, <c>\x4</c>) is kept as it is instead of failing the whole
+    /// calendar.
+    /// </summary>
+    public static string UnescapeTitle(string raw)
+    {
+        try
+        {
+            return Regex.Unescape(raw);
+        }
+        catch (ArgumentException)
+        {
+            return raw;
+        }
+    }
+
+    /// <summary>The most read of the calendar page (it is a few hundred KB).</summary>
+    public const int MaxCalendarBytes = 8 * 1024 * 1024;
+
+    /// <summary>The most read of one event page.</summary>
+    public const int MaxEventPageBytes = 2 * 1024 * 1024;
+
+    /// <summary>The body as text (its charset, else UTF-8), at most <paramref name="max"/> bytes; <see cref="InvalidDataException"/> beyond.</summary>
+    public static async Task<string> ReadTextAsync(HttpContent content, int max, CancellationToken cancellationToken = default)
+    {
+        if (content.Headers.ContentLength is long length && length > max)
+            throw new InvalidDataException($"the page is larger than {max / 1024} KB");
+        using Stream stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using MemoryStream copy = new();
+        byte[] buffer = new byte[81920];
+        int n;
+        while ((n = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (copy.Length + n > max)
+                throw new InvalidDataException($"the page is larger than {max / 1024} KB");
+            copy.Write(buffer, 0, n);
+        }
+        System.Text.Encoding encoding = System.Text.Encoding.UTF8;
+        if (content.Headers.ContentType?.CharSet is string charset)
+        {
+            try
+            {
+                encoding = System.Text.Encoding.GetEncoding(charset.Trim('"'));
+            }
+            catch (ArgumentException)
+            {
+            }
+        }
+        return encoding.GetString(copy.GetBuffer(), 0, (int)copy.Length);
     }
 
     /// <summary>How long a boost runs when the page does not say: Double ALL is posted for 72 hours, the other Double boosts for 48.</summary>
@@ -186,11 +238,11 @@ public static partial class AqwCalendar
         string html;
         try
         {
-            using HttpResponseMessage response = await http.GetAsync(CalendarUrl, cancellationToken).ConfigureAwait(false);
+            using HttpResponseMessage response = await http.GetAsync(CalendarUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
             if (response.Headers.Date is DateTimeOffset date)
                 skew = date - DateTimeOffset.UtcNow;
-            html = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            html = await ReadTextAsync(response.Content, MaxCalendarBytes, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -206,7 +258,9 @@ public static partial class AqwCalendar
                 continue;
             try
             {
-                string page = await http.GetStringAsync(row.Url, cancellationToken).ConfigureAwait(false);
+                using HttpResponseMessage response = await http.GetAsync(row.Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                string page = await ReadTextAsync(response.Content, MaxEventPageBytes, cancellationToken).ConfigureAwait(false);
                 if (Description(page) is not string text)
                     continue;
                 if (IsOtherGame(text))
