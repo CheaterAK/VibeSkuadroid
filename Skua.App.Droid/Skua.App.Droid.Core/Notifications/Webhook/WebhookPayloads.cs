@@ -12,7 +12,8 @@ namespace Skua.App.Droid.Core.Notifications;
 /// </summary>
 /// <remarks>
 /// Every payload sets <c>allowed_mentions.parse = []</c> (an item or script name containing @everyone pings nobody)
-/// and escapes Discord markdown in names; names are cut to <see cref="MaxNameLength"/> characters.
+/// and escapes Discord markdown in names and breaks up any <c>scheme://</c> in them (no auto-linked URLs); names are
+/// cut to <see cref="MaxNameLength"/> characters.
 /// </remarks>
 public static class WebhookPayloads
 {
@@ -114,8 +115,12 @@ public static class WebhookPayloads
         return clean.Length > MaxNameLength ? clean[..MaxNameLength] : clean;
     }
 
-    /// <summary>Discord markdown escaped (so a name cannot format or link the card).</summary>
-    private static string Md(string text)
+    /// <summary>
+    /// Discord markdown escaped (so a name cannot format or link the card), and URLs broken up: Discord turns any
+    /// <c>scheme://...</c> into a link by itself, so a zero-width space goes between the colon and the slashes
+    /// (item and map names come from the game server).
+    /// </summary>
+    internal static string Md(string text)
     {
         StringBuilder sb = new();
         foreach (char c in Cut(text))
@@ -124,6 +129,6 @@ public static class WebhookPayloads
                 sb.Append('\\');
             sb.Append(c);
         }
-        return sb.ToString();
+        return sb.Replace("://", ":​//").ToString();
     }
 }

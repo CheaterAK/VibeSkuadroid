@@ -126,6 +126,28 @@ public class WebhookPayloadTests
         string desc = (string)WebhookPayloads.ScriptStarted(longName, longName)["embeds"]![0]!["description"]!;
         Assert.True(desc.Length < 300);
     }
+
+    [Theory]
+    [InlineData("Visit https://evil.example/free-ac now")]
+    [InlineData("HTTP://EVIL.EXAMPLE")]
+    [InlineData("steam://run/123")]
+    [InlineData("a://b://c")]
+    public void ServerControlledNamesCannotBeAutoLinked(string name)
+    {
+        JsonObject card = WebhookPayloads.DropAlert("hero", name, 1, true, name);
+        string description = (string)card["embeds"]![0]!["description"]!;
+        string map = (string)card["embeds"]![0]!["fields"]![0]!["value"]!;
+        // The only URL left is the wiki link the card itself makes (its item name percent-encoded).
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(description, "://"));
+        Assert.Contains("](https://aqwwiki.wikidot.com/", description);
+        // Ordinal: a culture-aware comparison ignores the zero-width space (Discord's link matching does not).
+        Assert.DoesNotContain("://", map, StringComparison.Ordinal);
+        Assert.Contains(":\u200B//", map, StringComparison.Ordinal);
+        Assert.DoesNotContain("://", (string)WebhookPayloads.ScriptStarted(name, name)["embeds"]![0]!["description"]!, StringComparison.Ordinal);
+        // Mentions stay off and markdown stays escaped.
+        Assert.Empty(card["allowed_mentions"]!["parse"]!.AsArray());
+        Assert.Equal(@"\[x\]\(y\)", WebhookPayloads.Md("[x](y)"));
+    }
 }
 
 /// <summary>The queue: rate limits, retries, never blocking the caller.</summary>
