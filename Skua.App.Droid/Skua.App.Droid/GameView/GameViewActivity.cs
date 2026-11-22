@@ -424,6 +424,9 @@ public sealed class GameViewActivity : Activity
         web.SetBackgroundColor(Color.Black);
         web.SetWebViewClient(new Client(this));
         web.SetWebChromeClient(new Chrome(this));
+        GuardServiceWorkers();
+        // The previous view may have been killed before it could clear the HTTP cache (storage was cleared in OnCreate).
+        web.ClearCache(true);
         _root.AddView(web, 0, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.MatchParent));
         _web = web;
         _status.Visibility = ViewStates.Gone;
@@ -486,7 +489,7 @@ public sealed class GameViewActivity : Activity
         public override WebResourceResponse? ShouldInterceptRequest(WebView? view, IWebResourceRequest? request)
         {
             string url = request?.Url?.ToString() ?? string.Empty;
-            RequestDecision d = RequestPolicy.Decide(url, request?.Method ?? "GET");
+            RequestDecision d = RequestPolicy.Decide(url, request?.Method ?? "GET", request?.RequestHeaders);
             switch (d.Action)
             {
                 case RequestAction.PassThrough:
@@ -544,6 +547,54 @@ public sealed class GameViewActivity : Activity
         }
     }
 
+    /// <summary>
+    /// Service workers' requests never reach the WebViewClient. The game registers none and the page's CSP
+    /// (worker-src 'none') refuses new ones; one registered before (storage is wiped on open and close) gets no network
+    /// at all and the page's request rules (<see cref="RequestPolicy.DecideServiceWorker"/>).
+    /// </summary>
+    private void GuardServiceWorkers()
+    {
+        try
+        {
+            ServiceWorkerController swc = ServiceWorkerController.Instance;
+            ServiceWorkerWebSettings sws = swc.ServiceWorkerWebSettings;
+            sws.AllowContentAccess = false;
+            sws.AllowFileAccess = false;
+            sws.BlockNetworkLoads = true;
+            swc.SetServiceWorkerClient(new WorkerClient(this));
+        }
+        catch (Java.Lang.Exception ex)
+        {
+            _rec.Event("service_worker_guard_failed", ex.GetType().Name);
+        }
+    }
+
+    private sealed class WorkerClient : ServiceWorkerClient
+    {
+        private readonly GameViewActivity _owner;
+
+        public WorkerClient(GameViewActivity owner)
+        {
+            _owner = owner;
+        }
+
+        public override WebResourceResponse? ShouldInterceptRequest(IWebResourceRequest? request)
+        {
+            string url = request?.Url?.ToString() ?? string.Empty;
+            RequestDecision d = RequestPolicy.DecideServiceWorker(url, request?.Method ?? "GET", request?.RequestHeaders);
+            switch (d.Action)
+            {
+                case RequestAction.PassThrough:
+                    return null; // and its network loads are blocked (GuardServiceWorkers)
+                case RequestAction.ServeLocal:
+                    return _owner.Local(d.LocalPath!);
+                default:
+                    _owner._rec.Blocked(RequestPolicy.BlockKey(url) + " (" + d.Reason + ")");
+                    return Empty(403, "Forbidden");
+            }
+        }
+    }
+
     private sealed class Chrome : WebChromeClient
     {
         private readonly GameViewActivity _owner;
@@ -564,7 +615,8 @@ public sealed class GameViewActivity : Activity
 
     private WebResourceResponse Local(string path)
     {
-        Dictionary<string, string> headers = new() { ["Cache-Control"] = "no-store" };
+        // Every local response carries the page's Content-Security-Policy (RequestPolicy.ContentSecurityPolicy).
+        Dictionary<string, string> headers = RequestPolicy.LocalResponseHeaders();
         string mime = RequestPolicy.MimeType(path);
         string? encoding = mime.StartsWith("text/", StringComparison.Ordinal) || mime == "application/json" ? "utf-8" : null;
         if (path == "config.json")
@@ -607,7 +659,7 @@ public sealed class GameViewActivity : Activity
     }
 
     private static WebResourceResponse Empty(int status, string reason) =>
-        new("text/plain", "utf-8", status, reason, new Dictionary<string, string> { ["Cache-Control"] = "no-store" }, new MemoryStream());
+        new("text/plain", "utf-8", status, reason, RequestPolicy.LocalResponseHeaders(), new MemoryStream());
 
     private void OnRendererGone(WebView? view, bool crashed)
     {
@@ -834,6 +886,13 @@ public sealed class GameViewActivity : Activity
         {
             _root.RemoveView(w);
             w.StopLoading();
+            try
+            {
+                w.ClearCache(true); // the HTTP cache (shared by every WebView of this process)
+            }
+            catch (Java.Lang.Exception)
+            {
+            }
             w.Destroy();
             _web = null;
         }
@@ -843,7 +902,12 @@ public sealed class GameViewActivity : Activity
         ClearWebData();
     }
 
-    /// <summary>Nothing the game stores (its Save boxes use localStorage, cookies) survives: wiped on open and close.</summary>
+    /// <summary>
+    /// Nothing the game stores (its Save boxes use localStorage, cookies) survives: wiped on open and close, and the
+    /// HTTP cache with it (through the WebView: when it is created and before it is destroyed). Android has no call that
+    /// removes service worker registrations alone: WebStorage.deleteAllData clears the origin's storage, the page
+    /// unregisters any it finds, and their network loads are blocked (<see cref="GuardServiceWorkers"/>).
+    /// </summary>
     private static void ClearWebData()
     {
         try

@@ -124,13 +124,29 @@
     emit("websocket_refused", { url: clip(String(url).split("?")[0], 80) });
     throw new DOMException("WebSockets other than the app's bridge are not allowed.", "SecurityError");
   }
-  PatchedWebSocket.prototype = RealWebSocket.prototype;
+  // Nothing reachable from the patched constructor leads back to the browser's WebSocket: its prototype is the bridge
+  // sockets' own (so `instanceof WebSocket` holds for them), whose constructor is the patched function. The page's
+  // Content-Security-Policy (connect-src, set by the app) is what actually refuses any other connection; this only
+  // keeps the shim from handing the original out.
+  PatchedWebSocket.prototype = BridgeSocket.prototype;
+  Object.defineProperty(BridgeSocket.prototype, "constructor", { value: PatchedWebSocket, writable: false, enumerable: false, configurable: false });
   for (const k of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"]) {
     PatchedWebSocket[k] = RealWebSocket[k];
     BridgeSocket[k] = RealWebSocket[k];
     BridgeSocket.prototype[k] = RealWebSocket[k];
   }
   window.WebSocket = PatchedWebSocket;
+  // WebRTC is not covered by the CSP (Chromium has no webrtc directive) and the game never uses it.
+  for (const k of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel", "RTCSessionDescription", "RTCIceCandidate"]) {
+    try { delete window[k]; } catch (e) { /* ignore */ }
+  }
+  // A service worker registered by anything on game.aq.com before (the HTTP and storage wipe should already have
+  // removed it): unregister. The CSP's worker-src 'none' refuses new registrations.
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
+    }
+  } catch (e) { /* ignore */ }
 
   // ---- WebAssembly memory (Ruffle's heap: by far the largest part of its memory) ----
   let wasmMemory = null;

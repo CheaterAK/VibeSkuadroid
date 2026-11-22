@@ -76,6 +76,70 @@ public class ExtraRequestAllowlistTests
     }
 }
 
+/// <summary>The page's Content-Security-Policy and the service worker rules.</summary>
+public class GameViewCspAndServiceWorkerTests
+{
+    private static Dictionary<string, string> Directives(string csp) =>
+        csp.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToDictionary(d => d.Split(' ')[0], d => d[(d.IndexOf(' ') + 1)..]);
+
+    [Fact]
+    public void EveryLocalResponseCarriesThePolicy()
+    {
+        Dictionary<string, string> headers = RequestPolicy.LocalResponseHeaders();
+        Assert.Equal(RequestPolicy.ContentSecurityPolicy, headers["Content-Security-Policy"]);
+        Assert.Equal("no-store", headers["Cache-Control"]);
+        Assert.Equal("nosniff", headers["X-Content-Type-Options"]);
+    }
+
+    [Fact]
+    public void ThePolicyAllowsOnlyTheGameTheQuestTrackingAndTheBridge()
+    {
+        Dictionary<string, string> d = Directives(RequestPolicy.ContentSecurityPolicy);
+        Assert.Equal("'none'", d["default-src"]);
+        Assert.Equal(["https://game.aq.com", "https://www.aq.com/game/quest.asp", "wss://vibeskua-bridge.invalid"], d["connect-src"].Split(' '));
+        Assert.Equal("'none'", d["worker-src"]);
+        Assert.Equal("'none'", d["frame-src"]);
+        Assert.Equal("'none'", d["child-src"]);
+        Assert.Equal("'none'", d["object-src"]);
+        Assert.Equal("'none'", d["base-uri"]);
+        Assert.Equal("'none'", d["form-action"]);
+        Assert.Equal("'self' 'unsafe-eval' 'wasm-unsafe-eval'", d["script-src"]);
+        // Nothing broader than the page's own origin and local data anywhere.
+        foreach (string value in d.Values)
+        {
+            Assert.DoesNotContain("*", value);
+            Assert.DoesNotContain("http:", value);
+            Assert.DoesNotContain("https: ", value + " ");
+            Assert.DoesNotContain("wss: ", value + " ");
+        }
+        // The bridge URLs the page is given are covered.
+        Assert.StartsWith(d["connect-src"].Split(' ')[2] + "/", ChannelBridge.UrlPrefix);
+    }
+
+    [Fact]
+    public void AServiceWorkerScriptIsNeverLoaded()
+    {
+        Dictionary<string, string> sw = new() { ["Service-Worker"] = "script" };
+        Dictionary<string, string> swLower = new() { ["service-worker"] = "script" };
+        Assert.Equal(RequestAction.Block, RequestPolicy.Decide("https://game.aq.com/game/sw.js", "GET", sw).Action);
+        Assert.Equal(RequestAction.Block, RequestPolicy.Decide("https://game.aq.com/game/sw.js", "GET", swLower).Action);
+        Assert.Equal(RequestAction.Block, RequestPolicy.DecideServiceWorker("https://game.aq.com/game/sw.js", "GET", sw).Action);
+        Assert.Equal(RequestAction.PassThrough, RequestPolicy.Decide("https://game.aq.com/game/sw.js", "GET", new Dictionary<string, string> { ["Accept"] = "*/*" }).Action);
+        Assert.Equal(RequestAction.PassThrough, RequestPolicy.Decide("https://game.aq.com/game/x", "GET", null).Action);
+    }
+
+    [Fact]
+    public void AServiceWorkerGetsThePagesRulesButNothingTheAppFetches()
+    {
+        Assert.Equal(RequestAction.Block, RequestPolicy.DecideServiceWorker("https://www.aq.com/game/quest.asp?userid=1&qvalue=1", "GET", null).Action);
+        Assert.Equal(RequestAction.Block, RequestPolicy.DecideServiceWorker("https://example.com/", "GET", null).Action);
+        Assert.Equal(RequestAction.Block, RequestPolicy.DecideServiceWorker("https://game.aq.com/", "GET", null).Action);
+        Assert.Equal(RequestAction.PassThrough, RequestPolicy.DecideServiceWorker("https://game.aq.com/game/x", "GET", null).Action);
+        Assert.Equal(RequestAction.ServeLocal, RequestPolicy.DecideServiceWorker("https://game.aq.com/__vibeskua__/gameview.js", "GET", null).Action);
+    }
+}
+
 /// <summary>
 /// The page script itself (gameview.js) run in Node against a fake Ruffle player that answers skua.swf's callbacks
 /// like the real client's objects: the login screen, auto-login through the game's own login, and "in game" from
@@ -138,6 +202,20 @@ public class GameViewPageTests
         // Hide players and disable FX on, kill lag off (the defaults).
         Assert.Contains(run.GetProperty("calls").EnumerateArray(), c => c.ToString() == "[\"modEnable\",\"HidePlayers\"]");
         Assert.DoesNotContain(run.GetProperty("calls").EnumerateArray(), c => c[0].GetString() == "killLag");
+    }
+
+    [Fact]
+    public void TheWebSocketShimNeverHandsOutTheBrowsersConstructor()
+    {
+        JsonElement shim = Run("login-and-poll").GetProperty("shim");
+        Assert.True(shim.GetProperty("patched").GetBoolean());
+        Assert.True(shim.GetProperty("constructorIsPatched").GetBoolean());       // WebSocket.prototype.constructor
+        Assert.False(shim.GetProperty("realReachable").GetBoolean());
+        Assert.True(shim.GetProperty("otherRefused").GetBoolean());
+        Assert.True(shim.GetProperty("bridgeIsInstance").GetBoolean());
+        Assert.True(shim.GetProperty("bridgeConstructorIsPatched").GetBoolean());
+        Assert.False(shim.GetProperty("constructorWritable").GetBoolean());
+        Assert.True(shim.GetProperty("rtcRemoved").GetBoolean());
     }
 
     [Fact]

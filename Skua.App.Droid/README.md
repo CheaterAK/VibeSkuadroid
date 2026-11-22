@@ -365,6 +365,16 @@ itself outside `/game/`: `GET https://www.aq.com/game/quest.asp?userid=N&qvalue=
 app (https, GET, that exact query shape, no cookies, 64 KB) and answered with CORS headers for `https://game.aq.com`
 only. Everything else is blocked and counted in the report.
 
+What `shouldInterceptRequest` never sees is held by the page's Content-Security-Policy, sent with every file the app
+serves (`RequestPolicy.ContentSecurityPolicy`): `connect-src` only `https://game.aq.com`, the quest tracking URL and
+the bridge URLs (so a real WebSocket, from an about:blank frame or anything else, is refused by the browser),
+`worker-src`, `frame-src`, `child-src` and `object-src` `'none'`; scripts only from the page's origin, with
+`'unsafe-eval'` (Ruffle's ExternalInterface calls page functions through `new Function`) and `'wasm-unsafe-eval'`. The
+shim's constructor leads nowhere near the browser's WebSocket, and WebRTC (which no CSP directive covers) is removed
+from the page. Service workers: their requests get the same rules (`DecideServiceWorker`) and no network, a service
+worker script is never loaded, and the page unregisters any it finds. The HTTP cache is cleared with the storage. In
+desktop Chromium, Ruffle reaches the login screen and the game's socket opens over the bridge with this policy.
+
 **In game** is what the client sets when it joins a map: `sfc.isConnected`, `world.myAvatar` set and
 `world.mapLoadInProgress` false (the spike polled `world.myAvatar.pMC` and never saw it), or the `moveToArea` packet
 alone when game objects cannot be read. The page reports the login screen, in game and left game to the card.

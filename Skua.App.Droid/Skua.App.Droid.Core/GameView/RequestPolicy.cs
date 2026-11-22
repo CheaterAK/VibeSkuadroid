@@ -62,6 +62,80 @@ public static class RequestPolicy
 
     public static RequestDecision Decide(string url) => Decide(url, "GET");
 
+    /// <summary>The request header a browser adds to the fetch of a service worker's script ("script").</summary>
+    public const string ServiceWorkerHeader = "Service-Worker";
+
+    /// <summary>
+    /// The Content-Security-Policy of every file the app serves under <see cref="LocalPrefix"/> (the page, its config
+    /// and Ruffle). It is what holds the page to the allowlist where shouldInterceptRequest never looks: WebSockets
+    /// (a real one, from an about:blank frame or from anything that got hold of the browser's constructor), workers
+    /// and service workers, frames, plugins.
+    /// <list type="bullet">
+    /// <item><c>connect-src</c>: the game's origin, the quest tracking URL (<see cref="ExtraRequests"/>) and the bridge
+    /// URLs (never a real connection: the page's shim answers them).</item>
+    /// <item><c>script-src</c>: the page's own files; <c>'wasm-unsafe-eval'</c> for Ruffle's WebAssembly and
+    /// <c>'unsafe-eval'</c> for Ruffle's ExternalInterface, which calls page functions through <c>new Function</c>.</item>
+    /// <item><c>worker-src 'none'</c>: Ruffle 0.7.1 starts a worker only for background execution, which the page turns
+    /// off (<c>backgroundExecutionMode: "none"</c>); this also refuses service worker registration.</item>
+    /// <item>No frames, plugins, forms, base URL changes or embedding.</item>
+    /// </list>
+    /// Checked in desktop Chromium: Ruffle reaches the game's login screen and the game's socket opens over the bridge
+    /// with this policy, and the probes for other connections, workers and frames are refused.
+    /// </summary>
+    public static readonly string ContentSecurityPolicy = string.Join("; ",
+        "default-src 'none'",
+        "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "media-src 'self' data: blob:",
+        "font-src 'self' data:",
+        $"connect-src {PageOrigin} https://{SiteHost}{QuestTrackingPath} {ChannelBridge.UrlPrefix.TrimEnd('/')}",
+        "worker-src 'none'",
+        "child-src 'none'",
+        "frame-src 'none'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'");
+
+    /// <summary>The headers of every locally served response (<see cref="RequestAction.ServeLocal"/>).</summary>
+    public static Dictionary<string, string> LocalResponseHeaders() => new()
+    {
+        ["Cache-Control"] = "no-store",
+        ["Content-Security-Policy"] = ContentSecurityPolicy,
+        ["X-Content-Type-Options"] = "nosniff",
+    };
+
+    /// <summary>True when the request is the fetch of a service worker's script (header <c>Service-Worker: script</c>).</summary>
+    public static bool IsServiceWorkerScript(IDictionary<string, string>? headers)
+    {
+        if (headers is null)
+            return false;
+        foreach (KeyValuePair<string, string> h in headers)
+        {
+            if (string.Equals(h.Key, ServiceWorkerHeader, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>A request of the page (WebViewClient): <see cref="Decide(string, string)"/>, but a service worker script is blocked.</summary>
+    public static RequestDecision Decide(string url, string method, IDictionary<string, string>? headers) =>
+        IsServiceWorkerScript(headers) ? new(RequestAction.Block, Reason: "service worker script") : Decide(url, method);
+
+    /// <summary>
+    /// A request made by a service worker (ServiceWorkerClient). The game uses none and the page's CSP refuses new
+    /// ones, so this only matters for one registered before: its script and anything only the app could fetch are
+    /// blocked; otherwise the page's rules apply (and the worker's network loads are off as well).
+    /// </summary>
+    public static RequestDecision DecideServiceWorker(string url, string method, IDictionary<string, string>? headers)
+    {
+        if (IsServiceWorkerScript(headers))
+            return new(RequestAction.Block, Reason: "service worker script");
+        RequestDecision d = Decide(url, method);
+        return d.Action == RequestAction.AppFetch ? new(RequestAction.Block, Reason: "service worker") : d;
+    }
+
     /// <param name="url">The request's URL.</param>
     /// <param name="method">Its HTTP method (shouldInterceptRequest reports it); only matters for the app-fetched requests.</param>
     public static RequestDecision Decide(string url, string method)

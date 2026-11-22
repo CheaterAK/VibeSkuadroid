@@ -32,7 +32,9 @@ const window = {
   devicePixelRatio: 2.625, innerWidth: 2400, innerHeight: 1080,
   addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
 };
-window.WebSocket.prototype = {};
+window.WebSocket.prototype = { constructor: window.WebSocket };
+const RealWebSocket = window.WebSocket;
+window.RTCPeerConnection = function () {};
 const document = {
   getElementById(id) { return id === "status" ? { textContent: "" } : { appendChild() {} }; },
   createElement() { return {}; },
@@ -80,5 +82,23 @@ setTimeout(async () => {
     window.pext(['{"params":{"type":"json","dataObj":{"cmd":"moveToArea","areaName":"battleon-1"}}}']);
     tick();
   }
-  process.stdout.write(JSON.stringify({ records, calls }) + "\n");
+  // The WebSocket shim: nothing reachable from the patched constructor is the browser's own.
+  const W = window.WebSocket;
+  const reachable = [W, W.prototype, W.prototype.constructor, Object.getPrototypeOf(W.prototype), Object.getPrototypeOf(W)];
+  const proto = Object.getPrototypeOf(W.prototype);
+  if (proto) reachable.push(proto.constructor);
+  let otherRefused = false;
+  try { new W.prototype.constructor("wss://example.com/"); } catch (e) { otherRefused = e && e.name !== "TypeError"; }
+  const bridge = new W("wss://vibeskua-bridge.invalid/sock7.aq.com/5593");
+  const shim = {
+    patched: W !== RealWebSocket,
+    constructorIsPatched: W.prototype.constructor === W,
+    realReachable: reachable.some((x) => x === RealWebSocket || x === RealWebSocket.prototype),
+    otherRefused,
+    bridgeIsInstance: bridge instanceof W,
+    bridgeConstructorIsPatched: bridge.constructor === W,
+    constructorWritable: (() => { try { W.prototype.constructor = RealWebSocket; } catch (e) { /* strict */ } return W.prototype.constructor === RealWebSocket; })(),
+    rtcRemoved: !("RTCPeerConnection" in window),
+  };
+  process.stdout.write(JSON.stringify({ records, calls, shim }) + "\n");
 }, 50);
