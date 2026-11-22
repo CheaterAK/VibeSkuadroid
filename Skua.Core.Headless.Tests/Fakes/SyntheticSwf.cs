@@ -23,7 +23,8 @@ public static class SyntheticSwf
     /// <param name="cells">Cell name and its pad instance names, in timeline order.</param>
     /// <param name="compression">"FWS", "CWS" or "ZWS" (LZMA, coded by <see cref="LiteralLzmaEncoder"/>).</param>
     /// <param name="sceneTag">Also write DefineSceneAndFrameLabelData (tag 86).</param>
-    public static byte[] Map(IReadOnlyList<(string Cell, string[] Pads)> cells, string compression = "CWS", bool sceneTag = true)
+    /// <param name="padAt">Where a pad of a cell is placed (pixels); null places every pad at (0, 0).</param>
+    public static byte[] Map(IReadOnlyList<(string Cell, string[] Pads)> cells, string compression = "CWS", bool sceneTag = true, Func<string, string, (int X, int Y)>? padAt = null)
     {
         using MemoryStream body = new();
         // RECT with nbits = 15: 5 + 4*15 = 65 bits -> 9 bytes, all zero coordinates.
@@ -79,7 +80,8 @@ public static class SyntheticSwf
                     w.WriteByte(0x20 | 0x04 | 0x02); // name, matrix, character
                     Write16(w, d);
                     Write16(w, 1);
-                    w.WriteByte(0); // MATRIX: no scale, no rotate, translate bits 0 (aligned)
+                    (int x, int y) = padAt?.Invoke(cell, pad) ?? (0, 0);
+                    WriteTranslation(w, x * 20, y * 20); // MATRIX: no scale, no rotate, the translation in twips
                     WriteString(w, pad);
                 });
             }
@@ -121,6 +123,28 @@ public static class SyntheticSwf
             Write32(s, (uint)bytes.Length);
         }
         s.Write(bytes);
+    }
+
+    // MATRIX with HasScale 0, HasRotate 0, NTranslateBits 16, then TranslateX and TranslateY (signed), byte aligned.
+    private static void WriteTranslation(Stream s, int tx, int ty)
+    {
+        ulong bits = 0;
+        int count = 0;
+        void Put(long value, int n)
+        {
+            bits = (bits << n) | ((ulong)value & ((1UL << n) - 1));
+            count += n;
+        }
+        Put(0, 1);
+        Put(0, 1);
+        Put(16, 5);
+        Put(tx, 16);
+        Put(ty, 16);
+        int pad = (8 - count % 8) % 8;
+        bits <<= pad;
+        count += pad;
+        for (int i = count - 8; i >= 0; i -= 8)
+            s.WriteByte((byte)(bits >> i));
     }
 
     private static void Write16(Stream s, int v)
