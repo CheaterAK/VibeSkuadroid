@@ -69,7 +69,7 @@ public sealed class EngineHost : IAsyncDisposable
     public bool TryRestartBetweenQueueRuns(string reason)
     {
         EngineSnapshot s = Engine.Snapshot;
-        if (!Platform.CanRestartProcess || s.Script.IsBusy || !CanResumeAfterRestart())
+        if (!Platform.CanRestartProcess || s.Script.IsBusy || !CanResumeAfterRestart() || AutomaticRestartVeto?.Invoke() is not null)
             return false;
         if (!_watchdog.TryClaimRestartBetweenRuns(s.Memory.RssBytes))
             return false;
@@ -206,6 +206,12 @@ public sealed class EngineHost : IAsyncDisposable
     /// </summary>
     public Func<bool>? CanResumeOverride { get; set; }
 
+    /// <summary>
+    /// A reason not to restart this process automatically now (the watchdog and the queue's restart between runs), or
+    /// null. The main process vetoes while light army sessions are online in it: a restart would drop them all.
+    /// </summary>
+    public Func<string?>? AutomaticRestartVeto { get; set; }
+
     /// <summary>Whether a restart now could log back in by itself afterwards.</summary>
     public bool CanResumeAfterRestart()
     {
@@ -241,7 +247,7 @@ public sealed class EngineHost : IAsyncDisposable
         if (verdict == MemoryVerdict.RestartNow)
         {
             // Never drop a session the next process could not restore.
-            if (Platform.CanRestartProcess && CanResumeAfterRestart())
+            if (Platform.CanRestartProcess && CanResumeAfterRestart() && AutomaticRestartVeto?.Invoke() is null)
             {
                 Settings.Update(s => s with { LastAutoRestartAt = _watchdog.LastAutoRestartAt });
                 RequestRestart($"memory {snapshot.Memory.RssMb:0} MB over {Settings.Current.MemoryThresholdMb} MB");

@@ -56,6 +56,14 @@ internal sealed class SlotClient : ISlotChannel
         return _bound;
     }
 
+    /// <summary>Binds without starting: connects only if the slot's service runs (or when it is started later).</summary>
+    public bool Attach()
+    {
+        if (!_bound)
+            _bound = _context.BindService(new Intent(_context, SlotEngineService.TypeFor(_slot)), _connection, (Bind)0);
+        return _bound;
+    }
+
     /// <summary>Logs the slot out, stops its service and ends its process (memory comes back at once).</summary>
     public void Shutdown()
     {

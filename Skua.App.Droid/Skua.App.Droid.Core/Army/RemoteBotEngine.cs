@@ -49,6 +49,9 @@ public sealed class RemoteBotEngine : IBotEngine
 
     public bool IsConnected => _channel.IsConnected;
 
+    /// <summary>The link this proxy uses.</summary>
+    public ISlotChannel Channel => _channel;
+
     /// <summary>The account the slot reported in its last status.</summary>
     public string? AccountId => _accountId;
 
@@ -130,10 +133,21 @@ public sealed class RemoteBotEngine : IBotEngine
         throw new EngineException("A slot process logs in with the account's remembered password; choose the account instead.");
 
     /// <summary>Logs the slot in as the account <paramref name="accountId"/> (its password stays in the vault).</summary>
-    public Task LoginAccountAsync(string accountId, string? server, CancellationToken cancellationToken = default) =>
-        RequestAsync(SlotOps.Login, new JsonObject { ["accountId"] = accountId, ["server"] = server }, LoginTimeout, cancellationToken);
+    public async Task LoginAccountAsync(string accountId, string? server, CancellationToken cancellationToken = default)
+    {
+        await RequestAsync(SlotOps.Login, new JsonObject { ["accountId"] = accountId, ["server"] = server }, LoginTimeout, cancellationToken).ConfigureAwait(false);
+        await RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+    }
 
-    public Task LogoutAsync(CancellationToken cancellationToken = default) => RequestAsync(SlotOps.Logout, null, DefaultTimeout, cancellationToken);
+    public async Task LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        await RequestAsync(SlotOps.Logout, null, DefaultTimeout, cancellationToken).ConfigureAwait(false);
+        await RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // After a command that changes the connection: the state now, not at the slot's next event.
+    private async Task RefreshSnapshotAsync(CancellationToken cancellationToken) =>
+        ApplyStatus(SlotProtocol.FromNode<SlotStatus>(await RequestAsync(SlotOps.Snapshot, null, DefaultTimeout, cancellationToken).ConfigureAwait(false)));
 
     public Task JoinMapAsync(string map, string cell = "Enter", string pad = "Spawn", CancellationToken cancellationToken = default) =>
         RequestAsync(SlotOps.JoinMap, new JsonObject { ["map"] = map, ["cell"] = cell, ["pad"] = pad }, DefaultTimeout, cancellationToken);

@@ -208,6 +208,8 @@ internal static class EngineRuntime
             stagger,
             account => new Skua.App.Droid.Core.Army.LightAccount(account, new Skua.App.Droid.Core.Army.LightOptions { Stagger = stagger }),
             paths.ScriptsDir);
+        // The memory watchdog of this process restarts only this process; never while light sessions live here.
+        host.AutomaticRestartVeto = () => army.LightSessionsActive ? "light army sessions are online in this process" : null;
         CrashCapture.Info($"Engine ready. Script references: {references.Files.Count} images{(references.IsComplete ? string.Empty : " (incomplete)")}.");
         return new Composition(host, platform, library, notifications, army);
     }

@@ -249,6 +249,14 @@ internal sealed class ArmyRig : IAsyncDisposable
             return new LoopbackSlotChannel(endpoint);
         }
 
+        /// <summary>Links to a running slot (as after a restart of the main process).</summary>
+        public bool AttachExisting { get; set; }
+
+        public ISlotChannel? AttachSlot(int slot) =>
+            AttachExisting && Hosts.TryGetValue(slot, out SlotHost? host)
+                ? new LoopbackSlotChannel(new SlotEndpoint(host, eventInterval: TimeSpan.FromMilliseconds(20)))
+                : null;
+
         public void StopSlot(int slot)
         {
             Stopped.Add(slot);

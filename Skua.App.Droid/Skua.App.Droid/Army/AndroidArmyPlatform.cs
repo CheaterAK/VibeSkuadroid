@@ -41,6 +41,23 @@ internal sealed class AndroidArmyPlatform : IArmyPlatform
         }
     }
 
+    public ISlotChannel? AttachSlot(int slot)
+    {
+        lock (_gate)
+        {
+            if (_clients.TryGetValue(slot, out SlotClient? existing))
+                return existing;
+            SlotClient client = new(_context, slot);
+            if (!client.Attach())
+            {
+                _ = client.DisposeAsync();
+                return null;
+            }
+            _clients[slot] = client;
+            return client;
+        }
+    }
+
     public void StopSlot(int slot)
     {
         SlotClient? client;

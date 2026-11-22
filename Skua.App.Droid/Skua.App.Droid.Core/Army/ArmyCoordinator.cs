@@ -13,6 +13,12 @@ public interface IArmyPlatform
     /// <summary>Logs the slot out, stops its service and ends its process.</summary>
     void StopSlot(int slot);
 
+    /// <summary>
+    /// Links to slot <paramref name="slot"/> if its process already runs (after the main process restarted), without
+    /// starting it; the link comes up only if it does. Null where this is not possible.
+    /// </summary>
+    ISlotChannel? AttachSlot(int slot) => null;
+
     DeviceMemory ReadDeviceMemory();
 
     /// <summary>Light sessions are online (they live in this process: its foreground service must run).</summary>
@@ -106,6 +112,7 @@ public sealed class ArmyCoordinator : IAsyncDisposable
         _lightFactory = lightFactory;
         ScriptsRoot = scriptsRoot;
         Accounts.Changed += (_, _) => Sync();
+        AttachRunningSlots();
         Sync();
         _ = Task.Run(QuestSyncLoopAsync);
     }
@@ -136,6 +143,23 @@ public sealed class ArmyCoordinator : IAsyncDisposable
     }
 
     public ArmyMember? Find(string accountId) => Members.FirstOrDefault(m => m.Account.Id == accountId);
+
+    /// <summary>Light sessions are online in this process (a restart of the process would drop them).</summary>
+    public bool LightSessionsActive => Members.Any(m => m.Light is not null && m.Snapshot.Connection != ConnectionPhase.Offline);
+
+    // Slot processes outlive a restart of the main process: link to the ones still running.
+    private void AttachRunningSlots()
+    {
+        foreach (int slot in Accounts.Current.Accounts.Where(a => a.Mode == AccountMode.Full && a.FullSlot is int s && SlotIds.IsRemote(s)).Select(a => a.FullSlot!.Value).Distinct())
+        {
+            if (_platform.AttachSlot(slot) is not ISlotChannel channel)
+                continue;
+            RemoteBotEngine remote = new(slot, channel, ScriptsRoot);
+            lock (_gate)
+                _remotes[slot] = remote;
+            HookEngine(remote);
+        }
+    }
 
     /// <summary>A password is saved for the account (nothing is decrypted).</summary>
     public bool HasPassword(string accountId) => AccountStore.IsValidId(accountId) && _vault.HasPassword(accountId);
@@ -315,13 +339,19 @@ public sealed class ArmyCoordinator : IAsyncDisposable
         RemoteBotEngine? remote;
         lock (_gate)
             _remotes.TryGetValue(slot, out remote);
-        if (remote is null)
+        if (remote is null || !remote.IsConnected)
         {
             ISlotChannel channel = _platform.StartSlot(slot) ?? throw new EngineException($"Android refused to start slot {slot} (open the app, or allow background use).");
-            remote = new RemoteBotEngine(slot, channel, ScriptsRoot);
-            lock (_gate)
-                _remotes[slot] = remote;
-            HookEngine(remote);
+            if (remote is null || !ReferenceEquals(remote.Channel, channel))
+            {
+                RemoteBotEngine? old = remote;
+                remote = new RemoteBotEngine(slot, channel, ScriptsRoot);
+                lock (_gate)
+                    _remotes[slot] = remote;
+                HookEngine(remote);
+                if (old is not null)
+                    _ = old.DisposeAsync().AsTask();
+            }
             Reserve(Estimates.FullIdleBytes);
         }
         // The slot process starts in a second or two; it says hello once its engine is composed.

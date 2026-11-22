@@ -1,6 +1,7 @@
 # VibeSkua for Android (Skua.App.Droid)
 
-Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .NET 10 on Mono, one account.
+Native, headless Android client: no Flash, no game rendering. Avalonia 12 UI, .NET 10 on Mono. One account, or an
+army of several (see Army).
 
 ## Projects
 
@@ -517,10 +518,8 @@ cannot be loaded: their windows are Avalonia 11 and this app is Avalonia 12, so 
 | ButlerV5 | one account: follow any player by name, go to / jump to a player, follow options, recent targets, players in the room, the log | `PlayerFollower` (the desktop follower's in-room logic; it finds the player through the game instead of the master's sync file); `AccountConfig.cs` compiled in unchanged |
 | Cosmetics | listed, cannot be switched on | every action only changes what the local game view draws (equipment slots and art, colours, pet, fake `genderSwap` packets to the client); it sends nothing to the server, and saved outfits are catalog art, not owned items |
 
-**ButlerV5, army work.** Summon, the roster, send-all, quest sync and the order/decline handshake need several local
-accounts. Adding them means: several Skua sessions in one process (one per account), the desktop sync file format
-(`Skua.Plugin.ButlerV5/SyncFile.cs`, UI-free) under app-private storage, its `Broadcaster` and order watcher per
-session, and the desktop `Follower` for followers whose master is local. Not ported because they cannot matter
+**ButlerV5, army work.** The roster (master, followers), summon all, release and quest sync are on the Army page (see
+Army), mediated by the coordinator instead of the desktop's sync files; the order/decline handshake is not ported. Not ported because they cannot matter
 headless: quest bypasses, quest cloning, unlock-all and the level fake (client-side gates; the headless client has
 none), AntiLag and the butler display options (nothing is drawn).
 
@@ -534,6 +533,92 @@ token, the account's characters, network access and the foreground service, and 
 process. It would need at least an explicit warning, a hash or signature allowlist, and the same review as a script,
 which already runs with these rights (scripts are source compiled on the device; a DLL is opaque).
 
+
+## Army (several accounts)
+
+The Army page (top bar: **Army**, next to the connection pill; the six bottom entries stay as they are, since a
+seventh would make every label unreadable at phone width, and Back from Army returns Home) runs several AQW accounts
+at once. With no army account the app is exactly the single-account app: slot 1 is the engine every other page uses.
+
+**Hybrid: light and full accounts.** A full engine (Skua.Core, Roslyn, a real CoreBots script) costs 300-450 MB of
+RSS at rest and ~430 MB more while CoreBots compiles (measured on the S21 Ultra), so most army members are light:
+
+| | Light (default) | Full |
+|---|---|---|
+| Where | the main process, any number (memory policy) | slot 1 = the main process's engine; slots 2..6 = processes `:acct2`..`:acct6` |
+| What runs | `Skua.Core.Headless` only: one `AqwSession` (socket, world model) + the game's client rules (`GameClient`), on a `HeadlessBotEngine` without a script host | the same engine as single-account mode (Skua.Core host, scripts, queue, plugins) |
+| Does | follow a master (local account or a player by name), fight with a rotation, rest and resurrect, pick up drops (whitelist, junk, reject others), accept and turn in a quest up to a limit, Jump All, Jump All to Player | everything a script can do, Load Script to All, Jump All, Jump All to Player |
+| Memory | 0.25 MB managed heap per online session measured in the tests (small fake world); admitted at 8 MB | 450 MB at rest + 430 MB compile peak admitted |
+
+An account switches between light and full in the account editor: it is logged out where it ran (light session
+disposed, or slot process ended) and logged in again in its new place by the next Log in / Start All. Load Script to
+All only targets full members; light ones are skipped with a message (give them Fight or Quest instead). The game view
+(Ruffle, another worktree) is not offered for light accounts: a light account has no Skua engine to hand over; promote
+it to a full slot first.
+
+Light accounts use Skua's own rotation strings (Advanced Skills, `1 H>70% | 2 | 3S | 4WW500`) through Skua's static
+parser (`AdvancedSkillsParser`; no Skua.Core service is created): HP/MP rules, the skip flag and the wait rule are
+judged; aura and party rules count as met (logged once). Each light member fights with its class's "Base" rotation
+when Advanced Skills has one. Skua.Core.Headless keeps no per-process state besides the socket buffer canaries'
+locked diagnostics, so many sessions coexist (`ArmyLightTests` runs four against four fake servers at once).
+
+**Processes and IPC.** Slots 2..6 are declared statically in `AndroidManifest.xml` (`SlotService2`..`6`, one class per
+process, since a component runs in the one process the manifest names). Each is a foreground service (specialUse) in
+its own process, so Skua.Core's process-wide state (Ioc.Default, messengers, `IScriptInterface.Instance`) never mixes.
+The coordinator (the main process) starts them with explicit intents that carry an action only, binds them and talks
+to them with `Messenger`s: each message's Bundle carries one UTF-8 JSON `SlotMessage` (`Core/Army/SlotProtocol.cs`,
+versioned, 256 KB limit, ops hello/snapshot/log/servers/login/logout/joinMap/gotoPlayer/loadScript/startScript/
+stopScript/pause/resume/worldLists/acceptQuests/autoReconnect/restart; events snapshot and log, coalesced every
+500 ms). `RemoteBotEngine` is the UI's `IBotEngine` for a slot; `SlotEndpoint` serves it in the slot. Security: the
+services are not exported, require the signature-level permission `${applicationId}.permission.SLOT_IPC` (declared by
+the app; Debug and Release get different names), and both sides drop any message whose `sendingUid` is not the app's
+own. No credential crosses: the coordinator names the account id, and the slot decrypts that account's password from
+the Keystore vault itself. Names (maps, cells, pads, players, option profiles, script paths) are checked on the slot
+side before anything is sent.
+
+**One notification.** Android lets each process's foreground service post its own notification; all slot services
+use the main service's notification id, and Android keeps a shared id while any foreground service of the app still
+uses it, so the user sees one persistent notification. The coordinator writes the army line into it ("Army: 3/4
+online · 1 script(s) · 1.3 GB"). While light sessions are online the main service stays up even when slot 1 is offline.
+
+**Data per slot** (`Core/Army/SlotLayout.cs`): slot N's process pins HOME to `files/slots/acctN`, so its Skua dir
+(settings, `options/` with CoreBots' `CBO_Storage`, quest data, skill files) and the app's own files (`droid/`:
+settings, resume, queue, `slot.json`) and its `diagnostics/` are its own; TMPDIR is `app_slotcache/acctN`. Its
+`Scripts/` folder links every entry of the shared script folder (symlinks) except the per-slot `Cached-Scripts/` and
+`LoadoutEnhancerTemp.cs`, so a community sync by the main app is seen by every slot at its next start; slots never sync
+or import. Skill files and `QuestData.json` are copied in at slot start (Skua rewrites them: no shared writers); option
+profiles an army command names are copied from the main options folder when the script starts. One Keystore store
+for all: `aqw-account` (single mode, unchanged) and `aqw-acct-<id>` per army account. `SlotLayout.Collisions` checks
+that no two slots share a writable folder.
+
+**Accounts** (`files/droid/accounts.json`, no secrets): id, account name, display name, server, tags, light/full and
+full slot, plus the Butler roster and recent jumps. Each account's password is saved with it in its own vault entry,
+bound to the account name. One account per full slot; full slots allowed: 2 by default, up to 6.
+
+**Logins are staggered** (`LoginStagger`): one login at a time across the army (Start All, a card's Log in, the light
+sessions' relogins), each start at least 2 s plus 400-1000 ms of jitter after the previous one (the desktop's Login
+All spacing and Skua's relogin jitter), 3 attempts with 800 ms x attempt + jitter between them, no retry for refused
+credentials, a missing password or "logged in elsewhere".
+
+**Memory policy** (`MemoryAdmission`): before a light or full member starts, `ActivityManager.MemoryInfo.availMem`
+minus what was started in the last 20 s must still leave max(512 MB, 2 x Android's low-memory threshold) after the
+member's estimate (full: 450 + 430 MB; light: 8 MB); full members are also limited to the configured number of full
+slots. The page shows slot 1 + light memory, each slot process's RSS, the total, free memory and how many more of each
+kind fit. Each slot process has its own memory watchdog, and a restart restarts only that process (alarm to its own
+service, then it logs its account back in from the vault). The main process's watchdog does not restart while light
+sessions are online in it (a manual restart still can; Start All brings the light accounts back). After a restart
+of the main process the coordinator re-binds slot processes that kept running.
+
+**ButlerV5 army parts**, coordinator-mediated (no sync files): Master and Follower on each card; Summon all (light
+followers keep following the local master: /goto, then its cell and pad, join its map when /goto keeps failing; full
+followers /goto it once), Release, Sync quests (followers accept what the master has accepted; optional every 5 s).
+
+**AQW rules.** The decompiled client has no per-device or per-IP rule. What it does: `multiLoginWarning` (one session
+per account: logging the same account in twice kicks the first, so one account is never in two slots),
+`logoutWarning` (a kick with a duration, capped at 60 s, during which the client hides the login button), per-client
+action cooldowns (`World.coolDown`, "Action taken too quickly") and the server's "slow down" warnings (each
+connection's send pacer). Login throttling is server side and unpublished; the desktop spaces its logins (Login All 2
+s, account manager 1 s, army queue 3 s, relogin 800 ms + 400-1000 ms jitter) and so does the army.
 
 ## Notifications, junk and Discord (Settings > Tools)
 
