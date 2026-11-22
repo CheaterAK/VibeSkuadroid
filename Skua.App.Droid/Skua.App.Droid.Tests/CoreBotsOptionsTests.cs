@@ -181,6 +181,40 @@ public class CoreBotsOptionsTests
     }
 
     [Fact]
+    public async Task AGameProvidedNameWithALineBreakCannotWriteLinesOfItsOwn()
+    {
+        await using Page page = await Page.OpenAsync();
+        CoreBotsOptionsViewModel vm = page.Vm;
+        Assert.True(vm.IsReady, vm.Message);
+        CoreBotsSlot farm = vm.Slots.Single(s => s.Name == "Farm");
+        farm.UseEquipment = true;
+        farm.Weapon = "Evil Sword\nPrivateRooms: False\r\nHelm1Select: Injected";
+        farm.Pet = "Bad\rPet\u0000";
+        vm.General.Single(o => o.Key == "StopLocationSelect").TextValue = "Yulgar\nAntiLag: False";
+
+        vm.SaveCommand.Execute(null);
+        Assert.Contains("Saved", vm.Message);
+        string[] lines = File.ReadAllLines(page.File);
+        Assert.Equal("True", CoreBotsReads(lines, "PrivateRooms"));
+        Assert.Equal("True", CoreBotsReads(lines, "AntiLag"));
+        Assert.Null(CoreBotsReads(lines, "Helm1Select"));
+        Assert.Equal("Evil Sword", CoreBotsReads(lines, "Weapon2Select"));
+        Assert.Equal("BadPet", CoreBotsReads(lines, "Pet2Select"));
+        Assert.Contains("StopLocationSelect: YulgarAntiLag: False", lines);
+        Assert.Single(lines, l => l.StartsWith("PrivateRooms", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.Any(char.IsControl));
+    }
+
+    [Fact]
+    public void LoadoutLinesKeepOnlyTheDesktopsKeysOnce()
+    {
+        string saved = "SoloClassSelect: A\nPrivateRooms: False\nSoloEquipCheck: True\r\nSoloClassSelect: B\nloose text\nGroundItem4Select: \n";
+        Assert.Equal(["SoloClassSelect: A", "SoloEquipCheck: True", "GroundItem4Select: "], CoreBotsOptionsViewModel.SafeLoadoutLines(saved));
+        Assert.Equal(36, CoreBotsOptionsViewModel.LoadoutKeys.Distinct().Count());
+        Assert.Equal("Key: ab", CoreBotsOptionsViewModel.OptionLine("Key", "a\r\nb"));
+    }
+
+    [Fact]
     public async Task PublicRoomsAreSavedOnlyAfterTheWarning()
     {
         await using Page page = await Page.OpenAsync();

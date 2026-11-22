@@ -455,11 +455,9 @@ public sealed partial class CoreBotsOptionsViewModel : ObservableObject, IToolPa
     /// </summary>
     internal List<string> BuildLines(IReadOnlyList<string> existing)
     {
-        StringBuilder builder = new();
-        _loadout!.Save(builder);
+        List<string> lines = LoadoutLines().ToList();
         foreach (CoreBotsOption option in General.Concat(Other.SelectMany(g => g.Options)))
-            builder.AppendLine($"{option.Key}: {option.Value}");
-        List<string> lines = builder.ToString().Split(Environment.NewLine).Where(l => l.Length > 0).ToList();
+            lines.Add(OptionLine(option.Key, option.Value));
 
         HashSet<string> written = lines.Select(CoreBotsOptions.KeyOfLine).ToHashSet(StringComparer.Ordinal);
         Dictionary<string, string> previous = CoreBotsOptions.Values(existing);
@@ -467,7 +465,7 @@ public sealed partial class CoreBotsOptionsViewModel : ObservableObject, IToolPa
         {
             bool set = option.IsToggle ? option.BoolValue || previous.ContainsKey(option.Key) : option.Value.Length > 0;
             if (set && written.Add(option.Key))
-                lines.Add($"{option.Key}: {option.Value}");
+                lines.Add(OptionLine(option.Key, option.Value));
         }
         foreach (string line in existing)
         {
@@ -488,8 +486,39 @@ public sealed partial class CoreBotsOptionsViewModel : ObservableObject, IToolPa
     {
         StringBuilder builder = new();
         _loadout!.Save(builder);
-        return builder.ToString().Split(Environment.NewLine);
+        return SafeLoadoutLines(builder.ToString());
     }
+
+    /// <summary>The keys the desktop's loadout ViewModels write (CBOClassSelectViewModel, CBOClassEquipmentViewModel), in their order.</summary>
+    internal static readonly IReadOnlyList<string> LoadoutKeys =
+    [
+        .. new[] { "Solo", "Farm", "Dodge", "Boss" }.SelectMany(s => new[] { s + "ClassSelect", s + "EquipCheck", s + "ModeSelect" }),
+        .. Enumerable.Range(1, 4).SelectMany(n => new[] { "Helm", "Armor", "Cape", "Weapon", "Pet", "GroundItem" }.Select(k => $"{k}{n}Select")),
+    ];
+
+    /// <summary>
+    /// The loadout's lines as the desktop's ViewModels saved them, without what a game-provided name (class or item)
+    /// could add: every line is one of <see cref="LoadoutKeys"/>, once, with control characters removed. A name with a
+    /// line break would otherwise write lines of its own ("PrivateRooms: False").
+    /// </summary>
+    internal static IEnumerable<string> SafeLoadoutLines(string saved)
+    {
+        HashSet<string> seen = new(StringComparer.Ordinal);
+        foreach (string raw in saved.Split('\n'))
+        {
+            string line = WithoutControls(raw);
+            string key = CoreBotsOptions.KeyOfLine(line);
+            // Anything else is the rest of a name that held a line break: dropped.
+            if (line.Contains(": ", StringComparison.Ordinal) && LoadoutKeys.Contains(key) && seen.Add(key))
+                yield return line;
+        }
+    }
+
+    /// <summary>One "Key: value" line, control characters (CR, LF ...) removed.</summary>
+    internal static string OptionLine(string key, string value) => WithoutControls($"{key}: {value}");
+
+    private static string WithoutControls(string text) =>
+        text.Any(char.IsControl) ? new string(text.Where(c => !char.IsControl(c)).ToArray()) : text;
 
     private bool EnsureLoadout()
     {
