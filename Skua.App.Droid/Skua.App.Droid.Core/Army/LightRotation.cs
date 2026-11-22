@@ -60,7 +60,9 @@ public sealed class LightRotation
         }
         catch (Exception e) when (e is FormatException or ArgumentException or InvalidOperationException or IndexOutOfRangeException)
         {
-            return text == "1 | 2 | 3 | 4" ? throw e : Default;
+            if (text == "1 | 2 | 3 | 4")
+                throw;
+            return Default;
         }
         if (!config.TryGetValue("Light", out Dictionary<string, SkillModeJson>? modes) || !modes.TryGetValue("Base", out SkillModeJson? mode) || mode.Skills.Count == 0)
             return text == "1 | 2 | 3 | 4" ? new LightRotation([], false, 100, text) : Default;
