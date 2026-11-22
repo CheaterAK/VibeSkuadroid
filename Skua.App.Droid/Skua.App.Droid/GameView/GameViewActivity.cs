@@ -70,6 +70,9 @@ public sealed class GameViewActivity : Activity
     private HandlerThread? _bridgeThread;
     private Handler? _bridgeHandler;
     private System.Threading.Timer? _memTimer;
+    private GameViewMemoryGuard _guard = new(GameViewOptions.DefaultMemoryLimitMb);
+    private long _guardDeadline;
+    private int _memTicks;
     private Link? _link;
     private Messenger? _engine;
     private string? _autoLoginAccount;
@@ -335,7 +338,9 @@ public sealed class GameViewActivity : Activity
         _rec.StageChanged += stage => _main.Post(() => OnStage(stage));
         _status.Text = "Fetching the server list...";
         _ = Task.Run(PrepareAsync);
-        _memTimer = new System.Threading.Timer(_ => SampleMemory(), null, TimeSpan.Zero, TimeSpan.FromSeconds(10));
+        _guard = new GameViewMemoryGuard(_options.MemoryLimitMb);
+        // Every 3 s: PSS for the guard (cheap); every 10 s a full sample for the report.
+        _memTimer = new System.Threading.Timer(_ => OnMemoryTimer(), null, TimeSpan.Zero, TimeSpan.FromSeconds(3));
         _main.PostDelayed(Tick, 2000);
     }
 
@@ -614,7 +619,7 @@ public sealed class GameViewActivity : Activity
         }
         if (_web == view)
             _web = null;
-        CloseView(crashed ? "the WebView renderer crashed" : "the WebView renderer was killed by the system (likely memory)");
+        Guard(_guard.RendererGone(crashed));
     }
 
     // ---------------- Memory ----------------
@@ -646,8 +651,58 @@ public sealed class GameViewActivity : Activity
         }
     }
 
-    private void OnMemorySample(NativeMemorySample sample)
+    private void OnMemoryTimer()
     {
+        if (_shutDown)
+            return;
+        if (_memTicks++ % 3 == 0)
+        {
+            SampleMemory();
+        }
+        else
+        {
+            try
+            {
+                Guard(_guard.Sample(GameViewMemoryGuard.ParseSmapsRollupPss(File.ReadAllText("/proc/self/smaps_rollup"))));
+            }
+            catch (IOException)
+            {
+                // Before Android 10 there is no smaps_rollup: the full sample every 9 s guards alone.
+            }
+        }
+        // The close runs on the main thread; if that is saturated (a runaway renderer), give up waiting and end the
+        // process: its sockets drop and the engine process takes the account back after its unconfirmed wait.
+        if (_guardDeadline != 0 && SystemClock.ElapsedRealtime() > _guardDeadline && !_shutDown)
+        {
+            Bundle b = new();
+            b.PutString(GameViewLinkProtocol.KeyReason, _guard.Reason ?? "the game view stopped responding");
+            b.PutBoolean(GameViewLinkProtocol.KeyClosed, false);
+            SendToEngine(GameViewLinkProtocol.Closing, b);
+            Process.KillProcess(Process.MyPid());
+        }
+    }
+
+    private void OnMemorySample(NativeMemorySample sample) => Guard(_guard.Sample(sample.PssMB));
+
+    /// <summary>Acts on the memory guard's verdict (any thread).</summary>
+    private void Guard(MemoryGuardVerdict verdict)
+    {
+        if (verdict == MemoryGuardVerdict.Warn)
+        {
+            _rec.Event("memory_warning", $"PSS over {GameViewMemoryGuard.WarnFraction:P0} of {_guard.LimitMb} MB");
+            _main.Post(() => Toast.MakeText(this, $"The game view is close to its memory limit ({_guard.LimitMb} MB).", ToastLength.Short)?.Show());
+        }
+        else if (verdict == MemoryGuardVerdict.Close && Interlocked.CompareExchange(ref _guardDeadline, SystemClock.ElapsedRealtime() + 8000, 0) == 0)
+        {
+            string reason = _guard.Reason!;
+            _rec.Event("memory_guard", reason);
+            _main.Post(() =>
+            {
+                _status.Visibility = ViewStates.Visible;
+                _status.Text = "Closing: " + reason + ". Back to the bot.";
+                CloseView(reason);
+            });
+        }
     }
 
     public override void OnTrimMemory([GeneratedEnum] TrimMemory level)
