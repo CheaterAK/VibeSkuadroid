@@ -74,6 +74,108 @@ public class ExtraRequestAllowlistTests
         Assert.Equal(502, (await GameApi.FetchAllowedAsync(client, uri, CancellationToken.None)).Status);
         await Assert.ThrowsAsync<ArgumentException>(() => GameApi.FetchAllowedAsync(client, new Uri("https://www.aq.com/x"), CancellationToken.None));
     }
+
+    [Theory]
+    [InlineData(HttpStatusCode.MovedPermanently)]
+    [InlineData(HttpStatusCode.Found)]
+    [InlineData(HttpStatusCode.SeeOther)]
+    [InlineData(HttpStatusCode.TemporaryRedirect)]
+    [InlineData(HttpStatusCode.PermanentRedirect)]
+    [InlineData((HttpStatusCode)399)]
+    public async Task ARedirectIsNotFollowedAndAnswers502WithoutABody(HttpStatusCode code)
+    {
+        FakeHttp http = new();
+        http.Routes["quest.asp"] = _ =>
+        {
+            HttpResponseMessage r = new(code) { Content = new StringContent("secret page body") };
+            r.Headers.Location = new Uri("https://evil.example/secret");
+            return r;
+        };
+        using HttpClient client = new(http);
+        Uri uri = RequestPolicy.Decide("https://www.aq.com/game/quest.asp?userid=7&qvalue=4").FetchUri!;
+        (int status, _, byte[] body) = await GameApi.FetchAllowedAsync(client, uri, CancellationToken.None);
+        Assert.Equal(502, status);
+        Assert.Empty(body);
+        Assert.Equal(["quest.asp"], http.Requests); // nothing else was requested
+    }
+
+    [Fact]
+    public async Task AnAnswerForAnotherUrlIsRefusedEvenWhenAHandlerFollowedARedirect()
+    {
+        FakeHttp http = new();
+        http.Routes["quest.asp"] = _ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("secret page body"),
+            RequestMessage = new HttpRequestMessage(HttpMethod.Get, "https://evil.example/secret"),
+        };
+        using HttpClient client = new(http);
+        Uri uri = RequestPolicy.Decide("https://www.aq.com/game/quest.asp?userid=7&qvalue=4").FetchUri!;
+        (int status, _, byte[] body) = await GameApi.FetchAllowedAsync(client, uri, CancellationToken.None);
+        Assert.Equal(502, status);
+        Assert.Empty(body);
+    }
+
+    [Fact]
+    public async Task TheGameViewsClientNeverFollowsRedirects()
+    {
+        using HttpClientHandler handler = GameApi.CreateHandler();
+        Assert.False(handler.AllowAutoRedirect);
+
+        // End to end against a local server that redirects: the client sees the 302 itself.
+        using System.Net.Sockets.TcpListener listener = new(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        int requests = 0;
+        Task server = Task.Run(async () =>
+        {
+            try
+            {
+                while (true)
+                {
+                    using System.Net.Sockets.TcpClient c = await listener.AcceptTcpClientAsync();
+                    Interlocked.Increment(ref requests);
+                    using System.Net.Sockets.NetworkStream s = c.GetStream();
+                    byte[] buf = new byte[4096];
+                    _ = await s.ReadAsync(buf);
+                    byte[] answer = System.Text.Encoding.ASCII.GetBytes($"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/followed\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    await s.WriteAsync(answer);
+                }
+            }
+            catch (Exception e) when (e is System.Net.Sockets.SocketException or ObjectDisposedException or IOException)
+            {
+                // stopped
+            }
+        });
+        HttpClientHandler local = GameApi.CreateHandler();
+        local.UseProxy = false; // the test machine's proxy must not see the loopback request
+        using HttpClient client = new(local);
+        using HttpResponseMessage res = await client.GetAsync($"http://127.0.0.1:{port}/start");
+        Assert.Equal(HttpStatusCode.Found, res.StatusCode);
+        Assert.Equal(1, Volatile.Read(ref requests));
+        listener.Stop();
+        await server;
+    }
+
+    [Fact]
+    public async Task TheServerListIsReadUpToItsCap()
+    {
+        FakeHttp http = new();
+        http.Routes["api/data/servers"] = _ => FakeHttp.Json("[" + new string(' ', GameApi.MaxServerListBytes) + "]");
+        using HttpClient client = new(http);
+        await Assert.ThrowsAsync<HttpRequestException>(() => GameApi.FetchServerListAsync(client, CancellationToken.None));
+        http.Routes["api/data/servers"] = _ => FakeHttp.Json("[]");
+        Assert.Empty((await GameApi.FetchServerListAsync(client, CancellationToken.None)).Endpoints);
+    }
+
+    [Fact]
+    public async Task ReadCappedReadsExactlyUpToTheCap()
+    {
+        byte[] data = new byte[300_000];
+        Assert.Equal(1000, (await GameApi.ReadCappedAsync(new MemoryStream(data), 1000, truncate: true, CancellationToken.None)).Length);
+        Assert.Equal(300_000, (await GameApi.ReadCappedAsync(new MemoryStream(data), 300_000, truncate: false, CancellationToken.None)).Length);
+        await Assert.ThrowsAsync<InvalidDataException>(() => GameApi.ReadCappedAsync(new MemoryStream(data), 299_999, truncate: false, CancellationToken.None));
+        Assert.Empty(await GameApi.ReadCappedAsync(new MemoryStream(), 10, truncate: false, CancellationToken.None));
+    }
 }
 
 /// <summary>The page's Content-Security-Policy and the service worker rules.</summary>

@@ -54,7 +54,7 @@ public sealed class GameViewActivity : Activity
     private static readonly TimeSpan BackgroundLimit = TimeSpan.FromMinutes(2);
 
     private readonly Stopwatch _clock = Stopwatch.StartNew();
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly HttpClient _http = GameApi.CreateClient(); // never follows redirects
     private GameViewOptions _options = new();
     private GameViewRecorder _rec = null!;
     private string _session = string.Empty;
