@@ -246,10 +246,10 @@ public sealed partial class AccountStore
         File.Move(temp, path, overwrite: true);
     }
 
-    [GeneratedRegex("^[0-9a-f]{12}$")]
+    [GeneratedRegex(@"^[0-9a-f]{12}\z")]
     private static partial Regex IdPattern();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\- ]{1,32}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_\- ]{1,32}\z")]
     private static partial Regex UserPattern();
 }
 

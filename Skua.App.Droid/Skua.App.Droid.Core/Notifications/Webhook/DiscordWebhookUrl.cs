@@ -118,10 +118,10 @@ public sealed partial class DiscordWebhookUrl
         return true;
     }
 
-    [GeneratedRegex(@"^/api(/v\d{1,2})?/webhooks/(?<id>\d{15,25})/(?<token>[A-Za-z0-9_\-]{20,200})/?$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^/api(/v\d{1,2})?/webhooks/(?<id>\d{15,25})/(?<token>[A-Za-z0-9_\-]{20,200})/?\z", RegexOptions.CultureInvariant)]
     private static partial Regex PathPattern();
 
-    [GeneratedRegex(@"^thread_id=\d{15,25}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^thread_id=\d{15,25}\z", RegexOptions.CultureInvariant)]
     private static partial Regex QueryPattern();
 }
 

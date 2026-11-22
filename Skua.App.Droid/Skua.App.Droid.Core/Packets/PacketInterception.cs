@@ -85,7 +85,7 @@ public sealed partial record InterceptRule(
         + (Find.Length == 0 ? string.Empty : $" containing \"{Find}\"")
         + (Action == InterceptAction.Block ? ": block" : $": replace with \"{Replace}\"");
 
-    [GeneratedRegex(@"^[A-Za-z0-9_+\-*]{1,40}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_+\-*]{1,40}\z")]
     private static partial Regex CommandRegex();
 }
 

@@ -26,15 +26,15 @@ public static partial class ArmyNames
 
     public static string RequireOptionStorage(string text) => IsOptionStorage(text) ? text : throw new EngineException("Invalid option profile name.");
 
-    [GeneratedRegex(@"^[A-Za-z0-9_]{1,40}(-[A-Za-z0-9]{1,12})?$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_]{1,40}(-[A-Za-z0-9]{1,12})?\z")]
     private static partial Regex MapName();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\-\.]{1,40}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_\-\.]{1,40}\z")]
     private static partial Regex CellName();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\- ]{1,32}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_\- ]{1,32}\z")]
     private static partial Regex PlayerName();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\-\.\(\) ]{1,120}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_\-\.\(\) ]{1,120}\z")]
     private static partial Regex StorageName();
 }

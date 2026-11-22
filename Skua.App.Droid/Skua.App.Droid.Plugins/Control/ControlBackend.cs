@@ -655,12 +655,12 @@ public sealed partial class ControlBackend : IControlBackend
             Thread.Sleep(TimeSpan.FromMilliseconds(wait));
     }
 
-    [GeneratedRegex(@"^[A-Za-z0-9_]{1,40}(-[A-Za-z0-9]{1,12})?$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_]{1,40}(-[A-Za-z0-9]{1,12})?\z")]
     private static partial Regex MapName();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\-\.]{1,40}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_\-\.]{1,40}\z")]
     private static partial Regex CellName();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_\- ]{1,32}$")]
+    [GeneratedRegex(@"^[A-Za-z0-9_\- ]{1,32}\z")]
     private static partial Regex PlayerName();
 }

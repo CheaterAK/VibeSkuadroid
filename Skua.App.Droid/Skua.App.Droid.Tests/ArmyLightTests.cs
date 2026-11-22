@@ -6,6 +6,34 @@ using Skua.Core.Headless.Tests.Fakes;
 
 namespace Skua.App.Droid.Tests;
 
+/// <summary>The validation patterns end at the end of the text: "$" would also accept one trailing line break.</summary>
+public class ValidationPatternTests
+{
+    [Theory]
+    [InlineData("battleon")]
+    [InlineData("battleon-1234")]
+    public void ValidNamesStillPass(string map)
+    {
+        Assert.True(ArmyNames.IsMap(map));
+        Assert.True(ArmyNames.IsCell("Enter"));
+        Assert.True(ArmyNames.IsPlayer("Hero Name"));
+        Assert.True(ArmyNames.IsOptionStorage("Queue_Farm (1)"));
+        Assert.True(AccountStore.IsValidId("0123456789ab"));
+        Assert.True(AccountStore.IsValidUsername("Hero"));
+    }
+
+    [Fact]
+    public void ATrailingLineBreakIsRefused()
+    {
+        Assert.False(ArmyNames.IsMap("battleon\n"));
+        Assert.False(ArmyNames.IsCell("Enter\n"));
+        Assert.False(ArmyNames.IsPlayer("Hero\n"));
+        Assert.False(ArmyNames.IsOptionStorage("Queue_Farm\n"));
+        Assert.False(AccountStore.IsValidId("0123456789ab\n"));
+        Assert.Throws<EngineException>(() => ArmyNames.RequireMap("battleon\n"));
+    }
+}
+
 /// <summary>
 /// Light accounts: many Skua.Core.Headless sessions in one process, each against its own fake AQW server, with the
 /// native behaviours; the rotation parser, the follow decision, the login stagger, and the per-session memory figure.
