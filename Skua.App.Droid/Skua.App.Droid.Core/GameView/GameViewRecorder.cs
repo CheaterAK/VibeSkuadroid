@@ -26,6 +26,11 @@ public sealed partial class GameViewRecorder
     ];
     private const int MaxEvents = 300, MaxConsole = 40;
 
+    // Everything the page can add to is bounded (the page's records come from game.aq.com content as much as from the
+    // app's own script). Samples keep the most recent MaxSamples (the oldest quarter is dropped when full: fps every
+    // 2 s is about 2 h); headers, milestones and blocked-request keys stop growing at their caps.
+    internal const int MaxSamples = 4000, MaxHeaders = 40, MaxHeaderValue = 1000, MaxMarks = 64, MaxBlockedKeys = 200;
+
     private readonly Func<double> _clock;
     private readonly List<string> _secrets = [];
     private readonly object _lock = new();
@@ -67,7 +72,32 @@ public sealed partial class GameViewRecorder
 
     public double Now => _clock();
 
-    public void Header(string key, string value) { lock (_lock) _header.Add((key, Scrub(value))); }
+    public void Header(string key, string value)
+    {
+        string kept = Truncate(Scrub(value), MaxHeaderValue);
+        lock (_lock)
+        {
+            int i = _header.FindIndex(h => h.Key == key);
+            if (i >= 0 && key == "page")
+                _header[i] = (key, kept); // the page's config record: the latest only
+            else if (_header.Count < MaxHeaders)
+                _header.Add((Truncate(key, 40), kept));
+        }
+    }
+
+    /// <summary>Adds a sample, dropping the oldest quarter when the list is full.</summary>
+    private static void AddSample<T>(List<T> list, T item)
+    {
+        if (list.Count >= MaxSamples)
+            list.RemoveRange(0, MaxSamples / 4);
+        list.Add(item);
+    }
+
+    internal (int Headers, int Fps, int PageMem, int NativeMem, int Marks, int BlockedKeys) Counts()
+    {
+        lock (_lock)
+            return (_header.Count, _fps.Count, _pageMem.Count, _nativeMem.Count, _marks.Count, _blocked.Count);
+    }
 
     public void Event(string kind, string detail = "")
     {
@@ -82,7 +112,7 @@ public sealed partial class GameViewRecorder
     {
         lock (_lock)
         {
-            if (_marks.ContainsKey(name)) return;
+            if (_marks.ContainsKey(name) || (_marks.Count >= MaxMarks && Array.IndexOf(Milestones, name) < 0)) return;
             _marks[name] = Now;
         }
         Event("mark " + name, detail);
@@ -100,9 +130,20 @@ public sealed partial class GameViewRecorder
         Event("renderer_gone", s);
     }
 
-    public void Blocked(string key) { lock (_lock) _blocked[key] = _blocked.TryGetValue(key, out int n) ? n + 1 : 1; }
+    public void Blocked(string key)
+    {
+        lock (_lock)
+        {
+            if (_blocked.TryGetValue(key, out int n))
+                _blocked[key] = n + 1;
+            else if (_blocked.Count < MaxBlockedKeys)
+                _blocked[key] = 1;
+            else
+                _blocked["(other)"] = _blocked.TryGetValue("(other)", out int o) ? o + 1 : 1;
+        }
+    }
 
-    public void NativeMemory(NativeMemorySample m) { lock (_lock) _nativeMem.Add((Now, m)); }
+    public void NativeMemory(NativeMemorySample m) { lock (_lock) AddSample(_nativeMem, (Now, m)); }
 
     /// <summary>Handles one WebView console message; returns true if it was a page record.</summary>
     public bool Console(string message, string level)
@@ -139,10 +180,10 @@ public sealed partial class GameViewRecorder
                 Mark(name, extra);
                 break;
             case "fps":
-                lock (_lock) _fps.Add((Now, Num(r, "fps") ?? 0, Num(r, "raf") ?? 0, Num(r, "longTaskPct") ?? 0, Num(r, "packetsPerSec") ?? 0));
+                lock (_lock) AddSample(_fps, (Now, Num(r, "fps") ?? 0, Num(r, "raf") ?? 0, Num(r, "longTaskPct") ?? 0, Num(r, "packetsPerSec") ?? 0));
                 break;
             case "mem":
-                lock (_lock) _pageMem.Add((Now, Num(r, "wasmMB"), Num(r, "jsHeapMB")));
+                lock (_lock) AddSample(_pageMem, (Now, Num(r, "wasmMB"), Num(r, "jsHeapMB")));
                 break;
             case "stage":
                 string stage = Str(r, "name") ?? "?";

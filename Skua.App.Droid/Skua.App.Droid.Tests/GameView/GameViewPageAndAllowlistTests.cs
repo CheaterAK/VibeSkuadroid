@@ -178,6 +178,38 @@ public class ExtraRequestAllowlistTests
     }
 }
 
+/// <summary>Whatever the page sends, the recorder's lists stay bounded.</summary>
+public class GameViewRecorderCapTests
+{
+    [Fact]
+    public void PageRecordsCannotGrowTheRecorderWithoutBound()
+    {
+        GameViewRecorder rec = new(() => 1.0);
+        for (int i = 0; i < 20_000; i++)
+        {
+            rec.Console($"[vgame] {{\"type\":\"fps\",\"fps\":{i % 60}}}", "LOG");
+            rec.Console("[vgame] {\"type\":\"mem\",\"wasmMB\":12}", "LOG");
+            rec.Console($"[vgame] {{\"type\":\"config\",\"x\":\"{new string('a', 5000)}\"}}", "LOG");
+            rec.Console($"[vgame] {{\"type\":\"mark\",\"name\":\"m{i}\"}}", "LOG");
+            rec.Blocked($"https://h{i}.example/x");
+            rec.Header("h" + i, "v");
+            rec.NativeMemory(new NativeMemorySample(1, 1, 1, 1, 1, false));
+        }
+        (int headers, int fps, int pageMem, int nativeMem, int marks, int blocked) = rec.Counts();
+        Assert.InRange(headers, 1, GameViewRecorder.MaxHeaders);
+        Assert.InRange(fps, 1, GameViewRecorder.MaxSamples);
+        Assert.InRange(pageMem, 1, GameViewRecorder.MaxSamples);
+        Assert.InRange(nativeMem, 1, GameViewRecorder.MaxSamples);
+        Assert.InRange(marks, 1, GameViewRecorder.MaxMarks);
+        Assert.InRange(blocked, 1, GameViewRecorder.MaxBlockedKeys + 1);
+        // The newest samples are kept (the HUD shows the last one), and a milestone still counts after the cap.
+        Assert.Contains("19.0 fps", rec.Hud()); // 19999 % 60
+        rec.Mark("login_screen");
+        Assert.True(rec.HasMark("login_screen"));
+        Assert.True(rec.BuildReport().Length < 2_000_000);
+    }
+}
+
 /// <summary>The page's Content-Security-Policy and the service worker rules.</summary>
 public class GameViewCspAndServiceWorkerTests
 {
