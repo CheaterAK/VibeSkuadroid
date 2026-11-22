@@ -21,9 +21,10 @@ public static class SyntheticSwf
     }
 
     /// <param name="cells">Cell name and its pad instance names, in timeline order.</param>
-    /// <param name="compression">"FWS", "CWS" or "ZWS" (ZWS only gets the signature: the reader must refuse it).</param>
+    /// <param name="compression">"FWS", "CWS" or "ZWS" (LZMA, coded by <see cref="LiteralLzmaEncoder"/>).</param>
     /// <param name="sceneTag">Also write DefineSceneAndFrameLabelData (tag 86).</param>
-    public static byte[] Map(IReadOnlyList<(string Cell, string[] Pads)> cells, string compression = "CWS", bool sceneTag = true)
+    /// <param name="padAt">Where a pad of a cell is placed (pixels); null places every pad at (0, 0).</param>
+    public static byte[] Map(IReadOnlyList<(string Cell, string[] Pads)> cells, string compression = "CWS", bool sceneTag = true, Func<string, string, (int X, int Y)>? padAt = null)
     {
         using MemoryStream body = new();
         // RECT with nbits = 15: 5 + 4*15 = 65 bits -> 9 bytes, all zero coordinates.
@@ -79,7 +80,8 @@ public static class SyntheticSwf
                     w.WriteByte(0x20 | 0x04 | 0x02); // name, matrix, character
                     Write16(w, d);
                     Write16(w, 1);
-                    w.WriteByte(0); // MATRIX: no scale, no rotate, translate bits 0 (aligned)
+                    (int x, int y) = padAt?.Invoke(cell, pad) ?? (0, 0);
+                    WriteTranslation(w, x * 20, y * 20); // MATRIX: no scale, no rotate, the translation in twips
                     WriteString(w, pad);
                 });
             }
@@ -88,6 +90,8 @@ public static class SyntheticSwf
         Write16(body, 0); // End
 
         byte[] raw = body.ToArray();
+        if (compression == "ZWS")
+            return LiteralLzmaEncoder.Zws(13, raw);
         using MemoryStream file = new();
         file.Write(Encoding.ASCII.GetBytes(compression));
         file.WriteByte(10);
@@ -121,6 +125,28 @@ public static class SyntheticSwf
         s.Write(bytes);
     }
 
+    // MATRIX with HasScale 0, HasRotate 0, NTranslateBits 16, then TranslateX and TranslateY (signed), byte aligned.
+    private static void WriteTranslation(Stream s, int tx, int ty)
+    {
+        ulong bits = 0;
+        int count = 0;
+        void Put(long value, int n)
+        {
+            bits = (bits << n) | ((ulong)value & ((1UL << n) - 1));
+            count += n;
+        }
+        Put(0, 1);
+        Put(0, 1);
+        Put(16, 5);
+        Put(tx, 16);
+        Put(ty, 16);
+        int pad = (8 - count % 8) % 8;
+        bits <<= pad;
+        count += pad;
+        for (int i = count - 8; i >= 0; i -= 8)
+            s.WriteByte((byte)(bits >> i));
+    }
+
     private static void Write16(Stream s, int v)
     {
         s.WriteByte((byte)(v & 0xff));
@@ -150,5 +176,112 @@ public static class SyntheticSwf
     {
         s.Write(Encoding.UTF8.GetBytes(text));
         s.WriteByte(0);
+    }
+}
+
+/// <summary>
+/// The smallest valid LZMA encoder for tests: every byte is coded as a literal (lc=3, lp=0, pb=2), with the range
+/// coder and adaptive bit models of the LZMA specification, so any data can be wrapped into a "ZWS" SWF.
+/// </summary>
+public static class LiteralLzmaEncoder
+{
+    /// <summary>The 5 property bytes: lc/lp/pb, then a 64 KB dictionary (little-endian).</summary>
+    public static readonly byte[] Properties = { (2 * 5 + 0) * 9 + 3, 0x00, 0x00, 0x01, 0x00 };
+
+    public static byte[] Encode(ReadOnlySpan<byte> data)
+    {
+        RangeEncoder rc = new();
+        ushort[] isMatch = Filled(12 << 4);
+        ushort[] literal = Filled(0x300 << 3);
+        for (int pos = 0; pos < data.Length; pos++)
+        {
+            rc.Bit(isMatch, (0 << 4) + (pos & 3), 0);
+            int prev = pos > 0 ? data[pos - 1] : 0;
+            int offset = 0x300 * (prev >> 5);
+            int symbol = 1;
+            for (int i = 7; i >= 0; i--)
+            {
+                int bit = (data[pos] >> i) & 1;
+                rc.Bit(literal, offset + symbol, bit);
+                symbol = symbol << 1 | bit;
+            }
+        }
+        return rc.Finish();
+    }
+
+    /// <summary>"ZWS" + version + file length + compressed length + properties + stream.</summary>
+    public static byte[] Zws(byte version, ReadOnlySpan<byte> body, uint? claimedFileLength = null)
+    {
+        byte[] stream = Encode(body);
+        using MemoryStream file = new();
+        file.Write("ZWS"u8);
+        file.WriteByte(version);
+        file.Write(BitConverter.GetBytes(claimedFileLength ?? (uint)(body.Length + 8)));
+        file.Write(BitConverter.GetBytes((uint)stream.Length));
+        file.Write(Properties);
+        file.Write(stream);
+        return file.ToArray();
+    }
+
+    private static ushort[] Filled(int n)
+    {
+        ushort[] a = new ushort[n];
+        Array.Fill(a, (ushort)1024);
+        return a;
+    }
+
+    private sealed class RangeEncoder
+    {
+        private readonly MemoryStream _out = new();
+        private ulong _low;
+        private uint _range = 0xFFFFFFFF;
+        private byte _cache;
+        private long _cacheSize = 1;
+
+        public void Bit(ushort[] probs, int index, int bit)
+        {
+            uint p = probs[index];
+            uint bound = (_range >> 11) * p;
+            if (bit == 0)
+            {
+                _range = bound;
+                probs[index] = (ushort)(p + ((2048 - p) >> 5));
+            }
+            else
+            {
+                _low += bound;
+                _range -= bound;
+                probs[index] = (ushort)(p - (p >> 5));
+            }
+            while (_range < 1u << 24)
+            {
+                _range <<= 8;
+                ShiftLow();
+            }
+        }
+
+        private void ShiftLow()
+        {
+            if ((uint)_low < 0xFF000000u || (_low >> 32) != 0)
+            {
+                byte temp = _cache;
+                do
+                {
+                    _out.WriteByte((byte)(temp + (byte)(_low >> 32)));
+                    temp = 0xFF;
+                }
+                while (--_cacheSize != 0);
+                _cache = (byte)((uint)_low >> 24);
+            }
+            _cacheSize++;
+            _low = (_low & 0x00FFFFFF) << 8;
+        }
+
+        public byte[] Finish()
+        {
+            for (int i = 0; i < 5; i++)
+                ShiftLow();
+            return _out.ToArray();
+        }
     }
 }

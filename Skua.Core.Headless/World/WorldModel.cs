@@ -189,6 +189,7 @@ public sealed partial class WorldModel
             ["bankinfo"] = new JsonObject { ["items"] = new JsonArray() },
             ["actions"] = new JsonObject { ["active"] = new JsonArray(), ["passive"] = new JsonArray() },
             ["avatars"] = new JsonObject(),
+            ["objInfo"] = new JsonObject(),
             ["myAvatar"] = new JsonObject
             {
                 ["uid"] = 0,
@@ -213,6 +214,7 @@ public sealed partial class WorldModel
         _pendingServerMove = null;
         _lastTurnIn = null;
         _uidToName.Clear();
+        _pendingLoadoutSaves.Clear();
         _drops.Clear();
         _dropOrder.Clear();
         _acceptedQuests.Clear();

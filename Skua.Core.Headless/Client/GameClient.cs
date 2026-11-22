@@ -95,8 +95,6 @@ public sealed partial class GameClient : IDisposable
     private string _partyOwner = string.Empty;
     private int _partyId;
     private int _scale = 1;
-    private int _x;
-    private int _y;
     private bool _disposed;
 
     public GameClient(WorldModel world, IPacketSender sender, TimeProvider? time = null, MapCellCache? maps = null, GameClientOptions? options = null)
@@ -162,12 +160,6 @@ public sealed partial class GameClient : IDisposable
         set { lock (_gate) _scale = value; }
     }
 
-    /// <summary>The avatar's clip position (pMC.x / pMC.y); there is no walking, so it is where it was last told to go.</summary>
-    public (int X, int Y) Position
-    {
-        get { lock (_gate) return (_x, _y); }
-    }
-
     /// <summary>ui.mcPopup.currentLabel (the bank toggles it).</summary>
     public string PopupLabel
     {
@@ -206,8 +198,7 @@ public sealed partial class GameClient : IDisposable
             _popupLabel = "Init";
             _spawnCell = "Enter";
             _spawnPad = "Spawn";
-            _x = 0;
-            _y = 0;
+            ResetPositionCore();
             _partyMembers.Clear();
             _partyOwner = string.Empty;
             _partyId = 0;
@@ -511,6 +502,11 @@ public sealed partial class GameClient : IDisposable
             case "cmd" when a.Length >= 1 && a[0] == "tfer":
                 Locks.Stamp("tfer");
                 break;
+
+            // Outfit commands a script sends itself still start the game's cooldowns.
+            case "equipLoadout" or "wearLoadout" or "addLoadout" or "removeLoadout":
+                Locks.Stamp(cmd);
+                break;
         }
     }
 
@@ -702,6 +698,8 @@ public sealed partial class GameClient : IDisposable
             CancelAutoAttackCore();
             _mapTimer?.Dispose();
             _mapTimer = null;
+            _moveTimer?.Dispose();
+            _moveTimer = null;
         }
     }
 }

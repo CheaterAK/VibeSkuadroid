@@ -59,6 +59,9 @@ public sealed class FakeAqwServer : IAsyncDisposable
         [41] = Item(41, "Fancy Hat", "Helm", "he", 1),
         [42] = Item(42, "Member Cape", "Cape", "ba", 1),
         [43] = Item(43, "Wing Charm", "Item", "None", 10),
+        [50] = Item(50, "Rogue", "Class", "ar", 1),
+        [51] = Item(51, "Pixie Blade", "Sword", "Weapon", 1),
+        [52] = Item(52, "Pixie Robe", "Armor", "co", 1),
     };
 
     /// <summary>Shop 77: (ItemID, ShopItemID, cost in gold, member only, merge material id and quantity or 0).</summary>
@@ -120,7 +123,7 @@ public sealed class FakeAqwServer : IAsyncDisposable
     /// <summary>Cooldown of the auto attack in the skill bar (ms); shorter makes end-to-end fights quicker.</summary>
     public int AutoAttackCooldownMs { get; set; } = 2000;
 
-    public GameServer Server => new("Sandbox", "127.0.0.1", Port, 1, 1000, true, false, 0, 0, "en", null);
+    public GameServer Server => new(Name, "127.0.0.1", Port, 1, 1000, true, false, 0, 0, "en", null);
 
     public IReadOnlyList<Session> Sessions => _sessions.ToArray();
 
@@ -179,8 +182,19 @@ public sealed class FakeAqwServer : IAsyncDisposable
     }
 
     /// <summary>Why a socket login with this nick name and token is refused, or null with the account's display name.</summary>
+    /// <summary>
+    /// Another fake whose web logins this one accepts (the live game servers share one account database): a token
+    /// <see cref="Accounts"/> issued logs in here too. Null: this fake's own tokens.
+    /// </summary>
+    public FakeAqwServer? Accounts { get; init; }
+
+    /// <summary>The name this fake has in the server lists a test builds (<see cref="Server"/>).</summary>
+    public string Name { get; init; } = "Sandbox";
+
     private (string? Refusal, string? Account) CheckLogin(string nickName, string token)
     {
+        if (Accounts is not null)
+            return Accounts.CheckLogin(nickName, token);
         lock (_tokenGate)
         {
             if (!_tokens.TryGetValue(token, out (string Account, bool Current, long IssuedAt) t))
@@ -198,6 +212,25 @@ public sealed class FakeAqwServer : IAsyncDisposable
     /// sends it; whether the live server still answers it is unknown). False: no reply, as suspected live.
     /// </summary>
     public bool AnswerSocketLoadBank { get; set; } = true;
+
+    /// <summary>
+    /// The account's saved outfits (<c>customs.loadouts</c>), sent in loadPrefs right after the login as the live server
+    /// does (<c>{"costumes":{},"loadouts":{},"prefs":{}}</c> for an account without any). Shape (OutfitSets interface):
+    /// set name to <c>{he, ba, ar, co, Weapon, pe, am, mi: ItemID, colors: {hair, skin, eye, base, trim, accessory}}</c>.
+    /// </summary>
+    public JsonObject Loadouts { get; } = new();
+
+    /// <summary>The character's outfit slots (objData.iLoadoutSlots; 20 on a free account).</summary>
+    public int LoadoutSlots { get; set; } = 20;
+
+    /// <summary>Items every new session's backpack starts with besides the default ones (unequipped).</summary>
+    public List<int> ExtraInventory { get; } = new();
+
+    /// <summary>
+    /// Every outfit request (equipLoadout, wearLoadout, addLoadout, removeLoadout) as the server read it, oldest first:
+    /// the command, its fields after the room, and why it broke the game client's request contract (null when it met it).
+    /// </summary>
+    public ConcurrentQueue<(string Command, string[] Args, string? Violation)> LoadoutRequests { get; } = new();
 
     /// <summary>HTTP status <see cref="AnswerBankRequest"/> answers a well-formed request with (200: the bank).</summary>
     public HttpStatusCode BankHttpStatus { get; set; } = HttpStatusCode.OK;
@@ -344,6 +377,11 @@ public sealed class FakeAqwServer : IAsyncDisposable
             _client.NoDelay = true;
             _stream = client.GetStream();
             Number = number;
+            foreach (int id in server.ExtraInventory)
+                Inventory.Add(WithQty(Copy(id), _charItem++, 1, equip: false));
+            // Gear enhanced with Lucky (pattern 9), as most farming gear is.
+            foreach (JsonObject gear in Inventory.Where(x => (string?)x["sES"] is "ar" or "Weapon" or "he" or "ba"))
+                gear["EnhPatternID"] = 9;
         }
 
         public int Number { get; }
@@ -625,6 +663,17 @@ public sealed class FakeAqwServer : IAsyncDisposable
                     Sell(int.Parse(a[0], CultureInfo.InvariantCulture), int.Parse(a[1], CultureInfo.InvariantCulture), int.Parse(a[2], CultureInfo.InvariantCulture));
                     return;
 
+                case "equipItem" when a.Length >= 1:
+                    Equip(int.Parse(a[0], CultureInfo.InvariantCulture));
+                    return;
+
+                case "equipLoadout":
+                case "wearLoadout":
+                case "addLoadout":
+                case "removeLoadout":
+                    OnLoadout(cmd, a);
+                    return;
+
                 case "loadBank":
                     if (!_server.AnswerSocketLoadBank)
                         return;
@@ -633,6 +682,110 @@ public sealed class FakeAqwServer : IAsyncDisposable
 
                 default:
                     return;
+            }
+        }
+
+        // equipItem: the slot's other item comes off; a class also changes the class (updateClass).
+        private void Equip(int itemId)
+        {
+            JsonObject? item = Inventory.FirstOrDefault(x => (int)x["ItemID"]! == itemId);
+            if (item is null)
+                return;
+            string slot = (string)item["sES"]!;
+            foreach (JsonObject other in Inventory.Where(x => (string?)x["sES"] == slot))
+                other["bEquip"] = 0;
+            item["bEquip"] = 1;
+            Json(new JsonObject
+            {
+                ["cmd"] = "equipItem", ["uid"] = Uid, ["ItemID"] = itemId, ["strES"] = slot,
+                ["sFile"] = $"items/{itemId}.swf", ["sLink"] = $"Item{itemId}", ["sType"] = (string)item["sType"]!,
+            });
+            if ((string?)item["sType"] == "Class")
+            {
+                ClassName = (string)item["sName"]!;
+                Json(new JsonObject { ["cmd"] = "updateClass", ["uid"] = Uid, ["sClassName"] = ClassName, ["iCP"] = (int)item["iQty"]!, ["sClassCat"] = "M1" });
+            }
+        }
+
+        /// <summary>The class the character wears (objData.strClassName).</summary>
+        public string ClassName { get; private set; } = "Healer";
+
+        // The outfit commands as the game's OutfitSets interface sends them (outfitsets.as, outfitedit.as):
+        //   equipLoadout / wearLoadout: "cmd", set name, keep colours 1|0;
+        //   addLoadout: set name, the set as JSON without its name, the original name ("" for a new set);
+        //   removeLoadout: set name.
+        private void OnLoadout(string cmd, string[] a)
+        {
+            string? violation = cmd switch
+            {
+                "equipLoadout" or "wearLoadout" when a.Length != 3 => $"{a.Length} fields, the game sends 3",
+                "equipLoadout" or "wearLoadout" when a[0] != "cmd" => $"first field {a[0]}, the game sends cmd",
+                "equipLoadout" or "wearLoadout" when a[2] is not ("1" or "0") => $"colour flag {a[2]}, the game sends 1 or 0",
+                "equipLoadout" or "wearLoadout" when a[1].Length == 0 => "empty set name",
+                "addLoadout" when a.Length != 3 => $"{a.Length} fields, the game sends 3",
+                "addLoadout" when !IsSetJson(a[1]) => "the set is not a JSON object of slots and colors",
+                "removeLoadout" when a.Length != 1 => $"{a.Length} fields, the game sends 1",
+                _ => null,
+            };
+            _server.LoadoutRequests.Enqueue((cmd, a, violation));
+            if (violation is not null)
+                return;
+            JsonObject sets = _server.Loadouts;
+            switch (cmd)
+            {
+                case "equipLoadout":
+                    if (sets[a[1]] is not JsonObject set)
+                        return;
+                    foreach ((string slot, JsonNode? id) in set.ToList())
+                    {
+                        if (slot != "colors" && JsonUtil.AsIntOrNull(id) is int itemId && Inventory.Any(x => (int)x["ItemID"]! == itemId && (int)x["bEquip"]! == 0))
+                            Equip(itemId);
+                    }
+                    return;
+
+                case "wearLoadout":
+                    if (sets[a[1]] is not JsonObject look)
+                        return;
+                    JsonObject costume = new();
+                    foreach (string spot in new[] { "Weapon", "he", "ba", "co" })
+                    {
+                        if (JsonUtil.AsIntOrNull(look[spot]) is int wid && Inventory.Any(x => (int)x["ItemID"]! == wid))
+                            costume[spot] = new JsonObject { ["ItemID"] = wid, ["sFile"] = $"items/{wid}.swf", ["sLink"] = $"Item{wid}", ["sType"] = (string)Items[wid]["sType"]! };
+                    }
+                    Json(new JsonObject { ["cmd"] = "wearLoadout", ["uid"] = Uid, ["success"] = 1, ["costume"] = costume });
+                    return;
+
+                case "addLoadout":
+                    bool renaming = a[2].Length > 0 && sets.ContainsKey(a[2]);
+                    if (!renaming && !sets.ContainsKey(a[0]) && sets.Count >= _server.LoadoutSlots)
+                    {
+                        Json(new JsonObject { ["cmd"] = "addLoadout", ["success"] = false, ["msg"] = "No free outfit slots." });
+                        return;
+                    }
+                    if (renaming && a[2] != a[0])
+                        sets.Remove(a[2]);
+                    sets[a[0]] = JsonNode.Parse(a[1]);
+                    Json(new JsonObject { ["cmd"] = "addLoadout", ["success"] = true });
+                    return;
+
+                case "removeLoadout":
+                    bool removed = sets.Remove(a[0]);
+                    Json(new JsonObject { ["cmd"] = "removeLoadout", ["success"] = removed, ["setName"] = a[0], ["msg"] = removed ? string.Empty : "No such outfit." });
+                    return;
+            }
+        }
+
+        private static bool IsSetJson(string text)
+        {
+            try
+            {
+                return JsonNode.Parse(text) is JsonObject o && o.All(p => p.Key == "colors"
+                    ? p.Value is JsonObject
+                    : p.Key is "he" or "ba" or "ar" or "co" or "Weapon" or "pe" or "am" or "mi" && JsonUtil.AsIntOrNull(p.Value) is not null);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return false;
             }
         }
 
@@ -729,6 +882,13 @@ public sealed class FakeAqwServer : IAsyncDisposable
             Name = account!;
             LoggedIn = true;
             Str("loginResponse", "true", Uid, Name.ToLowerInvariant(), _server.LoginMessage, string.Empty);
+            // The live server pushes the account's preferences right after the login (seen 2026-11:
+            // {"costumes":{},"loadouts":{},"prefs":{}} for an account without outfits).
+            Json(new JsonObject
+            {
+                ["cmd"] = "loadPrefs", ["success"] = true,
+                ["result"] = new JsonObject { ["costumes"] = new JsonObject(), ["loadouts"] = _server.Loadouts.DeepClone(), ["prefs"] = new JsonObject() },
+            });
         }
 
         private static bool Older(string version, string required)
@@ -751,7 +911,8 @@ public sealed class FakeAqwServer : IAsyncDisposable
                 ["iBagSlots"] = 40,
                 ["iBankSlots"] = 20,
                 ["iHouseSlots"] = 20,
-                ["strClassName"] = "Healer",
+                ["strClassName"] = ClassName,
+                ["iLoadoutSlots"] = _server.LoadoutSlots,
                 ["iCP"] = 3000,
                 ["CharID"] = CharId,
                 ["intAccessLevel"] = 1,

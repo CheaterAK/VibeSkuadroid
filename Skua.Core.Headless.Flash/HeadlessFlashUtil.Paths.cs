@@ -30,7 +30,7 @@ public sealed partial class HeadlessFlashUtil
     private static readonly HashSet<string> s_modelWorldKeys = new(StringComparer.Ordinal)
     {
         "strMapName", "strAreaName", "strMapFileName", "strFrame", "strPad", "curRoom", "areaId", "intType", "intKillCount",
-        "areaUsers", "uoTree", "monTree", "mondef", "monmap", "monsters", "questTree", "shopinfo", "bankinfo", "avatars", "myAvatar",
+        "areaUsers", "uoTree", "monTree", "mondef", "monmap", "monsters", "questTree", "shopinfo", "bankinfo", "avatars", "myAvatar", "objInfo",
     };
 
     private static readonly HashSet<string> s_modelAvatarKeys = new(StringComparer.Ordinal)
@@ -222,9 +222,9 @@ public sealed partial class HeadlessFlashUtil
             case "questTree":
                 return Walk(Lookup.Of(QuestTreeNode()), parts, i + 1);
             case "players":
-                // Guess: AdvancedSkillCommand reads strFrame of each entry, which the uoTree leaves carry.
-                Gaps.Record(FlashGapKind.Approximated, "path:world.players", null, "answered with the uoTree leaves of the room");
-                return Walk(Lookup.Of(new JsonArray(Game.World.GetAreaUsers().Select(u => (JsonNode)u.Leaf.DeepClone()).ToArray())), parts, i + 1);
+                // Neither the game's World (Game4000r9.swf) nor skua.swf has a "players" member, so on Windows this is
+                // undefined and Skua's party-health skill rule (AdvancedSkillCommand) finds no one. Answered the same.
+                return Lookup.Undefined;
             case "visible":
                 lock (_treeGate)
                     return Walk(Lookup.Of(_worldExtra[key]?.DeepClone()), parts, i + 1);

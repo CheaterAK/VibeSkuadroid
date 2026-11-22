@@ -111,7 +111,7 @@ public sealed partial class HeadlessFlashUtil
         Add("world.moveRequest", a => Do(() =>
         {
             JsonObject? o = As3.ToNode(a.Length > 0 ? a[0] : null) as JsonObject;
-            Game.Client.WalkTo(JsonUtil.AsInt(o?["tx"]), JsonUtil.AsInt(o?["ty"]), JsonUtil.AsInt(o?["sp"], 8));
+            Game.Client.MoveRequest(JsonUtil.AsInt(o?["tx"]), JsonUtil.AsInt(o?["ty"]), JsonUtil.AsInt(o?["sp"]));
         }));
         NoOp("world.setUserData");   // redraws name plates
 

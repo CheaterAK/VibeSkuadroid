@@ -68,6 +68,8 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
     private string _password = string.Empty;
     private IReadOnlyList<GameServer> _servers = Array.Empty<GameServer>();
     private string _serverIp = string.Empty;
+    private GameServer? _lastLoginServer;
+    private GameServer? _connectingServer;
     private bool _catching;
     private int _loginRequests;
 
@@ -147,6 +149,12 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
     public string ServerIp
     {
         get { lock (_gate) return _serverIp; }
+    }
+
+    /// <summary>The server of the last successful login (the character got in game there), or null before one.</summary>
+    public GameServer? LastLoginServer
+    {
+        get { lock (_gate) return _lastLoginServer; }
     }
 
     /// <summary>The text of the login screen's modal dialog, if one is shown.</summary>
@@ -407,6 +415,7 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
             _connDetail = "Connecting to server...";
             _modal = null;
             _serverIp = server.Host;
+            _connectingServer = server;
             token = _lifecycle.Token;
         }
         SetState(HeadlessGameState.Connecting);
@@ -421,6 +430,7 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
                 {
                     _connDetail = null;
                     _loginVisible = false;
+                    _lastLoginServer = server;
                 }
                 SetState(HeadlessGameState.InGame);
             }
@@ -548,7 +558,12 @@ public sealed class HeadlessGame : IPacketSender, IAsyncDisposable
     private void OnSessionState(object? sender, ConnectionState state)
     {
         if (state == ConnectionState.Ready)
+        {
+            // The character is in: this is the last successful login's server (before anyone hears of InGame).
+            lock (_gate)
+                _lastLoginServer = _connectingServer ?? _lastLoginServer;
             SetState(HeadlessGameState.InGame);
+        }
     }
 
     private void OnDisconnected(object? sender, DisconnectInfo info)

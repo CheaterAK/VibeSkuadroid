@@ -14,7 +14,7 @@ public enum SwfCompression
     /// <summary>"CWS": zlib (SWF 6+).</summary>
     Zlib,
 
-    /// <summary>"ZWS": LZMA (SWF 13+). Not decoded by this reader.</summary>
+    /// <summary>"ZWS": LZMA (SWF 13+).</summary>
     Lzma,
 }
 
@@ -31,7 +31,18 @@ public sealed record SwfTimeline(
     int FrameCount,
     IReadOnlyList<(string Name, int Frame)> Scenes,
     IReadOnlyList<(string Name, int Frame)> Labels,
-    IReadOnlyDictionary<string, IReadOnlyList<string>> Pads);
+    IReadOnlyDictionary<string, IReadOnlyList<string>> Pads)
+{
+    /// <summary>
+    /// For each label: where each of its pads sits on the stage (the instance's matrix translation in pixels, which is
+    /// what the game reads as <c>map[pad].x / .y</c> to place an avatar entering the cell).
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, PadPosition>> PadPositions { get; init; }
+        = new Dictionary<string, IReadOnlyDictionary<string, PadPosition>>();
+}
+
+/// <summary>A pad's position on the map's stage, in pixels.</summary>
+public readonly record struct PadPosition(int X, int Y);
 
 /// <summary>The SWF could not be read.</summary>
 public sealed class SwfFormatException : Exception
@@ -47,9 +58,9 @@ public sealed class SwfFormatException : Exception
 /// (<c>currentScene.labels</c> are the cells; pads are the clips skua.swf's World.getValidCellPads finds).
 /// </summary>
 /// <remarks>
-/// <para>Handles "FWS" (plain) and "CWS" (zlib). "ZWS" (LZMA) is detected and refused with
-/// <see cref="NotSupportedException"/>: .NET has no LZMA decoder and none is shipped here; a caller falls back to
-/// the cells the server and scripts name.</para>
+/// <para>Handles "FWS" (plain), "CWS" (zlib) and "ZWS" (LZMA: "ZWS", version, uncompressed file length, compressed
+/// length, 5 LZMA property bytes, then the raw LZMA stream without the usual 8-byte size field; decoded by
+/// <see cref="LzmaDecoder"/>). Every body is bounded by the header's length and <see cref="MaxInflatedBytes"/>.</para>
 /// <para>Labels come from DefineSceneAndFrameLabelData (tag 86) when present, else from the root FrameLabel tags (43).
 /// Pads: on each labelled frame, the named instances on the root display list (PlaceObject2/3, RemoveObject/2)
 /// whose symbol class (SymbolClass, tag 76) ends in <c>Pad_&lt;n&gt;</c>, as skua.swf's <c>/::Pad_\d+$/</c> test.
@@ -93,7 +104,7 @@ public static partial class SwfReader
     }
 
     /// <summary>The uncompressed body (everything after the 8-byte header).</summary>
-    /// <exception cref="NotSupportedException">The SWF is LZMA compressed (ZWS).</exception>
+    /// <exception cref="SwfFormatException">Corrupt, or the body would pass its declared length or the cap.</exception>
     public static byte[] Decompress(byte[] swf, out SwfCompression compression, out int version)
     {
         compression = DetectCompression(swf);
@@ -117,7 +128,33 @@ public static partial class SwfReader
                 }
 
             default:
-                throw new NotSupportedException("LZMA-compressed SWF (ZWS) is not supported by this reader.");
+                return InflateLzmaBounded(swf, length, MaxInflatedBytes)
+                    ?? throw new SwfFormatException($"The LZMA body has no usable length or would pass {MaxInflatedBytes / (1024 * 1024)} MB.");
+        }
+    }
+
+    /// <summary>
+    /// Decodes a ZWS body: bytes 8-11 are the compressed length, 12-16 the LZMA properties, the stream follows. The
+    /// size comes from the header's file length (which counts the 8-byte header), so it must be given and within
+    /// <paramref name="cap"/>; null otherwise. The output grows as it is produced (a small file claiming the cap does
+    /// not get the cap allocated before it decodes that much).
+    /// </summary>
+    /// <exception cref="SwfFormatException">The stream is corrupt or truncated.</exception>
+    internal static byte[]? InflateLzmaBounded(byte[] swf, uint headerFileLength, long cap)
+    {
+        long declared = headerFileLength - 8L;
+        if (declared <= 0 || declared > cap || declared > int.MaxValue)
+            return null;
+        if (swf.Length < 17)
+            throw new SwfFormatException("Too short for an LZMA SWF header.");
+        try
+        {
+            // The stream runs to the end of the file; the compressed-length field (bytes 8-11) is not trusted for that.
+            return LzmaDecoder.Decode(swf.AsSpan(12, 5), swf, 17, (int)declared);
+        }
+        catch (InvalidDataException e)
+        {
+            throw new SwfFormatException("Corrupt LZMA body.", e);
         }
     }
 
@@ -146,7 +183,6 @@ public static partial class SwfReader
 
     /// <summary>Reads the root timeline's scenes, labels and pads.</summary>
     /// <exception cref="SwfFormatException">Malformed file.</exception>
-    /// <exception cref="NotSupportedException">LZMA (ZWS) file.</exception>
     public static SwfTimeline Read(byte[] swf)
     {
         byte[] body = Decompress(swf, out SwfCompression compression, out int version);
@@ -164,8 +200,10 @@ public static partial class SwfReader
             List<(string, int)> frameLabels = new();
             Dictionary<int, string> symbolClasses = new();
             Dictionary<int, (int CharId, string? Name)> displayList = new();
+            Dictionary<int, PadPosition> placedAt = new();
             List<(int Frame, string Label)> labelledFrames = new();
             Dictionary<int, List<(int CharId, string Name)>> namedOnFrame = new();
+            Dictionary<int, Dictionary<string, PadPosition>> positionsOnFrame = new();
             int frame = 0;
             string? pendingLabel = null;
 
@@ -188,6 +226,13 @@ public static partial class SwfReader
                             pendingLabel = null;
                         }
                         namedOnFrame[frame] = displayList.OrderBy(p => p.Key).Where(p => p.Value.Name is not null).Select(p => (p.Value.CharId, p.Value.Name!)).ToList();
+                        Dictionary<string, PadPosition> at = new(StringComparer.Ordinal);
+                        foreach (KeyValuePair<int, (int CharId, string? Name)> p in displayList.OrderBy(p => p.Key))
+                        {
+                            if (p.Value.Name is string named && !at.ContainsKey(named))
+                                at[named] = placedAt.GetValueOrDefault(p.Key);
+                        }
+                        positionsOnFrame[frame] = at;
                         frame++;
                         break;
 
@@ -225,20 +270,25 @@ public static partial class SwfReader
                         int poChar = r.U16();
                         int poDepth = r.U16();
                         displayList[poDepth] = (poChar, null);
+                        placedAt[poDepth] = r.Position < start + length ? r.ReadTranslation() : default;
                         break;
 
                     case TagPlaceObject2:
                     case TagPlaceObject3:
-                        ReadPlace(r, code, start + length, displayList);
+                        ReadPlace(r, code, start + length, displayList, placedAt);
                         break;
 
                     case TagRemoveObject:
                         r.U16();
-                        displayList.Remove(r.U16());
+                        int removed = r.U16();
+                        displayList.Remove(removed);
+                        placedAt.Remove(removed);
                         break;
 
                     case TagRemoveObject2:
-                        displayList.Remove(r.U16());
+                        int removed2 = r.U16();
+                        displayList.Remove(removed2);
+                        placedAt.Remove(removed2);
                         break;
                 }
                 r.Position = start + length;
@@ -247,6 +297,7 @@ public static partial class SwfReader
             List<(string Name, int Frame)> labels = sceneLabels.Count > 0 ? sceneLabels : frameLabels;
             HashSet<int> padChars = symbolClasses.Where(p => PadClass().IsMatch(p.Value)).Select(p => p.Key).ToHashSet();
             Dictionary<string, IReadOnlyList<string>> pads = new(StringComparer.Ordinal);
+            Dictionary<string, IReadOnlyDictionary<string, PadPosition>> padPositions = new(StringComparer.Ordinal);
             foreach ((string name, int labelFrame) in labels)
             {
                 if (pads.ContainsKey(name) || !namedOnFrame.TryGetValue(labelFrame, out List<(int CharId, string Name)>? named))
@@ -255,8 +306,10 @@ public static partial class SwfReader
                     ? named.Where(n => padChars.Contains(n.CharId)).Select(n => n.Name).Distinct().ToList()
                     : named.Where(n => KnownPadNames.Contains(n.Name)).Select(n => n.Name).Distinct().ToList();
                 pads[name] = found;
+                Dictionary<string, PadPosition> at = positionsOnFrame.GetValueOrDefault(labelFrame) ?? new();
+                padPositions[name] = found.Where(at.ContainsKey).ToDictionary(p => p, p => at[p], StringComparer.Ordinal);
             }
-            return new SwfTimeline(version, compression, frameCount, scenes, labels, pads);
+            return new SwfTimeline(version, compression, frameCount, scenes, labels, pads) { PadPositions = padPositions };
         }
         catch (IndexOutOfRangeException e)
         {
@@ -269,7 +322,7 @@ public static partial class SwfReader
     }
 
     // PlaceObject2/3: flags, depth, [class name], [character], [matrix], [color transform], [ratio], [name] ...
-    private static void ReadPlace(Reader r, int code, int end, Dictionary<int, (int CharId, string? Name)> displayList)
+    private static void ReadPlace(Reader r, int code, int end, Dictionary<int, (int CharId, string? Name)> displayList, Dictionary<int, PadPosition> placedAt)
     {
         int flags = r.U8();
         int flags2 = code == TagPlaceObject3 ? r.U8() : 0;
@@ -278,8 +331,7 @@ public static partial class SwfReader
         if (code == TagPlaceObject3 && hasClassName)
             r.CString(end);
         int? charId = (flags & 0x02) != 0 ? r.U16() : null;
-        if ((flags & 0x04) != 0)
-            r.SkipMatrix();
+        PadPosition? at = (flags & 0x04) != 0 ? r.ReadTranslation() : null;
         if ((flags & 0x08) != 0)
             r.SkipColorTransformWithAlpha();
         if ((flags & 0x10) != 0)
@@ -290,10 +342,13 @@ public static partial class SwfReader
         if (displayList.TryGetValue(depth, out (int CharId, string? Name) existing) && move)
         {
             displayList[depth] = (charId ?? existing.CharId, name ?? (charId is null ? existing.Name : null));
+            if (at is PadPosition moved)
+                placedAt[depth] = moved;
         }
         else if (charId is int id)
         {
             displayList[depth] = (id, name);
+            placedAt[depth] = at ?? default;
         }
     }
 
@@ -395,6 +450,29 @@ public static partial class SwfReader
                 }
             }
             return v;
+        }
+
+        /// <summary>A MATRIX's translation, in pixels (the record stores twips).</summary>
+        public PadPosition ReadTranslation()
+        {
+            if (Bits(1) == 1)
+                SkipBits(2 * (int)Bits(5));
+            if (Bits(1) == 1)
+                SkipBits(2 * (int)Bits(5));
+            int n = (int)Bits(5);
+            int tx = SignedBits(n);
+            int ty = SignedBits(n);
+            AlignByte();
+            return new PadPosition((int)Math.Round(tx / 20.0), (int)Math.Round(ty / 20.0));
+        }
+
+        private int SignedBits(int count)
+        {
+            if (count == 0)
+                return 0;
+            uint v = Bits(count);
+            int shift = 32 - count;
+            return (int)(v << shift) >> shift;
         }
 
         public void SkipMatrix()
