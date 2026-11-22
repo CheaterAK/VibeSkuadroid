@@ -20,7 +20,8 @@ namespace Skua.App.Droid.Army;
 /// <remarks>
 /// Security: Android only lets this app's own UID bind a non-exported service, the permission additionally requires the
 /// app's signature, and every message is checked again for <c>sendingUid == myUid</c>. Intents carry only an action;
-/// credentials never travel: the slot decrypts its account's password from the Keystore vault itself.
+/// credentials never travel: the slot decrypts its account's password from the Keystore vault itself. Each slot
+/// decrypts only its own entry by behaviour; this is not a security boundary (all processes are the same Linux user).
 /// Notification: every slot shares the main engine's notification id, so the app shows ONE persistent notification
 /// however many processes run a foreground service (Android keeps a notification while any foreground service of the
 /// app still uses its id); the coordinator writes the combined text into it.

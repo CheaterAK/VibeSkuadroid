@@ -257,7 +257,9 @@ public sealed partial class AccountStore
 /// The army accounts' passwords: one Keystore-encrypted entry per account (<c>aqw-acct-&lt;id&gt;</c>), next to the
 /// single-account entry (<see cref="CredentialVault.EntryName"/>, untouched). Each entry binds the password to the
 /// account name, like the single-account vault. Every process opens the same store: the main process saves and
-/// deletes, each slot process loads only the entry of the account it was asked to log in.
+/// deletes, and each slot process decrypts only its own entry by behaviour (the account it was asked to log in). This
+/// is not a security boundary: slot processes run as the same Linux user as the main process (one app UID, one
+/// Keystore), so code running in any of them, a script included, could read every entry.
 /// </summary>
 public sealed class AccountVault
 {

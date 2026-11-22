@@ -23,7 +23,8 @@ namespace Skua.App.Droid.Core.Army;
 /// app_slotcache/acctN/                     TMPDIR of slot N (next to cache/, which is the main process's TMPDIR)
 /// </code>
 /// Shared read-only: the scripts (symlinks, so a sync by the main process is seen by every slot at its next start of a
-/// script; slots never sync or import), the vault (each slot decrypts only the entry of the account it logs in), the
+/// script; slots never sync or import), the vault (each slot decrypts only its own entry by behaviour; this is not a
+/// security boundary: every process runs as the same Linux user and can open the whole store), the
 /// script reference images (APK assets). Copied into a slot when it starts, then its own: the skill rotations
 /// (<c>AdvancedSkills.json</c>, <c>UserAdvancedSkills*.json</c>: Skua rewrites them, so sharing would mean concurrent
 /// writers) and <c>QuestData.json</c>. Option profiles a command names (<c>options/&lt;storage&gt;.cfg</c>) are copied from

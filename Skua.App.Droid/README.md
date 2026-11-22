@@ -653,7 +653,9 @@ stopScript/pause/resume/worldLists/acceptQuests/autoReconnect/restart; events sn
 services are not exported, require the signature-level permission `${applicationId}.permission.SLOT_IPC` (declared by
 the app; Debug and Release get different names), and both sides drop any message whose `sendingUid` is not the app's
 own. No credential crosses: the coordinator names the account id, and the slot decrypts that account's password from
-the Keystore vault itself. Names (maps, cells, pads, players, option profiles, script paths) are checked on the slot
+the Keystore vault itself. Each slot decrypts only its own entry by behaviour; this is not a security boundary: every
+process of the app is the same Linux user with the same Keystore, so a script in any slot could read every account's
+entry (and bind the main process's services). Names (maps, cells, pads, players, option profiles, script paths) are checked on the slot
 side before anything is sent.
 
 **One notification.** Android lets each process's foreground service post its own notification; all slot services
