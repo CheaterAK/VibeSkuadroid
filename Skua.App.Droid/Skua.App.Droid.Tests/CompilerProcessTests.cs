@@ -187,6 +187,7 @@ public partial class SessionIntegrationTests
             await Sandbox.Until(() => engine.Snapshot.Script.State == ScriptRunState.Idle, 30000);
             Assert.Equal(before, Compiler.Compilations);
             Assert.Equal(0, host.InProcessCompilations);
+            Assert.Equal(0, refs.Provider.Loads); // the engine read no reference image either
             CompileResponse cold = Assert.Single(service.Responses);
             Assert.Equal(CompileOutcome.Compiled, cold.Outcome);
             Assert.True(cold.Compilations >= 1, $"{cold.Compilations} compilations");
@@ -228,6 +229,27 @@ public partial class SessionIntegrationTests
         {
             await engine.DisposeAsync();
         }
+    }
+
+    /// <summary>Two engines compiling at once (army slots): their compiler processes take turns on the app-wide lock, both succeed.</summary>
+    [Fact]
+    public async Task CompilersOfSeveralEnginesTakeTurns()
+    {
+        ScriptReferenceSet refs = ScriptReferenceSet.Load(new DirectoryScriptReferenceSource(ProcessCompileService.RefsDir));
+        string lockFile = Path.Combine(Path.GetTempPath(), $"skua-compile-turns-{Environment.ProcessId}.lock");
+        string folder = Path.Combine(ClientFileSources.SkuaScriptsDIR, "DroidCompiler");
+        Directory.CreateDirectory(folder);
+        string[] scripts = new string[2];
+        for (int i = 0; i < scripts.Length; i++)
+        {
+            scripts[i] = Path.Combine(folder, $"Turn{i}.cs");
+            await File.WriteAllTextAsync(scripts[i], $"public class Turn{i} {{ public string Id = \"{Guid.NewGuid()}\"; }}");
+        }
+        string data = Path.GetDirectoryName(ClientFileSources.SkuaDIR)!;
+        CompileResponse[] answers = await Task.WhenAll(scripts.Select((s, i) =>
+            new ProcessCompileService(data, ProcessCompileService.RefsDir, lockFile).CompileAsync(new CompileRequest($"t{i}", s, refs.Identity), CancellationToken.None)));
+        Assert.All(answers, a => Assert.Equal(CompileOutcome.Compiled, a.Outcome));
+        Assert.All(answers, a => Assert.Equal(1, a.Compilations));
     }
 
     /// <summary>Requests a compiler must refuse: another reference set, a path outside the scripts folder.</summary>
