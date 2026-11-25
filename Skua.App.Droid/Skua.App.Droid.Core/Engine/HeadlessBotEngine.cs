@@ -597,7 +597,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         return new WorldLists(
             w.GetInventory().Select(ToRow).ToList(),
             w.GetTempInventory().Select(ToRow).ToList(),
-            w.IsBankLoaded ? w.GetBank().Select(ToRow).ToList() : [],
+            w.IsBankLoaded ? BankRows(w) : [],
             w.IsBankLoaded,
             w.GetQuests()
                 .Where(q => q.Loaded || q.Accepted)
@@ -1199,6 +1199,27 @@ public sealed class HeadlessBotEngine : IBotEngine
     // ------------------------------------------------------------------ helpers
 
     private static ServerChoice ToChoice(GameServer s) => new(s.Name, s.Players, s.MaxPlayers, s.Online, s.MembersOnly, s.MinLevel, s.Language);
+
+    private sealed record BankRowCache(WorldModel World, long Version, IReadOnlyList<InventoryRow> Rows);
+
+    private volatile BankRowCache? _bankRows;
+
+    // The bank's rows, rebuilt only when the bank changed (WorldModel.BankVersion): a 3000-item bank copied 12 MB per
+    // GetWorldLists, and the World page asks after every world change. The same list instance is returned while the
+    // bank is unchanged, so the page can skip filtering and sorting it again.
+    private IReadOnlyList<InventoryRow> BankRows(WorldModel w)
+    {
+        BankRowCache? cached = _bankRows;
+        long version = w.BankVersion;
+        if (cached is not null && ReferenceEquals(cached.World, w) && cached.Version == version)
+            return cached.Rows;
+        IReadOnlyList<InventoryRow> rows = w.GetBank().Select(ToRow).ToList();
+        _bankRows = new BankRowCache(w, version, rows);
+        return rows;
+    }
+
+    /// <summary>Drops the cached bank rows (memory pressure); the next read rebuilds them.</summary>
+    internal void TrimCaches() => _bankRows = null;
 
     private static InventoryRow ToRow(ItemInfo i) => new(i.ItemId, i.Name, i.Quantity, i.MaxStack, i.Type, i.EquipSlot, i.Equipped, i.Temp, i.Member);
 

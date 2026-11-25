@@ -286,6 +286,8 @@
                 <Button Grid.Column="1" Classes="small primary" Content="Load bank" Command="{Binding LoadBankCommand}" />
               </Grid>
               <TextBlock Classes="caption" Text="BANK" IsVisible="{Binding BankLoaded}" />
+              <TextBox PlaceholderText="Search the bank" Text="{Binding BankFilter}" TextInputOptions.AutoCapitalization="False" IsVisible="{Binding BankLoaded}" />
+              <TextBlock Classes="muted" TextWrapping="Wrap" Text="{Binding BankShownText}" IsVisible="{Binding HasBankShownText}" />
               <ItemsControl ItemsSource="{Binding BankItems}">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate x:DataType="vm:ItemLine">

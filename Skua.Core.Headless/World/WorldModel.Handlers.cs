@@ -1213,19 +1213,36 @@ public sealed partial class WorldModel
     }
 
     // BankController.addItemsToBank: keyed by ItemID (a known item is replaced), classes skipped. Under the lock.
-    private void AddItemsToBankCore(JsonArray items)
+    // Linear in the bank's size: with a search per item a 3000-item bank took 0.7 s and a 5000-item one 4 s on a
+    // desktop CPU, all under the model's lock. Items of an array the model may take over (adopt) are moved, not copied.
+    private void AddItemsToBankCore(JsonArray items, bool adopt = false)
     {
-        foreach (JsonNode? node in items)
+        JsonArray bank = BankItems;
+        Dictionary<long, int> index = new(bank.Count + items.Count);
+        for (int i = 0; i < bank.Count; i++)
+        {
+            if (bank[i] is JsonObject o && JsonUtil.AsLongOrNull(o["ItemID"]) is long known)
+                index.TryAdd(known, i);
+        }
+        JsonNode?[] incoming = items.ToArray();
+        if (adopt)
+            items.Clear();
+        foreach (JsonNode? node in incoming)
         {
             if (node is not JsonObject item || InventoryRules.IsClass(item))
                 continue;
-            JsonObject copy = (JsonObject)item.DeepClone();
+            JsonObject copy = adopt ? item : (JsonObject)item.DeepClone();
             copy["iQty"] = JsonUtil.AsInt(item["iQty"]);
-            JsonObject? existing = FindById(BankItems, "ItemID", JsonUtil.AsInt(item["ItemID"]));
-            if (existing is not null)
-                BankItems[BankItems.IndexOf(existing)] = copy;
+            long id = JsonUtil.AsInt(item["ItemID"]);
+            if (index.TryGetValue(id, out int at))
+            {
+                bank[at] = copy;
+            }
             else
-                BankItems.Add(copy);
+            {
+                index[id] = bank.Count;
+                bank.Add(copy);
+            }
         }
     }
 

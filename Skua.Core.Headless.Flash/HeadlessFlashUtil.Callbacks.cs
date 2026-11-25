@@ -31,6 +31,8 @@ public sealed partial class HeadlessFlashUtil
         });
         Add("getGameObject", a =>
         {
+            if (TryBankItemsJson(As3.Str(a, 0), out string? bank))
+                return bank;
             Lookup l = Resolve(As3.Str(a, 0));
             return As3.Stringify(l.Node, l.Defined);
         });

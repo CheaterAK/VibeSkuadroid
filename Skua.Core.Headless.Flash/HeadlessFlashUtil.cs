@@ -165,8 +165,8 @@ public sealed partial class HeadlessFlashUtil : IFlashUtil
         // As on Windows: a script that is being stopped is cancelled at its next Flash call. Unlike Windows, only calls
         // made from script code are cancelled: ScriptManager's own clean-up on the script thread (Skills.Stop, Drops.Stop
         // after the script returned) also calls Flash, and a throw there is unhandled and ends the process.
-        if (_manager is not null && Thread.CurrentThread.Name == "Script Thread" && _manager.Value.ShouldExit && CalledFromScript())
-            _manager.Value.ScriptCts?.Token.ThrowIfCancellationRequested();
+        if (CancelsScriptCall())
+            _manager!.Value.ScriptCts?.Token.ThrowIfCancellationRequested();
 
         object?[] a = args ?? Array.Empty<object>();
         object? raw;
@@ -182,6 +182,10 @@ public sealed partial class HeadlessFlashUtil : IFlashUtil
         }
         return As3.Convert(raw, type);
     }
+
+    // A call from script code on the script thread while the script is being stopped.
+    private bool CancelsScriptCall() =>
+        _manager is not null && Thread.CurrentThread.Name == "Script Thread" && _manager.Value.ShouldExit && CalledFromScript();
 
     // A frame of a compiled script (scripts load into their own collectible ScriptLoadContext) is on the stack.
     private static bool CalledFromScript()

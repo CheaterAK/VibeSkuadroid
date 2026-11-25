@@ -133,14 +133,17 @@ public sealed partial class JunkItemsViewModel : ObservableObject
         IReadOnlyList<JunkItem> junk = _junk.Items;
         HashSet<int> junkIds = junk.Select(j => j.Id).ToHashSet();
         WorldLists lists = _host.Engine.GetWorldLists();
+        // Per-item sums by lookup: scanning the bank once per item was quadratic (9 million steps for 3000 items).
+        ILookup<int, InventoryRow> inInventory = lists.Inventory.ToLookup(i => i.ItemId);
+        ILookup<int, InventoryRow> banked = lists.Bank.ToLookup(i => i.ItemId);
         List<JunkItemEntry> entries = lists.Inventory.Concat(lists.Bank)
             .GroupBy(i => i.ItemId)
             .Select(g =>
             {
                 InventoryRow first = g.First();
-                int inv = lists.Inventory.Where(i => i.ItemId == g.Key).Sum(i => i.Quantity);
-                int bank = lists.Bank.Where(i => i.ItemId == g.Key).Sum(i => i.Quantity);
-                bool equipped = lists.Inventory.Any(i => i.ItemId == g.Key && i.Equipped);
+                int inv = inInventory[g.Key].Sum(i => i.Quantity);
+                int bank = banked[g.Key].Sum(i => i.Quantity);
+                bool equipped = inInventory[g.Key].Any(i => i.Equipped);
                 return new JunkItemEntry(g.Key, first.Name, first.Type, inv, bank, equipped, junkIds.Contains(g.Key), OnEntryChanged);
             })
             .ToList();

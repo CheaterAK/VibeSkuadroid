@@ -339,10 +339,27 @@ public sealed partial class ControlBackend : IControlBackend
         WorldModel w = game.World;
         return new ControlBank(
             w.IsBankLoaded,
-            w.IsBankLoaded ? w.GetBank().Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList() : [],
+            w.IsBankLoaded ? SortedBankRows(w) : [],
             w.GetInventory().Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList(),
             me.BankSlots,
             me.BagSlots);
+    }
+
+    private sealed record BankRowCache(WorldModel World, long Version, IReadOnlyList<InventoryRow> Rows);
+
+    private volatile BankRowCache? _bankRows;
+
+    // The page reads every 400 ms while its Bank tab shows: sort the bank only when it changed (BankVersion). The same
+    // list instance comes back while it is unchanged.
+    private IReadOnlyList<InventoryRow> SortedBankRows(WorldModel w)
+    {
+        BankRowCache? cached = _bankRows;
+        long version = w.BankVersion;
+        if (cached is not null && ReferenceEquals(cached.World, w) && cached.Version == version)
+            return cached.Rows;
+        IReadOnlyList<InventoryRow> rows = w.GetBank().Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        _bankRows = new BankRowCache(w, version, rows);
+        return rows;
     }
 
     private static InventoryRow ToRow(ItemInfo i) => new(i.ItemId, i.Name, i.Quantity, i.MaxStack, i.Type, i.EquipSlot, i.Equipped, i.Temp, i.Member);

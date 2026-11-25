@@ -24,6 +24,7 @@
     <!-- The fake game server and test helpers are shared with Skua.Core.Headless.Tests. -->
     <Compile Include="..\Skua.Core.Headless.Tests\Fakes\FakeAqwServer.cs" Link="Fakes\FakeAqwServer.cs" />
     <Compile Include="..\Skua.Core.Headless.Tests\Fakes\SyntheticSwf.cs" Link="Fakes\SyntheticSwf.cs" />
+    <Compile Include="..\Skua.Core.Headless.Tests\Fakes\LargeBank.cs" Link="Fakes\LargeBank.cs" />
   </ItemGroup>
 
   <ItemGroup>

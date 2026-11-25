@@ -56,6 +56,9 @@ public sealed partial class WorldModel
     private ServerMoveRequest? _pendingServerMove;
     private JsonObject? _lastTurnIn;
     private long _version;
+    private long _bankVersion;
+    private string? _bankJson;
+    private long _bankJsonVersion = -1;
     private long _total;
 
     public WorldModel(TimeProvider? time = null)
@@ -126,12 +129,15 @@ public sealed partial class WorldModel
     /// used-slot count (<c>iBankCount</c>) is not touched: the game takes it from loadInventoryBig's bankCount.
     /// </summary>
     /// <returns>How many items the bank now holds.</returns>
-    public int AddItemsToBank(JsonArray items)
+    /// <param name="items">The reply's items.</param>
+    /// <param name="adopt">The model takes the items over (the array is emptied and its items are stored without a
+    /// copy): for a freshly parsed reply nothing else holds.</param>
+    public int AddItemsToBank(JsonArray items, bool adopt = false)
     {
         int count = 0;
         Write((_, _) =>
         {
-            AddItemsToBankCore(items);
+            AddItemsToBankCore(items, adopt);
             _bankLoaded = true;
             count = BankItems.Count;
         }, "bank");
@@ -203,6 +209,8 @@ public sealed partial class WorldModel
                 ["target"] = null,
             },
         };
+        _bankVersion++;
+        _bankJson = null;
         _lastArea = null;
         _me = null;
         _myUid = 0;
@@ -254,7 +262,18 @@ public sealed partial class WorldModel
     private JsonArray MonDef => (JsonArray)_world["mondef"]!;
     private JsonArray MonMap => (JsonArray)_world["monmap"]!;
     private JsonObject QuestTree => (JsonObject)_world["questTree"]!;
-    private JsonArray BankItems => (JsonArray)((JsonObject)_world["bankinfo"]!)["items"]!;
+    // Any access through BankItems may change the bank, so it advances BankVersion; reads that cannot change it use
+    // BankItemsView. The bank caches (its JSON text here, the bridge's parsed list, the app's rows) are keyed by it.
+    private JsonArray BankItems
+    {
+        get
+        {
+            _bankVersion++;
+            return BankItemsView;
+        }
+    }
+
+    private JsonArray BankItemsView => (JsonArray)((JsonObject)_world["bankinfo"]!)["items"]!;
     private JsonObject Actions => (JsonObject)_world["actions"]!;
     private JsonArray AreaUsers => (JsonArray)_world["areaUsers"]!;
     private JsonObject Avatars => (JsonObject)_world["avatars"]!;
@@ -574,7 +593,34 @@ public sealed partial class WorldModel
     /// <summary>Bank items known so far (the bank is only sent on <c>loadBank</c>; see <see cref="IsBankLoaded"/>).</summary>
     public IReadOnlyList<ItemInfo> GetBank()
     {
-        lock (_gate) return ItemsOf(BankItems, temp: false);
+        lock (_gate) return ItemsOf(BankItemsView, temp: false);
+    }
+
+    /// <summary>
+    /// Advances whenever the bank (<c>world.bankinfo.items</c>) may have changed: a load, a move to or from the
+    /// backpack, a drop into the bank, a write to the path, a new connection. Equal versions mean an unchanged bank.
+    /// </summary>
+    public long BankVersion
+    {
+        get { lock (_gate) return _bankVersion; }
+    }
+
+    /// <summary>
+    /// The JSON text of <c>world.bankinfo.items</c> (what <see cref="GetGameObject"/> returns for that path) and the
+    /// <see cref="BankVersion"/> it belongs to, serialised once per version. Before, every read copied and serialised
+    /// the whole bank (18 MB allocated per read of a 3000-item bank), and CoreBots reads it several times per kill.
+    /// </summary>
+    public (long Version, string Json) GetBankItemsJson()
+    {
+        lock (_gate)
+        {
+            if (_bankJson is null || _bankJsonVersion != _bankVersion)
+            {
+                _bankJson = JsonUtil.ToJson(BankItemsView);
+                _bankJsonVersion = _bankVersion;
+            }
+            return (_bankVersion, _bankJson);
+        }
     }
 
     private static List<ItemInfo> ItemsOf(JsonArray array, bool temp)

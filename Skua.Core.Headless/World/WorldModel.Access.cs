@@ -12,7 +12,11 @@ public sealed partial class WorldModel
             return read(_world, _me);
     }
 
-    /// <summary>Changes the live tree under the model's lock (client-side state the game keeps in its own objects).</summary>
+    /// <summary>
+    /// Changes the live tree under the model's lock (client-side state the game keeps in its own objects). The bank
+    /// (<c>world.bankinfo</c>) is not changed this way: only through the model's bank members, which advance
+    /// <see cref="BankVersion"/> (its caches would otherwise go stale).
+    /// </summary>
     internal void Write(Action<JsonObject, string?> write, string reason = "client")
     {
         long version;
@@ -140,6 +144,8 @@ public sealed partial class WorldModel
             }
             if (!done)
                 return false;
+            if (parts[1] == "bankinfo")
+                _bankVersion++;
             _version++;
             version = _version;
         }

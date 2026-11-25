@@ -177,6 +177,7 @@ public class NotificationHubTests
         await Sandbox.Until(() => app.Engine.GetWorldLists().Drops.Count == 1);
         world.IsActive = true;
         world.SelectTabCommand.Execute("Drops");
+        await Sandbox.Until(() => world.Drops.Count == 1); // the lists are read off the UI thread
         DropListItem drop = Assert.Single(world.Drops);
         Assert.Equal(("Pixie Wing", false, false), (drop.Name, drop.Watched, drop.Junk));
 

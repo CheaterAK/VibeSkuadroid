@@ -161,7 +161,7 @@ public sealed partial class WorldViewModel : ObservableObject
         try
         {
             await _host.Engine.LoadBankAsync();
-            Reload(force: true);
+            await ReloadNowAsync();
         }
         catch (EngineException e)
         {
@@ -334,9 +334,68 @@ public sealed partial class WorldViewModel : ObservableObject
             FactionRows = shown;
     }
 
+    // ------------------------------------------------------------------ lists (read on a worker thread, throttled)
+
+    private int _readState;
+    private volatile bool _readAgain;
+    private long _lastReadMs = long.MinValue / 2;
+    private (IReadOnlyList<InventoryRow> Source, string Filter, IReadOnlyList<InventoryRow> Shown) _bankView = ([], string.Empty, []);
+
+    /// <summary>List reads done so far (tests).</summary>
+    internal int ListReads;
+
+    // The lists are read off the UI thread: with a 3000-item bank each read copied the bank under the world model's
+    // lock while the script thread used it, and the World page read after every world change, on the UI thread.
     private void Reload(bool force)
     {
-        WorldLists lists = _host.Engine.GetWorldLists();
+        if (force)
+            Volatile.Write(ref _lastReadMs, long.MinValue / 2);
+        if (Interlocked.CompareExchange(ref _readState, 1, 0) != 0)
+        {
+            _readAgain = true;
+            return;
+        }
+        long wait = Volatile.Read(ref _lastReadMs) + (long)ReputationInterval.TotalMilliseconds - NowMs;
+        Task delay = wait > 0 ? Task.Delay(TimeSpan.FromMilliseconds(wait)) : Task.CompletedTask;
+        delay.ContinueWith(_ => ReadLists(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+    }
+
+    private void ReadLists()
+    {
+        _readAgain = false;
+        Volatile.Write(ref _lastReadMs, NowMs);
+        WorldLists? lists = null;
+        try
+        {
+            lists = _host.Engine.GetWorldLists();
+        }
+        catch (Exception e)
+        {
+            _dispatcher.Post(() => Message = $"Could not read the world: {e.Message}");
+        }
+        Interlocked.Increment(ref ListReads);
+        _dispatcher.Post(() =>
+        {
+            Volatile.Write(ref _readState, 0);
+            if (lists is not null)
+                ShowLists(lists, force: false);
+            if (_readAgain || (IsActive && Volatile.Read(ref _latestVersion) != _shownVersion))
+            {
+                if (IsActive)
+                    Reload(force: false);
+            }
+        });
+    }
+
+    /// <summary>Reads the lists now, off the UI thread, and shows them (after an action such as loading the bank).</summary>
+    internal async Task ReloadNowAsync()
+    {
+        WorldLists lists = await Task.Run(_host.Engine.GetWorldLists).ConfigureAwait(true);
+        ShowLists(lists, force: true);
+    }
+
+    private void ShowLists(WorldLists lists, bool force)
+    {
         if (!force && lists.WorldVersion == _shownVersion)
             return;
         _lists = lists;
@@ -352,7 +411,10 @@ public sealed partial class WorldViewModel : ObservableObject
         bool Match(string name) => f.Length == 0 || name.Contains(f, StringComparison.OrdinalIgnoreCase);
         Inventory = _lists.Inventory.Where(i => Match(i.Name)).OrderByDescending(i => i.Equipped).ThenBy(i => i.Name).ToList();
         Temp = _lists.TempInventory.Where(i => Match(i.Name)).OrderBy(i => i.Name).ToList();
-        Bank = _lists.Bank.Where(i => Match(i.Name)).OrderBy(i => i.Name).ToList();
+        // The engine hands back the same bank list while the bank is unchanged: filter and sort it only then.
+        if (!ReferenceEquals(_bankView.Source, _lists.Bank) || _bankView.Filter != f)
+            _bankView = (_lists.Bank, f, _lists.Bank.Where(i => Match(i.Name)).OrderBy(i => i.Name).ToList());
+        Bank = _bankView.Shown;
         Quests = _lists.Quests.Where(q => Match(q.Name) || q.QuestId.ToString() == f).ToList();
         IReadOnlyList<string> watched = _notifications?.Settings.Current.WatchedItems ?? [];
         IJunkList? junk = _host.Engine.GameEvents?.Junk;

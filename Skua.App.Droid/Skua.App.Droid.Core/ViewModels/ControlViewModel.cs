@@ -178,8 +178,46 @@ public sealed partial class ControlViewModel : ObservableObject
     [ObservableProperty]
     private string _bankSummary = "The bank is not loaded.";
 
+    /// <summary>
+    /// The most bank lines the Bank tab shows at once. The tab is a plain list inside the page's scroll view (no
+    /// virtualization), and a 3000-item bank built 3000 rows with buttons on the UI thread; search finds the rest.
+    /// </summary>
+    public const int MaxBankLines = 100;
+
     [ObservableProperty]
     private IReadOnlyList<ItemLine> _bankItems = [];
+
+    /// <summary>Search text for the Bank tab (item name, case-insensitive).</summary>
+    [ObservableProperty]
+    private string _bankFilter = string.Empty;
+
+    /// <summary>"Showing 100 of 2950 ..." when the search matches more than <see cref="MaxBankLines"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasBankShownText))]
+    private string _bankShownText = string.Empty;
+
+    public bool HasBankShownText => BankShownText.Length > 0;
+
+    private IReadOnlyList<InventoryRow> _bankSource = [];
+
+    partial void OnBankFilterChanged(string value) => ShowBankLines();
+
+    private void ShowBankLines()
+    {
+        string f = BankFilter.Trim();
+        List<ItemLine> lines = new(Math.Min(MaxBankLines, _bankSource.Count));
+        int matched = 0;
+        foreach (InventoryRow row in _bankSource)
+        {
+            if (f.Length > 0 && !row.Name.Contains(f, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (++matched <= MaxBankLines)
+                lines.Add(new ItemLine(row, "To backpack", ToInventoryCommand, false, SellCommand));
+        }
+        BankShownText = matched > MaxBankLines ? $"Showing {MaxBankLines} of {matched}; search to find the others." : string.Empty;
+        if (!lines.SequenceEqual(BankItems))
+            BankItems = lines;
+    }
 
     [ObservableProperty]
     private IReadOnlyList<ItemLine> _inventoryItems = [];
@@ -471,10 +509,13 @@ public sealed partial class ControlViewModel : ObservableObject
         {
             BankLoaded = bank.Loaded;
             BankSummary = bank.Loaded ? $"Bank {bank.Bank.Count}/{bank.BankSlots} · backpack {bank.Inventory.Count}/{bank.BagSlots}" : "The bank is not loaded.";
-            List<ItemLine> banked = bank.Bank.Select(i => new ItemLine(i, "To backpack", ToInventoryCommand, false, SellCommand)).ToList();
+            // The backend hands back the same list while the bank is unchanged: nothing to rebuild then.
+            if (!ReferenceEquals(bank.Bank, _bankSource))
+            {
+                _bankSource = bank.Bank;
+                ShowBankLines();
+            }
             List<ItemLine> held = bank.Inventory.Select(i => new ItemLine(i, "To bank", ToBankCommand, sellable && !i.Equipped, SellCommand)).ToList();
-            if (!banked.SequenceEqual(BankItems))
-                BankItems = banked;
             if (!held.SequenceEqual(InventoryItems))
                 InventoryItems = held;
         }

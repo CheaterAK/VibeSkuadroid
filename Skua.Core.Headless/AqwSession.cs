@@ -408,10 +408,12 @@ public sealed class AqwSession : IAsyncDisposable
                     RaiseLog(HeadlessLogLevel.Warning, $"Bank: the HTTPS reply (HTTP {reply.HttpStatus}, {reply.Items.Count} items) came after the connection closed; dropped.");
                     return new BankLoadResult(BankLoadMethod.None, false, 0, reply.HttpStatus, Elapsed(), "the connection closed during the load");
                 }
-                int count = World.AddItemsToBank(reply.Items);
+                int received = reply.Items.Count;
+                // The parsed reply belongs to this load alone: the model takes its items over instead of copying them.
+                int count = World.AddItemsToBank(reply.Items, adopt: true);
                 ReportBankLoaded(connection, "api/char/bank");
                 RaiseLog(HeadlessLogLevel.Info, $"Bank: loaded over HTTPS (POST api/char/bank, the game's own request; token of web login #{account.Generation}): "
-                    + $"HTTP {reply.HttpStatus}, {reply.Items.Count} items received{(reply.Shape == "array" ? string.Empty : $" (wrapped: {reply.Shape})")}, "
+                    + $"HTTP {reply.HttpStatus}, {received} items received{(reply.Shape == "array" ? string.Empty : $" (wrapped: {reply.Shape})")}, "
                     + $"{count} in the bank, {reply.BodyBytes} bytes, {Ms()}.");
                 return new BankLoadResult(BankLoadMethod.Http, true, count, reply.HttpStatus, Elapsed(), null);
             }
