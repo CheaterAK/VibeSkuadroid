@@ -33,8 +33,12 @@ public sealed class AqwWebApiOptions
     /// <summary>Upper bound for a downloaded game SWF (client version discovery).</summary>
     public long MaxGameFileBytes { get; set; } = 64L * 1024 * 1024;
 
-    /// <summary>Upper bound for the <c>api/char/bank</c> reply (the whole bank as JSON; a full bank is a few MB at most).</summary>
-    public long MaxBankBytes { get; set; } = 16L * 1024 * 1024;
+    /// <summary>
+    /// Upper bound for the <c>api/char/bank</c> reply (the whole bank as JSON). Accounts with expanded bank space hold
+    /// more than <c>iMaxBankSlots</c>: 3000 items of ~1.2 KB measured-shape JSON are 3.5 MB, long descriptions can
+    /// triple that, so 5000 items stay well inside 32 MB. Nothing else limits the item count.
+    /// </summary>
+    public long MaxBankBytes { get; set; } = 32L * 1024 * 1024;
 }
 
 /// <summary>A bank the <c>api/char/bank</c> call returned.</summary>
