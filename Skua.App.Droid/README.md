@@ -8,12 +8,13 @@ army of several (see Army).
 | Project | TFM | What |
 |---|---|---|
 | `Skua.App.Droid.Core` | net10.0 | `IBotEngine` seam, `HeadlessBotEngine` (on Skua.Core.Headless), `EngineHost` (login + remember me, resume after restart, memory watchdog, script queue), ViewModels, settings, credential vault format, script library |
-| `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`) |
+| `Skua.App.Droid.Scripting` | net10.0 | script reference images (`ScriptReferenceSet`, `LazyScriptReferenceProvider`), content-addressed `ScriptAssemblyStore`, `SkuaScriptHostAdapter` (Skua.Core through `HeadlessSkuaSession`), the compiler protocol and worker (`ScriptCompileProtocol`, `ScriptCompileWorker`, `ScriptPrecompiler`) |
 | `Skua.App.Droid.Linked` | net10.0 | the desktop's UI-free ViewModels compiled in unchanged (advanced skill items and rules, CoreBots loadout); referenced by `.Core` only, behind an extern alias (see Tools) |
 | `Skua.App.Droid.Plugins` | net10.0 | the built-in plugins' game-side halves (Daily Tracker, ButlerV5) and the Control page's, on Skua's `IScriptInterface`; created by the script host adapter |
 | `Skua.App.Droid.UI` | net10.0 | Avalonia 12 views (compiled bindings) |
 | `Skua.App.Droid` | net10.0-android | Android head: plain launcher and crash screen, the Avalonia activity, foreground `EngineService`, `KeystoreSecretStore`, crash capture, restart, manifest |
 | `Skua.App.Droid.Desktop` | net10.0 | desktop preview of the same UI and engine (no password storage) |
+| `Skua.App.Droid.CompilerHost` | net10.0 | the script compiler process off Android (`ScriptCompileWorker`, request on stdin, answer on stdout) for the tests and Linux measurements; not in the APK |
 | `Skua.App.Droid.Tests` | net10.0 | xunit v3 + Avalonia headless tests |
 
 This folder has its own `Directory.Build.props/targets` and `Directory.Packages.props` (Avalonia 12.1.6); the
@@ -100,9 +101,30 @@ beforehand and not reported. Classification and formatting are platform neutral 
 
 **Heartbeat.** The main process records what it is doing every 30 s and on every lifecycle transition (activity
 start/resume/pause/stop/destroy, surface created/changed/destroyed, service start/stop, trimMemory and lowMemory): UI
-foreground or background, script state, connection, RSS. It goes to the events log, to the startup marker and (Android
-11+) to the process state summary Android returns with that process's exit record, so the report says what the app was
+foreground or background, script state, connection, RSS, and the collector (`Core/Memory/GcTelemetry.cs`): managed
+heap, committed, minor/major collections, and the longest stall since the previous heartbeat plus the last stall over
+100 ms (with whether a nursery or major collection ran in it). Mono reports no pause times, so a probe thread sleeps
+50 ms in a loop and measures its oversleep: a stop-the-world collection stops it too. It goes to the events log, to
+the startup marker and (Android 11+) to the process state summary Android returns with that process's exit record (the
+GC part only to the log and the marker: the summary is limited to 127 bytes), so the report says what the app was
 doing just before it died. Below Android 11 a process that died while a script ran is reported from the marker alone.
+
+**ANR of 2026-11 (S21 Ultra, first script after an update, Load bank pressed with a 3000-item bank).** The trace,
+named with the full libmonosgen symbol set: the UI thread and the script thread were parked at a GC safepoint
+(`mono_threads_state_poll_with_info` <- `mono_thread_info_wait_for_resume`); the ScriptInterface thread's array
+allocation had started a collection (`mono_gc_alloc_vector` <- `sgen_alloc_obj_nolock` <- `sgen_ensure_free_space` <-
+`sgen_perform_collection` <- `sgen_stop_world` <- `unified_suspend_stop_world` <- `mono_threads_wait_pending_operations`)
+and was still stopping the world, a thread-pool worker waited on a contended monitor. With the serial collector every
+major collection walks the whole heap with all threads stopped, and the heap had grown from 530 MB to 1.2 GB in a
+minute, Android reporting RUNNING_CRITICAL (pages in zram). What filled it: Roslyn compiling CoreBots and its includes
+in the engine process (+260 MB RSS measured on Linux), and every Skua bank read copying, serialising and parsing the
+whole bank (27 MB per `Bank.Contains` at 3000 items; CoreBots reads it several times per kill), plus the World and
+Control pages copying it every refresh. All three are gone (see Scripts, Compiling and Control page, Bank).
+
+**Memory pressure.** `onTrimMemory` (main and slot processes, `Core/Memory/MemoryPressure.cs`): from RUNNING_LOW the
+caches that can be rebuilt (the bank's JSON text, Skua's parsed bank, the bank rows) are dropped; at RUNNING_CRITICAL
+and from BACKGROUND one full collection runs on a worker thread, at most once a minute, logged with its time and the
+heap before and after, rather than leaving it to the next allocation, perhaps the UI thread's.
 
 **Mono GC crashes (serial major GC).** The APK runs Mono's serial major collector (`AndroidEnableSGenConcurrent=false`,
 i.e. `MONO_GC_PARAMS=major=marksweep`). With the default concurrent one, the Java bridge (Tarjan) of .NET 10's Mono
@@ -113,6 +135,14 @@ Native tombstone frames in libmonosgen-2.0.so are named from an embedded table f
 (`Core/Diagnostics/monosgen-<BuildId>.sym`, `MonoGcDiagnostics`; regenerate with
 `build/android/tools/monosgen-symbols.py <runtime pack native dir>` after a runtime update), and a known GC crash gets a
 "Diagnosis:" line. The events log and every report header name the GC mode in effect (`runtime:` line).
+
+**GC options.** `-p:DroidMonoGcParams="..."` adds Mono GC options for an experiment (`major=marksweep` is kept,
+`marksweep-conc` refused): it becomes `MONO_GC_PARAMS=major=marksweep,...` in the APK's environment. The default adds
+none: a sweep with Mono's sgen on Linux (600 MB live heap; the old 27 MB-per-read bank churn and the new one) found no
+option that shortens a major pause, which grows with the live heap (200-280 ms there): `nursery-size` 8m/16m/32m only
+traded fewer nursery collections for longer ones, `soft-heap-limit=768m` tripled the major collections and the total
+pause (0.85 s to 3.5 s), `evacuation-threshold=30` changed nothing. A smaller live heap and less garbage bound the
+pauses.
 
 **Socket buffer canaries.** Each game connection reads into its own receive buffer (`Skua.Core.Headless/Net/ReceiveBuffer.cs`),
 never pooled, released only after its last read completed (a pending read is ended by closing the socket, never by a
@@ -200,6 +230,33 @@ dialogs go to the Console.
 samples (Roslyn's transient peak) are neither the start-up baseline nor "over the threshold"; the idle grace starts
 when the script ends.
 
+**Compiling (the `:compiler` process).** Roslyn never runs in the engine process. Before every start and every
+*Options* read, `SkuaScriptHostAdapter` asks its compiler (`ScriptPrecompiler`) to compile the script and its includes
+into the compiled-script cache; Skua's own start then finds every assembly there and only loads it (through
+`ScriptAssemblyStore`). The compiler is a bound, non-exported service in its own process (`Compiler/CompilerService.cs`:
+`:compiler` for the main engine, `:compiler2`..`6` for army slots), protected by the signature-level `SLOT_IPC`
+permission, messages checked for `sendingUid == myUid` both ways. The process takes its engine's HOME from its own
+name, so it compiles into that engine's scripts folder and cache with the keys Skua.Core computes (same paths and
+modification times; the request names only a script, which must be a `.cs` file inside that folder, and the engine's
+reference-set identity, refused if it differs). `ScriptCompileWorker` builds the same Skua session as the engine (the
+APK's reference images, the desktop namespaces, version 1.8.5.0, the store load context) and calls Skua.Core's
+`ScriptManager.CompileToCache` (Compile without creating the script object). Cache files are emitted to a `.partial`
+file and renamed, so a killed compiler never leaves a truncated assembly. One compile at a time across all compiler
+processes (a lock file in the main files folder): slots compiling at once wait in turn instead of adding up their
+peaks. The engine binds for one request (`BIND_AUTO_CREATE | BIND_IMPORTANT`: the compiler gets the engine's
+foreground-service priority), unbinds on the answer, and the process ends itself 2 s after it is unbound and idle.
+A compile error comes back as Skua's (`Compile error: ...`). If the compiler dies (Android kills it for memory), fails
+or does not answer within 10 minutes, the engine compiles in its own process only when the device keeps 512 MB (or
+twice Android's low-memory threshold) free after a compile's 430 MB peak; otherwise the start fails with the reason.
+Each compile is logged: who compiled, how many assemblies, the time, the compiler's peak and this process's RSS, heap
+and collection counts. Measured on Linux (CoreCLR, CoreBots + CoreFarms, CoreAdvanced, CoreStory, CoreDailies, cold):
+in the engine process the compile peaked at 344 MB RSS (+256 MB, 213 MB allocated); through the compiler process the
+engine peaked at 112 MB (+23 MB, +0.3 MB heap retained) and the compiler at 322 MB before it exited. A cached start
+reads no reference image: they are `LazyScriptReferenceProvider` references read when a compilation binds them and
+kept only while one uses them (before: 7.3 MB read and kept for the process; 21 MB retained after a cold compile, now
+12 MB if the engine ever compiles itself). The game view and the script queue go through the same start; a start
+never waits on the UI thread (the engine's start is asynchronous and the binding callbacks only hand over a Binder).
+
 ## Community scripts
 
 *Sync community scripts* downloads github.com/auqw/Scripts (branch Skua) into the script folder, with its folder
@@ -273,6 +330,20 @@ views bind to `.Core` wrappers (`SkillRow`, `AuraCheckRow`, `CoreBotsSlot`, ...)
 There is no game rendering, so the Control tab (bottom bar: Home, Scripts, **Control**, Console, Plugins, Settings)
 shows the game schematically and lets you act by hand. It took World's place in the bar: the World lists (inventory,
 temp, bank, quests, drops, monsters) open from Control's *Lists* button, and Back returns to Control.
+
+**Bank (large banks).** Accounts with expanded bank space hold more than `iMaxBankSlots` (3000 items measured); the
+reply limit is 32 MB (a synthetic 3000-item bank in the live item shape, ~45 fields with long descriptions, is 3.5 MB;
+5000 items 5.9 MB) and nothing limits the item count. The world model inserts the reply in one pass keyed by ItemID
+and takes the parsed items over without copying (was a search per item under the model's lock: 0.7 s for 3000 items,
+4 s for 5000 on a desktop CPU; now 0.11 s and 0.2 s including the fake server's side). `WorldModel.BankVersion`
+advances on every change that may touch the bank; keyed by it: the JSON text of `world.bankinfo.items` (serialised
+once per version), Skua's bank (`HeadlessFlashUtil` parses it once per version and hands each read a new list of
+memberwise copies, which is what a fresh parse gives for the flat `InventoryItem`), and the app's bank rows (the same
+list instance while the bank is unchanged). One `Bank.Contains` on 3000 items went from 27 MB / 41 ms to 0.4 MB /
+0.7 ms (5000: 46 MB to 0.65 MB), a World-lists or Control refresh from 12 MB to 0.02 MB (`LargeBankTests`,
+`LargeBankAppTests`). The World lists are read on a worker thread (throttled like the Control page) and only shown on
+the UI thread; the Control page's Bank tab (a plain list in the page's scroll view) shows at most 100 items with a
+search box. The Junk list sums quantities by lookup instead of scanning the bank per item.
 
 **Reputation** (a tab of the World lists): every faction of Skua's `IScriptFaction.FactionList` (the headless client's
 rank math) with name, ID, rank, reputation in the rank, the rank's span, what remains and the total; highest rank
@@ -513,7 +584,9 @@ Settings tab shows the hub and the app is in the foreground.
   minute (from the connection's counters), totals, the send queue and drops, the pacer's gaps, slow-down warnings,
   liveness probes, time since the server last sent anything.
 * **Memory**: RSS and peak, PSS (`/proc/self/smaps_rollup`, read on demand), managed heap and total allocated, GC
-  collections, loaded script assemblies, thread pool, the watchdog's threshold, mode and current verdict.
+  collections, GC pauses (the stall probe's longest stall since the last heartbeat and the last one over 0.1 s, with
+  the collection that ran in it; committed memory), loaded script assemblies, thread pool, the watchdog's threshold,
+  mode and current verdict.
 * **Flash gaps**: `HeadlessFlashUtil`'s gap log (Missing / Impossible / Approximated, name and argument shape, count,
   what was answered instead), most frequent first.
 * **Process exits**: the exits Android reported (the `previous exit (...)` lines the crash reporting writes to the
@@ -657,6 +730,11 @@ the Keystore vault itself. Each slot decrypts only its own entry by behaviour; t
 process of the app is the same Linux user with the same Keystore, so a script in any slot could read every account's
 entry (and bind the main process's services). Names (maps, cells, pads, players, option profiles, script paths) are checked on the slot
 side before anything is sent.
+
+**Compiling in the army.** Each full slot compiles through its own compiler process (`:compiler2`..`6`, the slot's HOME and
+cache; see Scripts, Compiling), never in the slot process; one compile at a time across the app (the main engine's and
+every slot's), so a Start All of CoreBots scripts costs one compiler peak at a time. The memory policy still admits a
+full slot with its compile peak (the compiler process is what holds it now).
 
 **One notification.** Android lets each process's foreground service post its own notification; all slot services
 use the main service's notification id, and Android keeps a shared id while any foreground service of the app still
