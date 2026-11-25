@@ -30,7 +30,8 @@ public sealed record MemoryReading(
     long PendingWorkItems,
     int ThresholdMb,
     bool AutoRestart,
-    string Verdict);
+    string Verdict,
+    GcSample? Gc = null);
 
 /// <summary>Skua's runtime helpers (the desktop's Runtime window): what a script registered, read only.</summary>
 public sealed record RuntimeReading(
@@ -138,7 +139,8 @@ public static partial class DiagnosticsReport
             ThreadPool.PendingWorkItemCount,
             thresholdMb,
             autoRestart,
-            verdict);
+            verdict,
+            GcTelemetry.Read());
     }
 
     /// <summary>Skua's runtime helpers and recorded events on the engine's Skua services; null without a Skua host.</summary>
@@ -232,10 +234,23 @@ public static partial class DiagnosticsReport
         new("PSS", m.PssBytes < 0 ? "n/a" : Mb(m.PssBytes)),
         new("Managed heap", $"{Mb(m.ManagedBytes)} ({Mb(m.TotalAllocatedBytes)} allocated in all)"),
         new("Collections", $"gen 0: {m.Gen0}, gen 1: {m.Gen1}, gen 2: {m.Gen2}"),
+        new("GC pauses", m.Gc is GcSample g ? PauseText(g) : "n/a"),
         new("Script assemblies", $"{m.ScriptAssemblies} loaded (never unloaded on Android)"),
         new("Thread pool", $"{m.ThreadPoolThreads} threads, {m.PendingWorkItems} work items waiting"),
         new("Watchdog", $"{(m.AutoRestart ? "restarts" : "warns")} above {m.ThresholdMb} MB RSS; now {m.Verdict}"),
     ];
+
+    private static string PauseText(GcSample g)
+    {
+        CultureInfo c = CultureInfo.InvariantCulture;
+        string text = g.TotalPause is TimeSpan total ? string.Create(c, $"{total.TotalSeconds:0.0} s in all; ") : string.Empty;
+        text += string.Create(c, $"longest stall since the last heartbeat {g.MaxStall.TotalSeconds:0.00} s");
+        if (g.LastLongStall is GcStall s)
+            text += string.Create(c, $"; last over 0.1 s: {s.Length.TotalSeconds:0.00} s at {s.At.ToLocalTime():HH:mm:ss}{(s.DuringMajor ? " (major collection)" : s.DuringMinor ? " (nursery collection)" : " (no collection: CPU or I/O)")}");
+        if (g.CommittedBytes >= 0)
+            text += string.Create(c, $"; committed {g.CommittedBytes / 1048576.0:0} MB");
+        return text;
+    }
 
     /// <summary>The runtime helpers section.</summary>
     public static IReadOnlyList<InfoRow> RuntimeRows(RuntimeReading? r)

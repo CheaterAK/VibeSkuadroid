@@ -44,7 +44,8 @@ public sealed class DirectoryScriptReferenceSource : IScriptReferenceSource
 
 /// <summary>
 /// The base references for compiling scripts on the device: the net10.0 reference pack plus Skua's own assemblies
-/// and the WinForms shim, read as streams and handed to Skua.Core through <see cref="StreamScriptReferenceProvider"/>.
+/// and the WinForms shim, read as streams (only when a compilation binds them) and handed to Skua.Core through
+/// <see cref="LazyScriptReferenceProvider"/>.
 /// </summary>
 public sealed class ScriptReferenceSet
 {
@@ -69,7 +70,7 @@ public sealed class ScriptReferenceSet
         "app/Newtonsoft.Json.dll",
     ];
 
-    private ScriptReferenceSet(IReadOnlyList<string> files, IReadOnlyList<string> problems, StreamScriptReferenceProvider provider)
+    private ScriptReferenceSet(IReadOnlyList<string> files, IReadOnlyList<string> problems, LazyScriptReferenceProvider provider)
     {
         Files = files;
         Problems = problems;
@@ -85,7 +86,7 @@ public sealed class ScriptReferenceSet
     public bool IsComplete => Problems.Count == 0;
 
     /// <summary>What to register as Skua.Core's <c>IScriptReferenceProvider</c>.</summary>
-    public StreamScriptReferenceProvider Provider { get; }
+    public LazyScriptReferenceProvider Provider { get; }
 
     /// <summary>What to register as Skua.Core's <c>IScriptNamespaceProvider</c>: the desktop list, unchanged.</summary>
     public static IScriptNamespaceProvider Namespaces => ScriptNamespaceProvider.Desktop;
@@ -118,7 +119,7 @@ public sealed class ScriptReferenceSet
             }
         }
 
-        StreamScriptReferenceProvider provider = new(files.Select(f =>
+        LazyScriptReferenceProvider provider = new(files.Select(f =>
             new KeyValuePair<string, Func<Stream>>(f[(f.IndexOf('/') + 1)..], () => source.Open(f))));
         return new ScriptReferenceSet(files, problems, provider);
     }

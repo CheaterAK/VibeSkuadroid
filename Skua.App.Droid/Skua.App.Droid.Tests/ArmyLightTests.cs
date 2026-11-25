@@ -38,6 +38,7 @@ public class ValidationPatternTests
 /// Light accounts: many Skua.Core.Headless sessions in one process, each against its own fake AQW server, with the
 /// native behaviours; the rotation parser, the follow decision, the login stagger, and the per-session memory figure.
 /// </summary>
+[Collection(nameof(MemoryHeavy))] // the per-session heap figure must not count other tests' allocations
 public class ArmyLightTests
 {
     private readonly ITestOutputHelper _output;

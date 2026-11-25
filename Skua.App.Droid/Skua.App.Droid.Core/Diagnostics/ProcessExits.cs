@@ -45,7 +45,8 @@ public enum UiState
 /// <param name="At">When this was recorded.</param>
 /// <param name="Planned">Set just before the app ends its own process on purpose (restart), else null.</param>
 /// <param name="RssMb">Resident memory at that moment, or -1.</param>
-public sealed record ProcessActivity(UiState Ui, string? Script, string? Connection, string? Event, DateTimeOffset At, string? Planned = null, int RssMb = -1)
+/// <param name="Gc">The managed heap and the collector (<c>GcSample.Describe</c>), when recorded.</param>
+public sealed record ProcessActivity(UiState Ui, string? Script, string? Connection, string? Event, DateTimeOffset At, string? Planned = null, int RssMb = -1, string? Gc = null)
 {
     /// <summary>Android rejects summaries of 128 bytes or more.</summary>
     public const int MaxSummaryBytes = 127;
@@ -64,7 +65,7 @@ public sealed record ProcessActivity(UiState Ui, string? Script, string? Connect
 
     /// <summary>One line for logs and reports.</summary>
     public string Describe() => FormattableString.Invariant(
-        $"UI {UiText}, script {Script ?? "n/a"}, connection {Connection ?? "n/a"}, last event {Event ?? "n/a"} at {At:u}{(RssMb >= 0 ? $", RSS {RssMb} MB" : string.Empty)}{(Planned is null ? string.Empty : $", planned exit ({Planned})")}");
+        $"UI {UiText}, script {Script ?? "n/a"}, connection {Connection ?? "n/a"}, last event {Event ?? "n/a"} at {At:u}{(RssMb >= 0 ? $", RSS {RssMb} MB" : string.Empty)}{(Gc is null ? string.Empty : $", {Gc}")}{(Planned is null ? string.Empty : $", planned exit ({Planned})")}");
 
     /// <summary>Compact ASCII form for ActivityManager.setProcessStateSummary (at most <see cref="MaxSummaryBytes"/> bytes).</summary>
     public byte[] ToSummary()
@@ -111,7 +112,7 @@ public sealed record ProcessActivity(UiState Ui, string? Script, string? Connect
 
     /// <summary>The marker file lines for this state (key=value, no line breaks in values).</summary>
     internal string ToMarkerLines() => string.Create(CultureInfo.InvariantCulture,
-        $"ui={(int)Ui}\nscript={Clean(Script)}\nconn={Clean(Connection)}\nevent={Clean(Event)}\nhb={At:O}\nrss={RssMb}\nplanned={Clean(Planned)}\n");
+        $"ui={(int)Ui}\nscript={Clean(Script)}\nconn={Clean(Connection)}\nevent={Clean(Event)}\nhb={At:O}\nrss={RssMb}\nplanned={Clean(Planned)}\ngc={(Gc is null ? string.Empty : ProcessExitRecord.OneLine(Gc))}\n");
 
     internal static ProcessActivity? FromMarker(IReadOnlyDictionary<string, string> values)
     {
@@ -123,7 +124,7 @@ public sealed record ProcessActivity(UiState Ui, string? Script, string? Connect
             ? parsed
             : DateTimeOffset.MinValue;
         int rss = values.TryGetValue("rss", out string? r) && int.TryParse(r, NumberStyles.Integer, CultureInfo.InvariantCulture, out int mb) ? mb : -1;
-        return new ProcessActivity((UiState)uiValue, Empty(values, "script"), Empty(values, "conn"), Empty(values, "event"), at, Empty(values, "planned"), rss);
+        return new ProcessActivity((UiState)uiValue, Empty(values, "script"), Empty(values, "conn"), Empty(values, "event"), at, Empty(values, "planned"), rss, Empty(values, "gc"));
     }
 
     private static string Clean(string? value)

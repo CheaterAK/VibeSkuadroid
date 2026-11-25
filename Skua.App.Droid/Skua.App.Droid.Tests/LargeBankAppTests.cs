@@ -11,11 +11,18 @@ using Skua.Core.Models;
 
 namespace Skua.App.Droid.Tests;
 
-public partial class SessionIntegrationTests
+/// <summary>Tests that measure the whole managed heap or allocate a lot: alone, after the parallel ones.</summary>
+[CollectionDefinition(nameof(MemoryHeavy), DisableParallelization = true)]
+public sealed class MemoryHeavy
+{
+}
+
+[Collection(nameof(MemoryHeavy))]
+public sealed class LargeBankAppTests
 {
     private readonly ITestOutputHelper? _output;
 
-    public SessionIntegrationTests(ITestOutputHelper output)
+    public LargeBankAppTests(ITestOutputHelper output)
     {
         _output = output;
     }

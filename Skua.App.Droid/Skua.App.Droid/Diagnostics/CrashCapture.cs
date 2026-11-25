@@ -257,6 +257,8 @@ internal static class CrashCapture
             {
                 if (s_heartbeat is not null || !s_trackStartup)
                     return;
+                // Pause times for the heartbeat line (Mono reports none itself; see GcTelemetry).
+                Skua.App.Droid.Core.Memory.GcTelemetry.Start();
                 s_heartbeat = new System.Threading.Timer(_ =>
                 {
                     // Released socket buffers must still hold their poison (a violation is logged by the canary hook).
@@ -286,7 +288,16 @@ internal static class CrashCapture
         catch (Exception)
         {
         }
-        return new ProcessActivity(ui ?? previous.Ui, script, connection, evt, DateTimeOffset.UtcNow, planned ?? previous.Planned, ReadRssMb());
+        string? gc = null;
+        try
+        {
+            // A heartbeat starts a new window for the longest stall; other events only read.
+            gc = (evt == "heartbeat" ? Skua.App.Droid.Core.Memory.GcTelemetry.ReadWindow() : Skua.App.Droid.Core.Memory.GcTelemetry.Read()).Describe();
+        }
+        catch (Exception)
+        {
+        }
+        return new ProcessActivity(ui ?? previous.Ui, script, connection, evt, DateTimeOffset.UtcNow, planned ?? previous.Planned, ReadRssMb(), gc);
     }
 
     /// <summary>ActivityManager.setProcessStateSummary (API 30+), only when the meaningful part changed (it is a binder call).</summary>
