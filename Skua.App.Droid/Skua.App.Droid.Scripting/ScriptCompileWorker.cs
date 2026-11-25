@@ -104,17 +104,13 @@ public sealed class ScriptCompileWorker : IAsyncDisposable
     {
         if (_session is not null)
             return _session;
-        // The options of SkuaScriptHostAdapter.OpenSession that shape a compile.
+        // The options of SkuaScriptHostAdapter.OpenSession that shape a compile. Not its ConfigureSettings: Skua saves
+        // every Set to the settings file the engine process shares (same HOME), and the engine already saved those.
         HeadlessSkuaOptions options = new()
         {
             ScriptReferences = _references.Provider,
             ScriptNamespaces = ScriptReferenceSet.Namespaces,
             ApplicationVersionOverride = SkuaScriptHostAdapter.ReportedSkuaVersion,
-            ConfigureSettings = settings =>
-            {
-                settings.Set("CheckAdvanceSkillSetsUpdates", false);
-                settings.Set("AutoUpdateAdvanceSkillSetsUpdates", false);
-            },
         };
         _configure?.Invoke(options);
         HeadlessSkuaSession session = HeadlessSkuaSession.Create(options);
