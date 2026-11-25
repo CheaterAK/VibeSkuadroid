@@ -59,7 +59,33 @@
       Skua.App.Droid.Tests checks this setting; the crash report names the GC mode in effect (MonoGcDiagnostics).
     -->
     <AndroidEnableSGenConcurrent>false</AndroidEnableSGenConcurrent>
+    <!--
+      Extra Mono GC options on top of the serial major collector, for experiments on a device without code changes:
+        dotnet publish ... -p:DroidMonoGcParams="nursery-size=16m"
+      becomes MONO_GC_PARAMS=major=marksweep,nursery-size=16m in the APK's environment (a concurrent major collector
+      is refused, see above). Empty (the default) keeps Mono's own defaults with major=marksweep: measured on Linux
+      with Mono's sgen (600 MB live heap, the old 27 MB-per-read bank churn and the new one), no option shortened the
+      major pause (200-280 ms there, proportional to the live heap): nursery-size 8m/16m/32m only traded fewer nursery
+      collections for longer ones (p50 9-25 ms), soft-heap-limit=768m tripled the major collections and the total
+      pause (0.85 -> 3.5 s), evacuation-threshold=30 changed nothing. What bounds the pauses is a smaller live heap and
+      less garbage: scripts compile in the :compiler process, and the bank is read without copies.
+    -->
+    <DroidMonoGcParams Condition="'$(DroidMonoGcParams)' == ''"></DroidMonoGcParams>
   </PropertyGroup>
+
+  <Target Name="DroidMonoGcEnvironment" BeforeTargets="PrepareForBuild" Condition="'$(DroidMonoGcParams)' != ''">
+    <Error Condition="$(DroidMonoGcParams.Contains('marksweep-conc'))" Text="DroidMonoGcParams: the concurrent major collector corrupts the heap with the Java bridge on .NET 10 (see AndroidEnableSGenConcurrent)." />
+    <PropertyGroup>
+      <_DroidGcEnvFile>$(IntermediateOutputPath)droid-gc.env</_DroidGcEnvFile>
+      <_DroidGcValue Condition="$(DroidMonoGcParams.Contains('major='))">$(DroidMonoGcParams)</_DroidGcValue>
+      <_DroidGcValue Condition="!$(DroidMonoGcParams.Contains('major='))">major=marksweep,$(DroidMonoGcParams)</_DroidGcValue>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_DroidGcEnvFile)" Lines="MONO_GC_PARAMS=$(_DroidGcValue)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <AndroidEnvironment Include="$(_DroidGcEnvFile)" />
+    </ItemGroup>
+  </Target>
 
   <!--
     Scripts are arbitrary C# compiled on the device against the full net10.0 and Skua API surface, so nothing a

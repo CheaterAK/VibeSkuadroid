@@ -133,8 +133,15 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     public override void OnTrimMemory([GeneratedEnum] TrimMemory level)
     {
         base.OnTrimMemory(level);
-        if (!ProcessInfo.IsAuxiliaryProcess(this))
-            CrashCapture.Lifecycle($"trimMemory {(int)level} {level}");
+        bool engineProcess = !ProcessInfo.IsAuxiliaryProcess(this) || Army.SlotRuntime.Slot != 0;
+        if (!engineProcess)
+            return;
+        CrashCapture.Lifecycle($"trimMemory {(int)level} {level}");
+        // Drop rebuildable caches; at the critical levels one full collection on a worker thread, now, rather than
+        // the next allocation's (maybe the UI thread's) under the same pressure (Core/Memory/MemoryPressure).
+        // Off the main thread: the caches' locks may be held by the script thread for a moment.
+        int value = (int)level;
+        Task.Run(() => CrashCapture.Info($"trimMemory {value}: {Skua.App.Droid.Core.Memory.MemoryPressure.OnTrimMemory(value, CrashCapture.Info)}"));
     }
 
     public override void OnLowMemory()

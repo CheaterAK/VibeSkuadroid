@@ -768,6 +768,16 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         }
     }
 
+    /// <summary>Drops what can be rebuilt (memory pressure): the bridge's parsed bank and the bank's JSON text.</summary>
+    public void TrimCaches()
+    {
+        HeadlessSkuaSession? s = _skua;
+        if (s is null)
+            return;
+        s.Flash.TrimCaches();
+        s.Game.World.TrimCaches();
+    }
+
     // A start or an Options read compiles nothing after a precompile, unless a file changed in between.
     private void NoteStartCompilations(string path, long before)
     {

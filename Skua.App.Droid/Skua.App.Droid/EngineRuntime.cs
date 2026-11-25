@@ -186,6 +186,12 @@ internal static class EngineRuntime
             Scrubber = DiagnosticText.Secrets,
         }, scripts);
         CrashCapture.Info("engine: engine created");
+        // Memory pressure (DroidApplication.OnTrimMemory): drop what can be rebuilt.
+        Skua.App.Droid.Core.Memory.MemoryPressure.Register(() =>
+        {
+            engine.TrimCaches();
+            ((SkuaScriptHostAdapter)scripts).TrimCaches();
+        });
         EngineHost host = new(engine, settings, vault, new ResumeStore(paths.ResumeFile), platform);
         host.RememberFailed += (_, e) => CrashCapture.NonFatal("remembering the password", e);
         // The script queue lives with the engine (kept alive by the foreground service), not in the UI.

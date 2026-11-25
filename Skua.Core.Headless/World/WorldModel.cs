@@ -605,6 +605,13 @@ public sealed partial class WorldModel
         get { lock (_gate) return _bankVersion; }
     }
 
+    /// <summary>Drops the cached bank JSON text (memory pressure); the next read builds it again.</summary>
+    public void TrimCaches()
+    {
+        lock (_gate)
+            _bankJson = null;
+    }
+
     /// <summary>
     /// The JSON text of <c>world.bankinfo.items</c> (what <see cref="GetGameObject"/> returns for that path) and the
     /// <see cref="BankVersion"/> it belongs to, serialised once per version. Before, every read copied and serialised

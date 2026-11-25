@@ -1219,7 +1219,7 @@ public sealed class HeadlessBotEngine : IBotEngine
     }
 
     /// <summary>Drops the cached bank rows (memory pressure); the next read rebuilds them.</summary>
-    internal void TrimCaches() => _bankRows = null;
+    public void TrimCaches() => _bankRows = null;
 
     private static InventoryRow ToRow(ItemInfo i) => new(i.ItemId, i.Name, i.Quantity, i.MaxStack, i.Type, i.EquipSlot, i.Equipped, i.Temp, i.Member);
 

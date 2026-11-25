@@ -26,6 +26,25 @@ public class GcTelemetryTests
     }
 
     [Fact]
+    public async Task MemoryPressureDropsCachesAndCollectsAtMostOncePerInterval()
+    {
+        int trims = 0;
+        MemoryPressure.Register(() => Interlocked.Increment(ref trims));
+        MemoryPressure.Register(() => throw new InvalidOperationException("a cache that cannot be dropped"));
+        Assert.Equal("nothing to do", MemoryPressure.OnTrimMemory(MemoryPressure.RunningModerate));
+        Assert.Equal("nothing to do", MemoryPressure.OnTrimMemory(MemoryPressure.UiHidden));
+        Assert.EndsWith("caches dropped", MemoryPressure.OnTrimMemory(MemoryPressure.RunningLow));
+        Assert.True(trims >= 1);
+        TaskCompletionSource<string> collected = new();
+        string first = MemoryPressure.OnTrimMemory(MemoryPressure.RunningCritical, line => collected.TrySetResult(line));
+        string second = MemoryPressure.OnTrimMemory(MemoryPressure.Complete);
+        Assert.EndsWith("full collection started", first);
+        Assert.EndsWith("collected recently", second);
+        Assert.Contains("full collection", await collected.Task.WaitAsync(TimeSpan.FromSeconds(30)));
+        Assert.True(trims >= 3);
+    }
+
+    [Fact]
     public void TheHeartbeatCarriesTheGcLineThroughTheMarker()
     {
         ProcessActivity a = new(UiState.Foreground, "Running", "Online", "heartbeat", DateTimeOffset.UtcNow, null, 700, "heap 650 MB, GC 120 minor/8 major, stall max 1.20 s");

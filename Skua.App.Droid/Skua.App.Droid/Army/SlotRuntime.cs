@@ -99,6 +99,11 @@ internal static class SlotRuntime
             AutoReconnect = settings.Current.AutoReconnect,
             Scrubber = DiagnosticText.Secrets,
         }, scripts);
+        Skua.App.Droid.Core.Memory.MemoryPressure.Register(() =>
+        {
+            engine.TrimCaches();
+            ((SkuaScriptHostAdapter)scripts).TrimCaches();
+        });
         EngineHost host = new(engine, settings, new CredentialVault(secrets), new ResumeStore(paths.ResumeFile), new SlotPlatformServices(application, Slot));
         host.AttachScheduler(new ScriptScheduler(engine, new QueueStore(paths.QueueFile, paths.PlaylistsDir), paths.ScriptsDir, paths.SkuaOptionsDir));
         SlotHost slot = new(Slot, host, layout, new AccountStore(layout.AccountsFile), new AccountVault(secrets));
