@@ -118,5 +118,42 @@
           android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
           android:value="Keeps a user-started game client session (TCP connection and automation script) of a second account running while the app is in the background." />
     </service>
+
+    <!--
+      Script compilers: one short-lived process per engine (":compiler" for the main process, ":compilerN" for army
+      slot N, each with its engine's HOME and compiled-script cache). Bound, never started, by their own engine for one
+      compile; they end themselves when unbound and idle, so the compiler's memory goes back to the system at once.
+      Not exported and protected by the same signature-level permission as the slots.
+    -->
+    <service
+        android:name="com.vibeskua.droid.CompilerService"
+        android:process=":compiler"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC" />
+    <service
+        android:name="com.vibeskua.droid.CompilerService2"
+        android:process=":compiler2"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC" />
+    <service
+        android:name="com.vibeskua.droid.CompilerService3"
+        android:process=":compiler3"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC" />
+    <service
+        android:name="com.vibeskua.droid.CompilerService4"
+        android:process=":compiler4"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC" />
+    <service
+        android:name="com.vibeskua.droid.CompilerService5"
+        android:process=":compiler5"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC" />
+    <service
+        android:name="com.vibeskua.droid.CompilerService6"
+        android:process=":compiler6"
+        android:exported="false"
+        android:permission="${applicationId}.permission.SLOT_IPC" />
   </application>
 </manifest>

@@ -36,6 +36,10 @@ public class Compiler : CSharpScriptExecution
 
     private static readonly ConcurrentDictionary<int, string> _compiledRegistry = new();
     private static readonly ConcurrentDictionary<string, Assembly> _loadedAssemblies = new(StringComparer.OrdinalIgnoreCase);
+    private static long _compilations;
+
+    /// <summary>Roslyn compilations emitted by this process so far (a cache hit emits none).</summary>
+    public static long Compilations => Interlocked.Read(ref _compilations);
 
     public static bool FastVerifyAssembly(string path)
     {
@@ -202,6 +206,7 @@ public class Compiler : CSharpScriptExecution
 
         SyntaxTree tree = CSharpSyntaxTree.ParseText(sourceWithNamespaces.Trim(), _parseOptions);
 
+        Interlocked.Increment(ref _compilations);
         CSharpCompilation compilation = CSharpCompilation.Create(GeneratedClassName + ".cs")
             .WithOptions(_compilationOptions)
             .WithReferences(References)
@@ -476,16 +481,40 @@ public class Compiler : CSharpScriptExecution
         if (SaveGeneratedCode)
             GeneratedClassCode = source;
 
-        using FileStream codeStream = new(outputPath, FileMode.Create, FileAccess.Write);
+        Interlocked.Increment(ref _compilations);
+        // Emitted next to the cache file and renamed over it when complete: a process that dies while emitting (or a
+        // concurrent reader in another process) never sees a partial assembly under a cache name.
+        string partialPath = $"{outputPath}.{Environment.ProcessId}.{Guid.NewGuid():N}.partial";
         EmitResult? compilationResult = null;
-        if (CompileWithDebug)
+        try
         {
-            const DebugInformationFormat debugOptions = DebugInformationFormat.Embedded;
-            compilationResult = compilation.Emit(codeStream, options: new EmitOptions(debugInformationFormat: debugOptions));
+            using (FileStream codeStream = new(partialPath, FileMode.CreateNew, FileAccess.Write))
+            {
+                if (CompileWithDebug)
+                {
+                    const DebugInformationFormat debugOptions = DebugInformationFormat.Embedded;
+                    compilationResult = compilation.Emit(codeStream, options: new EmitOptions(debugInformationFormat: debugOptions));
+                }
+                else
+                {
+                    compilationResult = compilation.Emit(codeStream);
+                }
+            }
+            if (compilationResult.Success)
+                File.Move(partialPath, outputPath, overwrite: true);
         }
-        else
+        finally
         {
-            compilationResult = compilation.Emit(codeStream);
+            if (File.Exists(partialPath))
+            {
+                try
+                {
+                    File.Delete(partialPath);
+                }
+                catch
+                {
+                }
+            }
         }
 
         if (!compilationResult.Success)
@@ -525,6 +554,19 @@ public class Compiler : CSharpScriptExecution
         {
             if (!Directory.Exists(_cacheDirectory))
                 return;
+
+            // Emits interrupted by a process that died (see CompileAssemblyToDisk).
+            foreach (string partial in Directory.GetFiles(_cacheDirectory, "*.partial"))
+            {
+                try
+                {
+                    if (DateTime.UtcNow - File.GetLastWriteTimeUtc(partial) > TimeSpan.FromHours(1))
+                        File.Delete(partial);
+                }
+                catch
+                {
+                }
+            }
 
             string[] filePaths = Directory.GetFiles(_cacheDirectory, "*.dll");
             FileInfo[] files = new FileInfo[filePaths.Length];

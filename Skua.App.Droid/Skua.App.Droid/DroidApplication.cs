@@ -53,6 +53,13 @@ public sealed class DroidApplication : AvaloniaAndroidApplication<Skua.App.Droid
     {
         CrashCapture.InstallHandlers();
         AttachDiagnostics();
+        if (Compiler.CompilerProcess.Detect(ProcessInfo.CurrentName()) is int compilerFor)
+        {
+            // A script compiler process (":compiler", ":compilerN"): its engine's HOME, nothing else (the bound service
+            // does the rest and ends the process when done).
+            Compiler.CompilerProcess.PreparePaths(this, compilerFor);
+            return;
+        }
         if (Army.SlotRuntime.Detect() is int slot)
         {
             // A full army slot process (":acctN"): its own HOME and folders, its own engine, no UI, no Avalonia.

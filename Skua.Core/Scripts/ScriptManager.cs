@@ -516,7 +516,21 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
     }
 
     [RequiresUnreferencedCode("This method may require code that cannot be statically analyzed for trimming. Use with caution.")]
-    public object? Compile(string source)
+    public object? Compile(string source) => Compile(source, instantiate: true);
+
+    /// <summary>
+    /// Compiles <paramref name="source"/> (the <see cref="LoadedScript"/>'s text) and its includes exactly as
+    /// <see cref="Compile(string)"/> does, into the compiled-script cache under the same keys, without creating the
+    /// script object (no script constructor runs). A later <see cref="Compile(string)"/> or <see cref="StartScript"/>
+    /// of the unchanged script then loads the cached assemblies and compiles nothing. Hosts use it to compile ahead of
+    /// a start, for example in a separate process whose memory is returned when it ends.
+    /// </summary>
+    /// <exception cref="ScriptCompileException">The script or an include does not compile.</exception>
+    [RequiresUnreferencedCode("This method may require code that cannot be statically analyzed for trimming. Use with caution.")]
+    public void CompileToCache(string source) => Compile(source, instantiate: false);
+
+    [RequiresUnreferencedCode("This method may require code that cannot be statically analyzed for trimming. Use with caution.")]
+    private object? Compile(string source, bool instantiate)
     {
         string? scriptCorrelationId;
         lock (_threadLock)
@@ -596,7 +610,9 @@ public partial class ScriptManager : ObservableObject, IScriptManager, IDisposab
 
         bool cacheHit = Compiler.IsCompiled(cacheHash);
         _diagnostics.RecordEvent("Script", cacheHit ? "CompileCacheHit" : "CompileCacheMiss", correlationId: scriptCorrelationId);
-        dynamic? assembly = compiler.CompileClass(final, cacheHash, loadContext, scriptName);
+        dynamic? assembly = instantiate
+            ? compiler.CompileClass(final, cacheHash, loadContext, scriptName)
+            : compiler.CompileClassToType(final, cacheHash, loadContext, scriptName);
 
         sw.Stop();
         Trace.WriteLine($"Script compilation took {sw.ElapsedMilliseconds}ms.");

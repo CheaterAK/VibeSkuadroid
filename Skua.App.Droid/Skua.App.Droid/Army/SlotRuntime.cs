@@ -88,7 +88,12 @@ internal static class SlotRuntime
         // The one Keystore-backed store of the app: this process decrypts only the entry of the account it logs in.
         ISecretStore secrets = EngineRuntime.CreateSecretStore(application, paths.SecretsDir);
         ScriptReferenceSet references = EngineRuntime.LoadScriptReferences(application);
-        IScriptHost scripts = new SkuaScriptHostAdapter(references, new ScriptAssemblyStore(), paths.ScriptsDir);
+        IScriptHost scripts = new SkuaScriptHostAdapter(references, new ScriptAssemblyStore(), paths.ScriptsDir)
+        {
+            // This slot's own compiler process (":compilerN", this slot's HOME and cache); one compile at a time app-wide.
+            Precompiler = new ScriptPrecompiler(new Compiler.CompilerClient(application, Slot), references.Identity,
+                () => ScriptPrecompiler.RefuseInProcessFor(AndroidArmyPlatform.Read(application))),
+        };
         HeadlessBotEngine engine = new(new HeadlessEngineOptions
         {
             AutoReconnect = settings.Current.AutoReconnect,

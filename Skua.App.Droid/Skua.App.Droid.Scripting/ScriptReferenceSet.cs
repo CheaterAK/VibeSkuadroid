@@ -70,11 +70,12 @@ public sealed class ScriptReferenceSet
         "app/Newtonsoft.Json.dll",
     ];
 
-    private ScriptReferenceSet(IReadOnlyList<string> files, IReadOnlyList<string> problems, LazyScriptReferenceProvider provider)
+    private ScriptReferenceSet(IReadOnlyList<string> files, IReadOnlyList<string> problems, LazyScriptReferenceProvider provider, string identity)
     {
         Files = files;
         Problems = problems;
         Provider = provider;
+        Identity = identity;
     }
 
     /// <summary>"folder/file" for every image found.</summary>
@@ -84,6 +85,9 @@ public sealed class ScriptReferenceSet
     public IReadOnlyList<string> Problems { get; }
 
     public bool IsComplete => Problems.Count == 0;
+
+    /// <summary>Identifies this set and the Skua.Core it compiles with (compared by the compiler process).</summary>
+    public string Identity { get; }
 
     /// <summary>What to register as Skua.Core's <c>IScriptReferenceProvider</c>.</summary>
     public LazyScriptReferenceProvider Provider { get; }
@@ -121,6 +125,9 @@ public sealed class ScriptReferenceSet
 
         LazyScriptReferenceProvider provider = new(files.Select(f =>
             new KeyValuePair<string, Func<Stream>>(f[(f.IndexOf('/') + 1)..], () => source.Open(f))));
-        return new ScriptReferenceSet(files, problems, provider);
+        // Same images listed and the same Skua.Core loaded (same APK): two processes compile identically.
+        string identity = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            string.Join("\n", files) + "\n#\n" + manifest + "\n#\n" + typeof(ScriptManager).Assembly.ManifestModule.ModuleVersionId.ToString("N"))))[..32];
+        return new ScriptReferenceSet(files, problems, provider, identity);
     }
 }

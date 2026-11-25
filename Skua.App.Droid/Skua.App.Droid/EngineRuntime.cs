@@ -171,7 +171,13 @@ internal static class EngineRuntime
         CrashCapture.Info($"engine: settings, vault (available: {vault.IsAvailable}) and script library ready");
 
         ScriptReferenceSet references = LoadScriptReferences(application);
-        IScriptHost scripts = new SkuaScriptHostAdapter(references, new ScriptAssemblyStore(), paths.ScriptsDir);
+        IScriptHost scripts = new SkuaScriptHostAdapter(references, new ScriptAssemblyStore(), paths.ScriptsDir)
+        {
+            // Scripts compile in the short-lived ":compiler" process: Roslyn's peak (~430 MB for CoreBots) and what it leaves
+            // behind never enter this process's heap; here they are only loaded from the cache.
+            Precompiler = new ScriptPrecompiler(new Compiler.CompilerClient(application, 1), references.Identity,
+                () => ScriptPrecompiler.RefuseInProcessFor(Army.AndroidArmyPlatform.Read(application))),
+        };
 
         HeadlessBotEngine engine = new(new HeadlessEngineOptions
         {

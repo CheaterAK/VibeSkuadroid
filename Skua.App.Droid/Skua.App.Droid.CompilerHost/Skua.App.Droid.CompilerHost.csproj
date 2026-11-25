@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The script compiler process off Android: one ScriptCompileWorker compile per run, request on stdin, response on
+    stdout (the protocol of the Android :compiler service, ScriptCompileProtocol). The tests use it as a real separate
+    process (cache key identity, the engine compiling nothing itself, a compiler killed mid-compile) and for the Linux
+    memory measurements. Not part of the APK.
+      dotnet Skua.App.Droid.CompilerHost.dll <data folder> <script-refs folder> [lock file] < request.json
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Skua.App.Droid.CompilerHost</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skua.App.Droid.Scripting\Skua.App.Droid.Scripting.csproj" />
+  </ItemGroup>
+
+</Project>

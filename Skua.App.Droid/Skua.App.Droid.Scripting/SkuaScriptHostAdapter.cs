@@ -14,7 +14,10 @@ using Skua.Core.Messaging;
 using Skua.Core.Models;
 using Skua.Core.Options;
 using Skua.Core.Scripts;
+using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
+using Compiler = Skua.Core.Compiler;
 
 namespace Skua.App.Droid.Scripting;
 
@@ -83,6 +86,18 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
     }
 
     public string ScriptsDirectory { get; }
+
+    /// <summary>
+    /// Compiles scripts in another process before Skua loads them here (Android: the <c>:compiler</c> process). Null
+    /// compiles in this process. Either way the compile is a separate step before the start, logged with its time and
+    /// memory, and Skua's own compile at the start then finds everything in the cache.
+    /// </summary>
+    public ScriptPrecompiler? Precompiler { get; set; }
+
+    /// <summary>Roslyn compilations this process emitted for the engine's compiles (0 while the compiler process does them).</summary>
+    public long InProcessCompilations => Interlocked.Read(ref _inProcessCompilations);
+
+    private long _inProcessCompilations;
 
     public ScriptSupport Support { get; private set; }
 
@@ -344,17 +359,33 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         }
 
         Exception? failure;
-        await _compileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _compileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus(new ScriptStatus(ScriptRunState.Idle, path, null, "Cancelled."));
+            throw;
+        }
         try
         {
             ReloadSkillSetsIfUpdated(s);
+            await PrecompileAsync(s, path, cancellationToken).ConfigureAwait(false);
             s.Scripts.OverrideStorage = string.IsNullOrWhiteSpace(options.OptionStorage) ? null : options.OptionStorage;
             s.Scripts.SilentConfig = options.Silent;
+            long compiledBefore = Compiler.Compilations;
             failure = await s.StartScriptAsync(path).ConfigureAwait(false);
+            NoteStartCompilations(path, compiledBefore);
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ScriptCompileException or EngineException)
         {
             failure = e;
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus(new ScriptStatus(ScriptRunState.Idle, path, null, "Cancelled."));
+            throw;
         }
         finally
         {
@@ -363,7 +394,7 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         if (failure is null)
             return;
 
-        string message = Describe(failure);
+        string message = failure is EngineException ? failure.Message : Describe(failure);
         Emit(EngineLogLevel.Error, "scripts", $"{Path.GetFileName(path)} did not start: {failure.Message}");
         SetStatus(new ScriptStatus(ScriptRunState.Faulted, path, null, message));
         throw new EngineException(message, failure);
@@ -439,9 +470,12 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
             object? script;
             try
             {
+                await PrecompileAsync(s, path, cancellationToken).ConfigureAwait(false);
                 manager.SetLoadedScript(path);
                 string source = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+                long compiledBefore = Compiler.Compilations;
                 script = await Task.Run(() => manager.Compile(source), cancellationToken).ConfigureAwait(false);
+                NoteStartCompilations(path, compiledBefore);
                 manager.OverrideStorage = string.IsNullOrWhiteSpace(optionStorage) ? null : optionStorage;
                 manager.LoadScriptConfig(script);
             }
@@ -627,6 +661,147 @@ public sealed class SkuaScriptHostAdapter : ISessionScriptHost, IPluginBackendSo
         lock (_gate)
             _status = status;
         StatusChanged?.Invoke(this, status);
+    }
+
+    // ------------------------------------------------------------------ compiling ahead of the start
+
+    /// <summary>
+    /// Compiles the script and its includes into the compiled-script cache before Skua's start compiles (and then only
+    /// loads) them: in the compiler process when there is one, else, or when it cannot be used and memory allows, here.
+    /// Called with <see cref="_compileGate"/> held, never on the UI thread (the engine's start is asynchronous).
+    /// </summary>
+    /// <exception cref="ScriptCompileException">The script does not compile (Skua's diagnostics).</exception>
+    /// <exception cref="EngineException">The compiler process failed and compiling here is refused.</exception>
+    private async Task PrecompileAsync(HeadlessSkuaSession s, string path, CancellationToken cancellationToken)
+    {
+        string name = Path.GetFileName(path);
+        if (Precompiler is ScriptPrecompiler pre)
+        {
+            string reason;
+            Emit(EngineLogLevel.Info, "scripts", $"Compiling {name} in the compiler process.");
+            try
+            {
+                using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(pre.Timeout);
+                CompileResponse r = await pre.Service.CompileAsync(new CompileRequest(Guid.NewGuid().ToString("N"), path, pre.ReferenceSet), timeout.Token).ConfigureAwait(false);
+                switch (r.Outcome)
+                {
+                    case CompileOutcome.Compiled:
+                        Emit(EngineLogLevel.Info, "scripts", string.Create(CultureInfo.InvariantCulture,
+                            $"{name}: {(r.Compilations == 0 ? "already compiled" : $"{r.Compilations} assemblies compiled")} by the compiler process in {r.Seconds:0.0} s"
+                            + $"{(r.PeakRssBytes > 0 ? $" (its peak {r.PeakRssBytes >> 20} MB, returned when it ends)" : string.Empty)}; this process: {MemoryLine()}."));
+                        return;
+                    case CompileOutcome.CompileError:
+                        throw new ScriptCompileException(r.Message, r.Code ?? string.Empty);
+                    default:
+                        reason = $"the compiler process {(r.Outcome == CompileOutcome.Refused ? "refused" : "failed")}: {r.Message}";
+                        break;
+                }
+            }
+            catch (CompileServiceException e)
+            {
+                reason = e.Died
+                    ? "the compiler process ended while compiling (Android ends it when memory runs short)"
+                    : $"the compiler process could not be used: {e.Message}";
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                reason = $"the compiler process did not finish within {pre.Timeout.TotalMinutes:0} minutes";
+            }
+            string? refusal = pre.InProcessRefusal();
+            if (refusal is not null)
+            {
+                Emit(EngineLogLevel.Error, "scripts", $"{name}: {reason}; not compiling in the app either: {refusal}.");
+                throw new EngineException($"{name} could not be compiled: {reason}. Compiling inside the app was not attempted: {refusal}.");
+            }
+            Emit(EngineLogLevel.Warning, "scripts", $"{name}: {reason}; compiling in the app's own process instead.");
+        }
+        await CompileInProcessAsync(s, path, cancellationToken).ConfigureAwait(false);
+    }
+
+    // Skua's compile step alone, on a worker thread, measured: time, Roslyn compilations, and the process's memory
+    // before and at its peak (sampled), so a report shows what a compile cost.
+    private async Task CompileInProcessAsync(HeadlessSkuaSession s, string path, CancellationToken cancellationToken)
+    {
+        string name = Path.GetFileName(path);
+        ScriptManager manager = (ScriptManager)s.Scripts;
+        string source = await File.ReadAllTextAsync(path, cancellationToken).ConfigureAwait(false);
+        string before = MemoryLine();
+        long compiledBefore = Compiler.Compilations;
+        long peakRss = -1, peakHeap = 0;
+        using CancellationTokenSource sampling = new();
+        Task sampler = Task.Run(async () =>
+        {
+            while (!sampling.IsCancellationRequested)
+            {
+                peakRss = Math.Max(peakRss, ReadRss());
+                peakHeap = Math.Max(peakHeap, GC.GetTotalMemory(false));
+                try
+                {
+                    await Task.Delay(100, sampling.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+        });
+        Emit(EngineLogLevel.Info, "scripts", $"Compiling {name} in this process ({before}).");
+        Stopwatch sw = Stopwatch.StartNew();
+        try
+        {
+            await Task.Run(() =>
+            {
+                manager.SetLoadedScript(path);
+                manager.CompileToCache(source);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            sw.Stop();
+            sampling.Cancel();
+            await sampler.ConfigureAwait(false);
+            long compiled = Compiler.Compilations - compiledBefore;
+            Interlocked.Add(ref _inProcessCompilations, compiled);
+            Emit(EngineLogLevel.Info, "scripts", string.Create(CultureInfo.InvariantCulture,
+                $"{name}: {(compiled == 0 ? "already compiled" : $"{compiled} assemblies compiled")} in this process in {sw.Elapsed.TotalSeconds:0.0} s; "
+                + $"peak RSS {(peakRss < 0 ? "n/a" : $"{peakRss >> 20} MB")}, peak heap {peakHeap >> 20} MB; now {MemoryLine()}."));
+        }
+    }
+
+    // A start or an Options read compiles nothing after a precompile, unless a file changed in between.
+    private void NoteStartCompilations(string path, long before)
+    {
+        long compiled = Compiler.Compilations - before;
+        if (compiled <= 0)
+            return;
+        Interlocked.Add(ref _inProcessCompilations, compiled);
+        Emit(EngineLogLevel.Warning, "scripts", $"{Path.GetFileName(path)}: {compiled} assemblies were compiled at the start in this process (a file changed after the compile?).");
+    }
+
+    private static string MemoryLine()
+    {
+        long rss = ReadRss();
+        return string.Create(CultureInfo.InvariantCulture,
+            $"RSS {(rss < 0 ? "n/a" : $"{rss >> 20} MB")}, heap {GC.GetTotalMemory(false) >> 20} MB, GC {GC.CollectionCount(0)}/{GC.CollectionCount(GC.MaxGeneration)}");
+    }
+
+    private static long ReadRss()
+    {
+        try
+        {
+            foreach (string line in File.ReadLines("/proc/self/status"))
+            {
+                if (line.StartsWith("VmRSS:", StringComparison.Ordinal))
+                {
+                    string[] parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    return parts.Length >= 2 && long.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out long kb) ? kb * 1024 : -1;
+                }
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+        }
+        return -1;
     }
 
     private HeadlessSkuaSession RequireSkua() =>

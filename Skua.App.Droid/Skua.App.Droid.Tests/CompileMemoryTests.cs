@@ -59,7 +59,7 @@ public sealed class CompileMemoryTests
         string mode = Environment.GetEnvironmentVariable("SKUA_COMPILE_MODE") ?? "cold";
         string scripts = Path.Combine(data, "VibeSkua", "Scripts");
         string cache = Path.Combine(scripts, "Cached-Scripts");
-        if (mode == "cold" && Directory.Exists(cache))
+        if (mode is "cold" or "process" && Directory.Exists(cache))
             Directory.Delete(cache, recursive: true);
         string file = Path.Combine(scripts, "MeasureCoreBots.cs");
         await File.WriteAllTextAsync(file, Script);
@@ -94,6 +94,14 @@ public sealed class CompileMemoryTests
         sampler.Start();
         int gen0 = GC.CollectionCount(0), gen2 = GC.CollectionCount(2);
         Stopwatch sw = Stopwatch.StartNew();
+        CompileResponse? child = null;
+        if (mode == "process")
+        {
+            // The compiler process compiles (cold); this process then only loads from the cache.
+            child = await new ProcessCompileService(data, Path.Combine(AppContext.BaseDirectory, "script-refs")).CompileAsync(new CompileRequest("m", file, refs.Identity), CancellationToken.None);
+            Assert.Equal(CompileOutcome.Compiled, child.Outcome);
+        }
+        long compiledBefore = Skua.Core.Compiler.Compilations;
         manager.SetLoadedScript(file);
         object? instance = await Task.Run(() => manager.Compile(Script));
         sw.Stop();
@@ -113,13 +121,14 @@ public sealed class CompileMemoryTests
             $"{mode,-5} compile {sw.Elapsed.TotalSeconds,6:0.00} s | heap before {heap0 / 1048576.0,6:0.0} MB, peak {peakHeap / 1048576.0,6:0.0} MB, right after {heapNoGc / 1048576.0,6:0.0} MB, "
             + $"retained after full GC {retained / 1048576.0,6:0.0} MB (+{(retained - heap0) / 1048576.0:0.0}) | allocated {(GC.GetTotalAllocatedBytes(true) - allocated0) / 1048576.0,7:0.0} MB | "
             + $"RSS before {rss0 / 1024.0,6:0} MB, peak {peakRss / 1024.0,6:0} MB, after {rssAfter / 1024.0,6:0} MB | GCs gen0 {GC.CollectionCount(0) - gen0}, gen2 {GC.CollectionCount(2) - gen2} | "
+            + $"{(child is null ? string.Empty : $"compiler process: {child.Seconds:0.00} s, peak RSS {child.PeakRssBytes / 1048576.0:0} MB, {child.Compilations} compilations; this process compiled {Skua.Core.Compiler.Compilations - compiledBefore} | ")}"
             + $"refs read {refs.Provider.Loads}, resident {refs.Provider.Resident} | cache {Directory.GetFiles(cache, "*.dll").Length} dlls {Directory.GetFiles(cache, "*.dll").Sum(f => new FileInfo(f).Length) / 1048576.0:0.0} MB");
         if (Environment.GetEnvironmentVariable("SKUA_COMPILE_REPORT") is string reportFile && reportFile.Length > 0)
             File.AppendAllText(reportFile, report + "\n");
         Assert.True(Directory.GetFiles(cache, "*.dll").Length >= 6);
         // Retention: no reference image stays in memory after a compile; a cached start reads none and keeps nothing.
         Assert.Equal(0, refs.Provider.Resident);
-        if (mode == "warm")
+        if (mode is "warm" or "process")
         {
             Assert.Equal(0, refs.Provider.Loads);
             Assert.True(retained - heap0 < 3 * 1048576, report);

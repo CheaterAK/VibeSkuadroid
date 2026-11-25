@@ -30,7 +30,7 @@ public class ArmyCoordinatorTests
         // Staggered: each fake server saw its login at least the spacing after the previous one.
         List<long> firsts = rig.AllServers.Select(s => s.Server.Sessions[0].Received.First().Timestamp).Order().ToList();
         for (int i = 1; i < firsts.Count; i++)
-            Assert.True((firsts[i] - firsts[i - 1]) * 1000.0 / System.Diagnostics.Stopwatch.Frequency >= 90, "logins not spaced");
+            Assert.True((firsts[i] - firsts[i - 1]) * 1000.0 / System.Diagnostics.Stopwatch.Frequency >= 90, "logins not spaced: " + string.Join(",", firsts.Zip(firsts.Skip(1), (a, b) => ((b - a) * 1000.0 / System.Diagnostics.Stopwatch.Frequency).ToString("0"))));
 
         IReadOnlyList<ArmyResult> jumped = await rig.Army.JumpAllAsync("testmap", "r2", "Left");
         Assert.All(jumped, r => Assert.True(r.Ok, $"{r.Member}: {r.Message}"));
