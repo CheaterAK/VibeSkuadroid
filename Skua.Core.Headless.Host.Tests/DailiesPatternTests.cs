@@ -210,6 +210,93 @@ public sealed class DailiesPatternTests : IAsyncLifetime
             Report(sampler.Top(25));
     }
 
+    private const string FarmScript = """
+        using System.Diagnostics;
+        using System.Threading;
+        using Skua.Core.Interfaces;
+
+        public class LargeBankFarm
+        {
+            public void ScriptMain(IScriptInterface bot)
+            {
+                // What CoreBots' SetOptions and a farm turn on: options, the drop grabber, skills.
+                bot.Options.LagKiller = true;
+                bot.Options.RestPackets = true;
+                bot.Options.HuntDelay = 0;
+                bot.Drops.Add("Pixie Wing");
+                bot.Drops.Start();
+                bot.Map.Join("testmap");
+                bot.Map.Jump("r2", "Left");
+                bot.Skills.StartAdvanced("1 | 2 | 3", 150);
+                Stopwatch sw = Stopwatch.StartNew();
+                int loops = 0;
+                while (sw.Elapsed.TotalSeconds < SECONDS && !bot.ShouldExit)
+                {
+                    // CoreBots' _KillForItem: CheckInventory (temp, backpack, house, bank) every 250 ms, attack when idle.
+                    bool done = bot.TempInv.Contains("FARMED", 9999) || bot.Inventory.Contains("FARMED", 9999) || bot.House.Contains("FARMED") || bot.Bank.Contains("FARMED");
+                    if (!bot.Player.HasTarget)
+                        bot.Combat.Attack("*");
+                    Thread.Sleep(250);
+                    loops++;
+                }
+                bot.Skills.Stop();
+                bot.Drops.Stop();
+                bot.Log("loops=" + loops);
+            }
+        }
+        """;
+
+    /// <summary>
+    /// A running Skua script farming with the drop grabber, skills and options on (what CoreBots does around its
+    /// CheckInventory loop), against a large bank and a full backpack: allocation and CPU per second of the process,
+    /// with the types that allocate most (SKUA_ALLOC_SAMPLE=1). Seconds from SKUA_DAILIES_SECONDS (default 8).
+    /// </summary>
+    [Fact]
+    public async Task AFarmingScriptOnALargeBank()
+    {
+        (List<JsonObject> bank, List<JsonObject> backpack, _) = await LoginWithLargeBankAsync(3000);
+        double seconds = double.TryParse(Environment.GetEnvironmentVariable("SKUA_DAILIES_SECONDS"), System.Globalization.CultureInfo.InvariantCulture, out double sec) ? sec : 8;
+        string dir = Path.Combine(s_data, "farm");
+        Directory.CreateDirectory(dir);
+        string file = Path.Combine(dir, "LargeBankFarm.cs");
+        await File.WriteAllTextAsync(file, FarmScript.Replace("SECONDS", (seconds + 3).ToString(System.Globalization.CultureInfo.InvariantCulture)).Replace("FARMED", NameOf(backpack[100])));
+        TaskCompletionSource stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? error = null;
+        _session.ScriptError += (_, e) => error = e;
+        _session.ScriptRunningChanged += (_, running) =>
+        {
+            if (!running)
+                stopped.TrySetResult();
+        };
+        Assert.Null(await _session.StartScriptAsync(file));
+        await Task.Delay(3000); // compile, join, first kills
+        Assert.False(stopped.Task.IsCompleted, error?.ToString());
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        int[] gcBefore = [GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2)];
+        long allocBefore = GC.GetTotalAllocatedBytes(precise: true);
+        TimeSpan cpuBefore = Process.GetCurrentProcess().TotalProcessorTime;
+        int killsBefore = _session.GetStatus().Kills;
+        Stopwatch sw = Stopwatch.StartNew();
+        using AllocationSampler? sampler = Environment.GetEnvironmentVariable("SKUA_ALLOC_SAMPLE") == "1" ? new AllocationSampler() : null;
+        await Task.Delay(TimeSpan.FromSeconds(seconds));
+        double elapsed = sw.Elapsed.TotalSeconds;
+        double cpu = (Process.GetCurrentProcess().TotalProcessorTime - cpuBefore).TotalMilliseconds;
+        long allocated = GC.GetTotalAllocatedBytes(precise: true) - allocBefore;
+        int kills = _session.GetStatus().Kills - killsBefore;
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(60));
+        Assert.True(error is null, error?.ToString());
+
+        string report = $"farming script, bank of 3000, backpack of {BackpackItems + 3}: {kills} kills in {elapsed:0.0} s: "
+            + $"{allocated / elapsed / 1048576.0:0.00} MB/s allocated, CPU {cpu / elapsed:0} ms/s, "
+            + $"GC {GC.CollectionCount(0) - gcBefore[0]}/{GC.CollectionCount(1) - gcBefore[1]}/{GC.CollectionCount(2) - gcBefore[2]} (gen0/1/2)";
+        _output.WriteLine(report);
+        Report(report);
+        if (sampler is not null)
+            Report(sampler.Top(25));
+    }
+
     // This thread's allocations and the mean time per call (warm: JIT and any cache of the current version).
     private static LargeBankTests.Cost Measure(Action action, int repeat = 50, bool warm = true)
     {
