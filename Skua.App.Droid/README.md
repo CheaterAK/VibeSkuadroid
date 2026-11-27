@@ -131,6 +131,7 @@ item shape (`DailiesPatternTests`, desktop CPU, before -> after):
 |---|---|---|
 | idle, logged in, no script (Skua's timer thread) | 100 MB/s -> 0.6 MB/s allocated | (bank size does not matter) |
 | simulated daily (CoreBots' CheckInventory every 250 ms, Unbank/ToBank of two items per cycle) | 154 MB/s, GC 32/17/7 per 23 s -> 4.5 MB/s, 2/2/2 (the forced ones) | 164 MB/s -> 5.0 MB/s |
+| a running Skua farm script (drop grabber, skills, LagKiller/RestPackets, CheckInventory every 250 ms; `AFarmingScriptOnALargeBank`) | 248 MB/s, 39 nursery + 39 major GCs per 20 s, CPU 355 ms/s -> 3.0 MB/s, no GC, 158 ms/s | |
 | CPU of the test process (with the fake server), per second | idle 90 -> 38 ms, daily 328 -> 135 ms | daily 328 -> 148 ms |
 | `Bank.Contains` / `TryGetItem` / `GetQuantity` | 400 KB, 0.4-0.6 ms -> 0.1 KB, 1-2 us | 665 KB, 0.8-1.2 ms -> 0.1 KB, 1 us |
 | `Inventory.Contains` (253 items) | 2.4 MB, 5-27 ms -> 0.1 KB, 2-3 us | |
