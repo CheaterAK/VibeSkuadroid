@@ -155,6 +155,18 @@ public sealed class DailiesPatternTests : IAsyncLifetime
         string[] checks = [NameOf(bank[10]), NameOf(bank[count - 10]), NameOf(backpack[5]), NameOf(backpack[200]), "Missing One", "Missing Two"];
         string farmed = NameOf(backpack[100]);
 
+        // Warm up (JIT, first parses), then measure.
+        if (idle)
+        {
+            Thread.Sleep(2000);
+        }
+        else
+        {
+            core.Unbank(movers.ToArray());
+            core.CheckInventory(farmed, 9999);
+            core.ToBank(movers.ToArray());
+        }
+
         GC.Collect();
         GC.WaitForPendingFinalizers();
         long heapBefore = GC.GetTotalMemory(true);
