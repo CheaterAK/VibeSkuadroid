@@ -199,12 +199,23 @@ public sealed class GameCommands
     /// <exception cref="TimeoutException">The bank did not load; the message says why.</exception>
     public async Task<IReadOnlyList<ItemInfo>> LoadBankAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
+        await EnsureBankLoadedAsync(timeout, cancellationToken).ConfigureAwait(false);
+        return World.GetBank();
+    }
+
+    /// <summary>
+    /// <see cref="LoadBankAsync"/> without copying the bank for the caller: how many items it holds (a 3000-item
+    /// bank copied with every item's stored object is 12 MB).
+    /// </summary>
+    /// <exception cref="TimeoutException">The bank did not load; the message says why.</exception>
+    public async Task<int> EnsureBankLoadedAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
         if (_bankLoader is not null)
         {
             BankLoadResult result = await _bankLoader(cancellationToken).ConfigureAwait(false);
             if (!result.Loaded)
                 throw new TimeoutException($"The bank did not load: {result.Failure}");
-            return World.GetBank();
+            return World.BankCount;
         }
         InboundPacket? reply = await _connection.SendAndWaitAsync(
             Packets.LoadBank(World.RoomId),
@@ -213,7 +224,7 @@ public sealed class GameCommands
             cancellationToken).ConfigureAwait(false);
         if (reply is null)
             throw new TimeoutException("No reply to loadBank.");
-        return World.GetBank();
+        return World.BankCount;
     }
 
     /// <summary><c>getDrop</c>; true when the server hands the item over.</summary>

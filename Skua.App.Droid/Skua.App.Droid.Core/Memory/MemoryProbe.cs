@@ -5,6 +5,15 @@ namespace Skua.App.Droid.Core.Memory;
 /// <summary>One memory reading of this process.</summary>
 public readonly record struct MemorySample(long RssBytes, long PeakRssBytes, long ManagedBytes);
 
+/// <summary>
+/// <c>/proc/self/smaps_rollup</c>: where the resident memory is. PSS split into anonymous memory (the managed heap,
+/// the runtime's and native libraries' own allocations: what the app itself holds) and file-backed pages (code,
+/// mapped assemblies and resources, which Android can drop and reread), and what was swapped out (zram on most
+/// phones: a process with much swapped out makes the whole phone slow, because every touch of those pages
+/// decompresses them). -1 for a value the kernel did not report.
+/// </summary>
+public readonly record struct SmapsRollup(long RssBytes, long PssBytes, long PssAnonBytes, long PssFileBytes, long SwapBytes);
+
 /// <summary>Reads this process's memory use.</summary>
 public interface IMemoryProbe
 {
@@ -76,6 +85,36 @@ public sealed class ProcMemoryProbe : IMemoryProbe
         {
         }
         return -1;
+    }
+
+    /// <summary>
+    /// <see cref="SmapsRollup"/> from <c>/proc/self/smaps_rollup</c>, or null when it cannot be read. Like
+    /// <see cref="ReadPssBytes"/> it walks the page tables: on demand or every heartbeat, not on a fast timer.
+    /// </summary>
+    public static SmapsRollup? ReadRollup(string path = "/proc/self/smaps_rollup")
+    {
+        try
+        {
+            long rss = -1, pss = -1, anon = -1, file = -1, swap = -1;
+            foreach (string line in File.ReadLines(path))
+            {
+                if (line.StartsWith("Rss:", StringComparison.Ordinal))
+                    rss = ParseKb(line);
+                else if (line.StartsWith("Pss:", StringComparison.Ordinal))
+                    pss = ParseKb(line);
+                else if (line.StartsWith("Pss_Anon:", StringComparison.Ordinal))
+                    anon = ParseKb(line);
+                else if (line.StartsWith("Pss_File:", StringComparison.Ordinal))
+                    file = ParseKb(line);
+                else if (line.StartsWith("Swap:", StringComparison.Ordinal))
+                    swap = ParseKb(line);
+            }
+            return pss < 0 && rss < 0 ? null : new SmapsRollup(rss, pss, anon, file, swap);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Parses a "Key:   1234 kB" line into bytes; -1 when malformed.</summary>

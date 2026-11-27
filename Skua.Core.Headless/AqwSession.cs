@@ -379,7 +379,7 @@ public sealed class AqwSession : IAsyncDisposable
 
         if (World.IsBankLoaded)
         {
-            int known = World.GetBank().Count;
+            int known = World.BankCount;
             ReportBankLoaded(connection, "already loaded");
             RaiseLog(HeadlessLogLevel.Info, $"Bank: already loaded on this connection ({known} items); not requested again, as the game does.");
             return new BankLoadResult(BankLoadMethod.AlreadyLoaded, true, known, null, Elapsed(), null);
@@ -441,7 +441,7 @@ public sealed class AqwSession : IAsyncDisposable
         }
         if (answer is not null && World.IsBankLoaded)
         {
-            int count = World.GetBank().Count;
+            int count = World.BankCount;
             RaiseLog(HeadlessLogLevel.Info, $"Bank: loaded over the socket (loadBank All fallback): {count} items in the bank, {Ms()} in all.");
             return new BankLoadResult(BankLoadMethod.Socket, true, count, status, Elapsed(), failure);
         }

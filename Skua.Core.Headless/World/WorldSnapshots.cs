@@ -68,7 +68,7 @@ public sealed record ItemInfo(
     bool Member,
     JsonObject Raw)
 {
-    internal static ItemInfo From(JsonObject o, bool temp)
+    internal static ItemInfo From(JsonObject o, bool temp, bool raw = true)
     {
         return new ItemInfo(
             JsonUtil.AsInt(o["ItemID"]),
@@ -82,7 +82,7 @@ public sealed record ItemInfo(
             temp || JsonUtil.AsBool(o["bTemp"]),
             JsonUtil.AsBool(o["bCoins"]),
             JsonUtil.AsBool(o["bUpg"]),
-            (JsonObject)o.DeepClone());
+            raw ? (JsonObject)o.DeepClone() : new JsonObject());
     }
 }
 

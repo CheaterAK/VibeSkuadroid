@@ -340,7 +340,7 @@ public sealed partial class ControlBackend : IControlBackend
         return new ControlBank(
             w.IsBankLoaded,
             w.IsBankLoaded ? SortedBankRows(w) : [],
-            w.GetInventory().Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList(),
+            w.GetInventory(raw: false).Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList(),
             me.BankSlots,
             me.BagSlots);
     }
@@ -357,7 +357,7 @@ public sealed partial class ControlBackend : IControlBackend
         long version = w.BankVersion;
         if (cached is not null && ReferenceEquals(cached.World, w) && cached.Version == version)
             return cached.Rows;
-        IReadOnlyList<InventoryRow> rows = w.GetBank().Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        IReadOnlyList<InventoryRow> rows = w.GetBank(raw: false).Select(ToRow).OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
         _bankRows = new BankRowCache(w, version, rows);
         return rows;
     }
@@ -610,7 +610,7 @@ public sealed partial class ControlBackend : IControlBackend
         bot.Bank.Load(true);
         if (!game.World.IsBankLoaded)
             throw new EngineException("The bank did not load.");
-        return $"Bank loaded: {game.World.GetBank().Count} items.";
+        return $"Bank loaded: {game.World.BankCount} items.";
     }
 
     public string BankToInventory(int itemId)
@@ -618,7 +618,7 @@ public sealed partial class ControlBackend : IControlBackend
         (IScriptInterface bot, HeadlessGame game) = Ready();
         if (!game.World.IsBankLoaded)
             throw new EngineException("Load the bank first.");
-        ItemInfo item = game.World.GetBank().FirstOrDefault(i => i.ItemId == itemId) ?? throw new EngineException("That item is not in the bank.");
+        ItemInfo item = game.World.FindBankItem(itemId) ?? throw new EngineException("That item is not in the bank.");
         // IScriptBank.ToInventory(int) always answers false; the InventoryItem overload reports the move.
         if (!bot.Bank.TryGetItem(itemId, out InventoryItem? banked) || banked is null)
             throw new EngineException($"{item.Name} is not in Skua's bank list; load the bank again.");
@@ -654,7 +654,7 @@ public sealed partial class ControlBackend : IControlBackend
     private static int Held(HeadlessGame game, int itemId)
     {
         CharacterSnapshot c = game.Client.Character();
-        return c.HeldQuantity(itemId) + JsonUtil.AsInt(game.World.GetBank().FirstOrDefault(b => b.ItemId == itemId)?.Raw["iQty"]);
+        return c.HeldQuantity(itemId) + JsonUtil.AsInt(game.World.FindBankItem(itemId)?.Raw["iQty"]);
     }
 
     /// <summary>Waits until <paramref name="gap"/> has passed since this page's last action of that kind.</summary>

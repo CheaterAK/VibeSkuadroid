@@ -31,7 +31,8 @@ public sealed record MemoryReading(
     int ThresholdMb,
     bool AutoRestart,
     string Verdict,
-    GcSample? Gc = null);
+    GcSample? Gc = null,
+    SmapsRollup? Rollup = null);
 
 /// <summary>Skua's runtime helpers (the desktop's Runtime window): what a script registered, read only.</summary>
 public sealed record RuntimeReading(
@@ -123,12 +124,13 @@ public static partial class DiagnosticsReport
     }
 
     /// <summary>Memory now (PSS is read from /proc: a few milliseconds; call on a worker thread).</summary>
-    public static MemoryReading ReadMemory(MemoryStatus engine, int thresholdMb, bool autoRestart, string verdict, Func<long>? pss = null)
+    public static MemoryReading ReadMemory(MemoryStatus engine, int thresholdMb, bool autoRestart, string verdict, Func<long>? pss = null, Func<SmapsRollup?>? rollup = null)
     {
+        SmapsRollup? r = (rollup ?? (pss is null ? () => ProcMemoryProbe.ReadRollup() : () => null))();
         return new MemoryReading(
             engine.RssBytes,
             engine.PeakRssBytes,
-            (pss ?? (() => ProcMemoryProbe.ReadPssBytes()))(),
+            pss?.Invoke() ?? r?.PssBytes ?? -1,
             GC.GetTotalMemory(false),
             GC.GetTotalAllocatedBytes(false),
             GC.CollectionCount(0),
@@ -140,7 +142,8 @@ public static partial class DiagnosticsReport
             thresholdMb,
             autoRestart,
             verdict,
-            GcTelemetry.Read());
+            GcTelemetry.Read(),
+            r);
     }
 
     /// <summary>Skua's runtime helpers and recorded events on the engine's Skua services; null without a Skua host.</summary>
@@ -231,14 +234,38 @@ public static partial class DiagnosticsReport
     public static IReadOnlyList<InfoRow> MemoryRows(MemoryReading m) =>
     [
         new("RSS", $"{Mb(m.RssBytes)} (peak {Mb(m.PeakRssBytes)})"),
-        new("PSS", m.PssBytes < 0 ? "n/a" : Mb(m.PssBytes)),
-        new("Managed heap", $"{Mb(m.ManagedBytes)} ({Mb(m.TotalAllocatedBytes)} allocated in all)"),
+        new("PSS", m.PssBytes < 0 ? "n/a" : Mb(m.PssBytes) + PssSplit(m.Rollup)),
+        new("Swapped out", m.Rollup is { SwapBytes: >= 0 } swap ? Mb(swap.SwapBytes) + (swap.SwapBytes > 64L << 20 ? " (the phone is short of memory: swapped pages make everything slow)" : string.Empty) : "n/a"),
+        new("Managed heap", ManagedText(m)),
+        new("Outside the managed heap", OutsideText(m)),
+        new("Allocation rate", m.Gc is { AllocatedPerSecond: >= 0 } rate ? string.Create(CultureInfo.InvariantCulture, $"{rate.AllocatedPerSecond / 1048576.0:0.0} MB/s since the last heartbeat") : "n/a"),
         new("Collections", $"gen 0: {m.Gen0}, gen 1: {m.Gen1}, gen 2: {m.Gen2}"),
         new("GC pauses", m.Gc is GcSample g ? PauseText(g) : "n/a"),
         new("Script assemblies", $"{m.ScriptAssemblies} loaded (never unloaded on Android)"),
         new("Thread pool", $"{m.ThreadPoolThreads} threads, {m.PendingWorkItems} work items waiting"),
         new("Watchdog", $"{(m.AutoRestart ? "restarts" : "warns")} above {m.ThresholdMb} MB RSS; now {m.Verdict}"),
     ];
+
+    private static string PssSplit(SmapsRollup? r) =>
+        r is { PssAnonBytes: >= 0, PssFileBytes: >= 0 } s ? $" ({Mb(s.PssAnonBytes)} the app's own memory, {Mb(s.PssFileBytes)} code and mapped files)" : string.Empty;
+
+    private static string ManagedText(MemoryReading m)
+    {
+        string text = $"{Mb(m.ManagedBytes)} in use";
+        if (m.Gc is { CommittedBytes: >= 0 } g)
+            text += $", {Mb(g.CommittedBytes)} held by the collector";
+        return text + $" ({Mb(m.TotalAllocatedBytes)} allocated in all)";
+    }
+
+    // RSS minus what the collector holds: the runtime, native libraries (Skia, Avalonia's renderer), JIT/AOT code and
+    // mapped files. When this is most of the RSS, the managed heap is not what fills memory.
+    private static string OutsideText(MemoryReading m)
+    {
+        long held = m.Gc is { CommittedBytes: >= 0 } g ? g.CommittedBytes : m.ManagedBytes;
+        if (m.RssBytes < 0 || held < 0)
+            return "n/a";
+        return $"{Mb(Math.Max(0, m.RssBytes - held))} of the RSS (runtime, native libraries, code, mapped files)";
+    }
 
     private static string PauseText(GcSample g)
     {

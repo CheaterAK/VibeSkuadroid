@@ -576,8 +576,8 @@ public sealed class HeadlessBotEngine : IBotEngine
         GameCommands commands = RequireOnline();
         try
         {
-            IReadOnlyList<ItemInfo> bank = await commands.LoadBankAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
-            AddLog(EngineLogLevel.Info, "engine", $"Bank loaded: {bank.Count} items.");
+            int count = await commands.EnsureBankLoadedAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+            AddLog(EngineLogLevel.Info, "engine", $"Bank loaded: {count} items.");
         }
         catch (TimeoutException e)
         {
@@ -595,8 +595,8 @@ public sealed class HeadlessBotEngine : IBotEngine
         if (w.MyUsername is null)
             return WorldLists.Empty;
         return new WorldLists(
-            w.GetInventory().Select(ToRow).ToList(),
-            w.GetTempInventory().Select(ToRow).ToList(),
+            w.GetInventory(raw: false).Select(ToRow).ToList(),
+            w.GetTempInventory(raw: false).Select(ToRow).ToList(),
             w.IsBankLoaded ? BankRows(w) : [],
             w.IsBankLoaded,
             w.GetQuests()
@@ -1213,7 +1213,7 @@ public sealed class HeadlessBotEngine : IBotEngine
         long version = w.BankVersion;
         if (cached is not null && ReferenceEquals(cached.World, w) && cached.Version == version)
             return cached.Rows;
-        IReadOnlyList<InventoryRow> rows = w.GetBank().Select(ToRow).ToList();
+        IReadOnlyList<InventoryRow> rows = w.GetBank(raw: false).Select(ToRow).ToList();
         _bankRows = new BankRowCache(w, version, rows);
         return rows;
     }

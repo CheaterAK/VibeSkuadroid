@@ -12,6 +12,8 @@ namespace Skua.App.Droid.Core.Memory;
 /// <param name="TotalPause">Time all managed threads were paused by the collector, when the runtime reports it (CoreCLR); null on Mono.</param>
 /// <param name="MaxStall">The longest stall the stall probe saw since the previous <see cref="GcTelemetry.ReadWindow"/>.</param>
 /// <param name="LastLongStall">The last stall of 100 ms or more, its length and whether a major collection happened in it.</param>
+/// <param name="AllocatedPerSecond">Bytes allocated per second since the previous <see cref="GcTelemetry.ReadWindow"/>
+/// (the garbage rate that drives collections; a script polling the game makes most of it), -1 when not known.</param>
 public readonly record struct GcSample(
     long HeapBytes,
     long CommittedBytes,
@@ -20,7 +22,8 @@ public readonly record struct GcSample(
     int Major,
     TimeSpan? TotalPause,
     TimeSpan MaxStall,
-    GcStall? LastLongStall)
+    GcStall? LastLongStall,
+    double AllocatedPerSecond = -1)
 {
     /// <summary>One compact line ("heap 512 MB, GC 120 minor/8 major, stall max 1.20 s ...") for heartbeats and logs.</summary>
     public string Describe()
@@ -29,6 +32,8 @@ public readonly record struct GcSample(
         string text = string.Create(c, $"heap {HeapBytes / 1048576.0:0} MB");
         if (CommittedBytes >= 0)
             text += string.Create(c, $" (committed {CommittedBytes / 1048576.0:0} MB)");
+        if (AllocatedPerSecond >= 0)
+            text += string.Create(c, $", allocating {AllocatedPerSecond / 1048576.0:0.0} MB/s");
         text += string.Create(c, $", GC {Minor} minor/{Major} major");
         if (TotalPause is TimeSpan pause)
             text += string.Create(c, $", paused {pause.TotalSeconds:0.0} s in all");
@@ -113,14 +118,31 @@ public static class GcTelemetry
         }
     }
 
+    // Allocation at the start of the current window (the previous heartbeat), for the allocation rate.
+    private static long s_windowAllocated = -1;
+    private static long s_windowStartTicks;
+
     /// <summary>Reads the collector without touching the probe's window (Diagnostics page).</summary>
-    public static GcSample Read() => Sample(Interlocked.Read(ref s_windowMaxTicks));
+    public static GcSample Read() => Sample(Interlocked.Read(ref s_windowMaxTicks), newWindow: false);
 
     /// <summary>Reads the collector and starts a new window for <see cref="GcSample.MaxStall"/> (heartbeat).</summary>
-    public static GcSample ReadWindow() => Sample(Interlocked.Exchange(ref s_windowMaxTicks, 0));
+    public static GcSample ReadWindow() => Sample(Interlocked.Exchange(ref s_windowMaxTicks, 0), newWindow: true);
 
-    private static GcSample Sample(long maxTicks)
+    private static GcSample Sample(long maxTicks, bool newWindow)
     {
+        long allocated = GC.GetTotalAllocatedBytes(false);
+        long now = Stopwatch.GetTimestamp();
+        double rate = -1;
+        lock (s_gate)
+        {
+            if (s_windowAllocated >= 0 && now > s_windowStartTicks)
+                rate = Math.Max(0, allocated - s_windowAllocated) / ((now - s_windowStartTicks) / (double)Stopwatch.Frequency);
+            if (newWindow || s_windowAllocated < 0)
+            {
+                s_windowAllocated = allocated;
+                s_windowStartTicks = now;
+            }
+        }
         long committed = -1;
         try
         {
@@ -151,12 +173,13 @@ public static class GcTelemetry
         return new GcSample(
             GC.GetTotalMemory(false),
             committed,
-            GC.GetTotalAllocatedBytes(false),
+            allocated,
             GC.CollectionCount(0),
             GC.CollectionCount(GC.MaxGeneration),
             pause,
             Ticks(maxTicks),
-            last);
+            last,
+            rate);
     }
 
     private static TimeSpan Ticks(long stopwatchTicks) => TimeSpan.FromSeconds(stopwatchTicks / (double)Stopwatch.Frequency);

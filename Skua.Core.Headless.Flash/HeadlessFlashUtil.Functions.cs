@@ -171,7 +171,7 @@ public sealed partial class HeadlessFlashUtil
         Add("world.myAvatar.getItemByID", a => Game.Client.Character().FindItem(As3.Int(a, 0))?.DeepClone());
         Add("world.myAvatar.isItemEquipped", a => JsonValue.Create(Game.Client.Character().IsEquipped(As3.Int(a, 0))));
         Add("world.myAvatar.isItemInInventory", a => JsonValue.Create(Game.Client.Character().HasItem(As3.Int(a, 0))));
-        Add("world.myAvatar.isItemInBank", a => JsonValue.Create(Game.World.GetBank().Any(i => i.ItemId == As3.Int(a, 0))));
+        Add("world.myAvatar.isItemInBank", a => JsonValue.Create(Game.World.FindBankItem(As3.Int(a, 0)) is not null));
         Add("world.myAvatar.isEmailVerified", _ =>
         {
             JsonObject od = Game.Client.Character().ObjData;

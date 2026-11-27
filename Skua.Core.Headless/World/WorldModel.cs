@@ -623,25 +623,37 @@ public sealed partial class WorldModel
         }
     }
 
-    public IReadOnlyList<ItemInfo> GetInventory()
+    /// <param name="raw">With each item's stored object copied into <see cref="ItemInfo.Raw"/> (a full copy of every
+    /// item: 4 KB each with long descriptions); false gives an empty Raw, for lists that only show the fields.</param>
+    public IReadOnlyList<ItemInfo> GetInventory(bool raw = true)
     {
-        lock (_gate) return ItemsOf(ItemsView, temp: false);
+        lock (_gate) return ItemsOf(ItemsView, temp: false, raw);
     }
 
-    public IReadOnlyList<ItemInfo> GetTempInventory()
+    /// <inheritdoc cref="GetInventory"/>
+    public IReadOnlyList<ItemInfo> GetTempInventory(bool raw = true)
     {
-        lock (_gate) return ItemsOf(TempItemsView, temp: true);
+        lock (_gate) return ItemsOf(TempItemsView, temp: true, raw);
     }
 
-    public IReadOnlyList<ItemInfo> GetHouseInventory()
+    /// <inheritdoc cref="GetInventory"/>
+    public IReadOnlyList<ItemInfo> GetHouseInventory(bool raw = true)
     {
-        lock (_gate) return ItemsOf(HouseItemsView, temp: false);
+        lock (_gate) return ItemsOf(HouseItemsView, temp: false, raw);
     }
 
     /// <summary>Bank items known so far (the bank is only sent on <c>loadBank</c>; see <see cref="IsBankLoaded"/>).</summary>
-    public IReadOnlyList<ItemInfo> GetBank()
+    /// <param name="raw">As for <see cref="GetInventory"/>: a 3000-item bank is 12 MB with Raw, under 1 MB without.</param>
+    public IReadOnlyList<ItemInfo> GetBank(bool raw = true)
     {
-        lock (_gate) return ItemsOf(BankItemsView, temp: false);
+        lock (_gate) return ItemsOf(BankItemsView, temp: false, raw);
+    }
+
+    /// <summary>The first bank item with <paramref name="itemId"/>, or null (no copy of the rest of the bank).</summary>
+    public ItemInfo? FindBankItem(int itemId)
+    {
+        lock (_gate)
+            return FindById(BankItemsView, "ItemID", itemId) is JsonObject o ? ItemInfo.From(o, temp: false) : null;
     }
 
     /// <summary>
@@ -757,13 +769,13 @@ public sealed partial class WorldModel
 
     private static readonly object s_nullBankItem = new();
 
-    private static List<ItemInfo> ItemsOf(JsonArray array, bool temp)
+    private static List<ItemInfo> ItemsOf(JsonArray array, bool temp, bool raw = true)
     {
         List<ItemInfo> list = new(array.Count);
         foreach (JsonNode? node in array)
         {
             if (node is JsonObject o)
-                list.Add(ItemInfo.From(o, temp));
+                list.Add(ItemInfo.From(o, temp, raw));
         }
         return list;
     }

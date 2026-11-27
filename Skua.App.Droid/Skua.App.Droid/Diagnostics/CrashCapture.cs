@@ -293,6 +293,10 @@ internal static class CrashCapture
         {
             // A heartbeat starts a new window for the longest stall; other events only read.
             gc = (evt == "heartbeat" ? Skua.App.Droid.Core.Memory.GcTelemetry.ReadWindow() : Skua.App.Droid.Core.Memory.GcTelemetry.Read()).Describe();
+            // Where the RSS is (heartbeats only: smaps_rollup walks the page tables, a few ms every 30 s): the app's own
+            // memory against code and files, and what was swapped out (zram: a phone that swaps us is slow everywhere).
+            if (evt == "heartbeat" && Skua.App.Droid.Core.Memory.ProcMemoryProbe.ReadRollup() is { } r)
+                gc += System.FormattableString.Invariant($"; pss {r.PssBytes >> 20} MB (anon {r.PssAnonBytes >> 20}, file {r.PssFileBytes >> 20}), swap {r.SwapBytes >> 20} MB");
         }
         catch (Exception)
         {

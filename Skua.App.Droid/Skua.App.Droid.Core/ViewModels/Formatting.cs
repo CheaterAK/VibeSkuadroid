@@ -10,7 +10,9 @@ internal static class Formatting
         if (m.RssBytes < 0)
             return "mem n/a";
         string scripts = m.ScriptAssembliesLoaded > 0 ? $" · {m.ScriptAssembliesLoaded} script asm" : string.Empty;
-        return string.Create(CultureInfo.InvariantCulture, $"{m.RssMb:0} MB{scripts}");
+        // The managed heap next to the RSS, so a report says whether the heap or something else fills the memory.
+        string heap = m.ManagedBytes >= 0 ? string.Create(CultureInfo.InvariantCulture, $" (heap {m.ManagedMb:0})") : string.Empty;
+        return string.Create(CultureInfo.InvariantCulture, $"{m.RssMb:0} MB{heap}{scripts}");
     }
 
     public static string Number(long value) => value.ToString("N0", CultureInfo.InvariantCulture);
