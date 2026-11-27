@@ -102,8 +102,10 @@ beforehand and not reported. Classification and formatting are platform neutral 
 **Heartbeat.** The main process records what it is doing every 30 s and on every lifecycle transition (activity
 start/resume/pause/stop/destroy, surface created/changed/destroyed, service start/stop, trimMemory and lowMemory): UI
 foreground or background, script state, connection, RSS, and the collector (`Core/Memory/GcTelemetry.cs`): managed
-heap, committed, minor/major collections, and the longest stall since the previous heartbeat plus the last stall over
-100 ms (with whether a nursery or major collection ran in it). Mono reports no pause times, so a probe thread sleeps
+heap, committed, the allocation rate since the previous heartbeat (MB/s: the garbage that drives the collector),
+minor/major collections, and the longest stall since the previous heartbeat plus the last stall over 100 ms (with
+whether a nursery or major collection ran in it); heartbeats add PSS split into anonymous memory and file pages, and
+what is swapped out (`/proc/self/smaps_rollup`). Mono reports no pause times, so a probe thread sleeps
 50 ms in a loop and measures its oversleep: a stop-the-world collection stops it too. It goes to the events log, to
 the startup marker and (Android 11+) to the process state summary Android returns with that process's exit record (the
 GC part only to the log and the marker: the summary is limited to 127 bytes), so the report says what the app was
@@ -121,8 +123,34 @@ in the engine process (+260 MB RSS measured on Linux), and every Skua bank read 
 whole bank (27 MB per `Bank.Contains` at 3000 items; CoreBots reads it several times per kill), plus the World and
 Control pages copying it every refresh. All three are gone (see Scripts, Compiling and Control page, Bank).
 
+**Lag of 2026-11 (same phone, bank loaded, 0AllDailies running, 725 MB, the whole phone slow).** No ANR any more, but
+the process made garbage without pause; measured on Linux with the synthetic bank and a 253-item backpack in the live
+item shape (`DailiesPatternTests`, desktop CPU, before -> after):
+
+| | 3000-item bank | 5000-item bank |
+|---|---|---|
+| idle, logged in, no script (Skua's timer thread) | 100 MB/s -> 0.6 MB/s allocated | (bank size does not matter) |
+| simulated daily (CoreBots' CheckInventory every 250 ms, Unbank/ToBank of two items per cycle) | 154 MB/s, GC 32/17/7 per 23 s -> 4.5 MB/s, 2/2/2 (the forced ones) | 164 MB/s -> 5.0 MB/s |
+| CPU of the test process (with the fake server), per second | idle 90 -> 38 ms, daily 328 -> 135 ms | daily 328 -> 148 ms |
+| `Bank.Contains` / `TryGetItem` / `GetQuantity` | 400 KB, 0.4-0.6 ms -> 0.1 KB, 1-2 us | 665 KB, 0.8-1.2 ms -> 0.1 KB, 1 us |
+| `Inventory.Contains` (253 items) | 2.4 MB, 5-27 ms -> 0.1 KB, 2-3 us | |
+| CoreBots `CheckInventory` (TempInv, Inventory, House, Bank) | 2.7-3.1 MB, 4-5 ms -> 0.2-0.4 KB, 4-23 us | 3.0-3.7 MB -> 0.2-0.4 KB |
+| `Inventory.UsedSlots`, `HasSpaceFor` (GameClient.Character()) | 1 MB, 1 ms -> 50 KB, 0.3 ms | |
+| first bank read after a bank move | 24 MB, 56 ms -> 0.4 MB, 5 ms | 44 MB, 67 ms -> 0.7 MB, 5-20 ms |
+| managed heap retained by the bank and the caches | 54 MB -> 41 MB | 93 MB -> 68 MB |
+
+Causes, in order of size: (1) Skua's timer thread (every 20 ms, script or not) checks `isNull("world.myAvatar")`, and the
+bridge answered it by copying the whole avatar (backpack, objData, factions; 2 MB with a full backpack): 100 MB/s with
+nothing running. (2) Every Skua item lookup parsed the whole list: CoreBots' CheckInventory makes four, its farm loops
+call it every 250 ms and Skua's waits poll `Inventory.Contains` every 50 ms; a backpack lookup was 2.4 MB. (3) The first
+bank read after each bank move serialised and parsed the whole bank (24 MB at 3000 items), and every daily banks and
+unbanks. (4) `Character()` (bag slots, space checks, quest rules) copied the backpack each call. None was the bank alone,
+which is why a small bank hid it; the bank made (2) and (3) worse. See Bank (large banks) for what changed. On the phone,
+with a serial collector, that garbage meant collections back to back, and the heap's growth (Mono keeps freed memory)
+pushed the phone into zram swapping; the Diagnostics page and the heartbeat now show the allocation rate and the swap.
+
 **Memory pressure.** `onTrimMemory` (main and slot processes, `Core/Memory/MemoryPressure.cs`): from RUNNING_LOW the
-caches that can be rebuilt (the bank's JSON text, Skua's parsed bank, the bank rows) are dropped; at RUNNING_CRITICAL
+caches that can be rebuilt (Skua's parsed item lists while no script runs, the bank rows) are dropped; at RUNNING_CRITICAL
 and from BACKGROUND one full collection runs on a worker thread, at most once a minute, logged with its time and the
 heap before and after, rather than leaving it to the next allocation, perhaps the UI thread's.
 
@@ -335,15 +363,27 @@ temp, bank, quests, drops, monsters) open from Control's *Lists* button, and Bac
 reply limit is 32 MB (a synthetic 3000-item bank in the live item shape, ~45 fields with long descriptions, is 3.5 MB;
 5000 items 5.9 MB) and nothing limits the item count. The world model inserts the reply in one pass keyed by ItemID
 and takes the parsed items over without copying (was a search per item under the model's lock: 0.7 s for 3000 items,
-4 s for 5000 on a desktop CPU; now 0.11 s and 0.2 s including the fake server's side). `WorldModel.BankVersion`
-advances on every change that may touch the bank; keyed by it: the JSON text of `world.bankinfo.items` (serialised
-once per version), Skua's bank (`HeadlessFlashUtil` parses it once per version and hands each read a new list of
-memberwise copies, which is what a fresh parse gives for the flat `InventoryItem`), and the app's bank rows (the same
-list instance while the bank is unchanged). One `Bank.Contains` on 3000 items went from 27 MB / 41 ms to 0.4 MB /
-0.7 ms (5000: 46 MB to 0.65 MB), a World-lists or Control refresh from 12 MB to 0.02 MB (`LargeBankTests`,
-`LargeBankAppTests`). The World lists are read on a worker thread (throttled like the Control page) and only shown on
-the UI thread; the Control page's Bank tab (a plain list in the page's scroll view) shows at most 100 items with a
-search box. The Junk list sums quantities by lookup instead of scanning the bank per item.
+4 s for 5000 on a desktop CPU; now 0.11 s and 0.2 s including the fake server's side).
+
+*Skua's item lists* (`HeadlessFlashUtil.ItemLists.cs`). The model keeps a version per list (`WorldModel.BankVersion`,
+`InventoryKey`, `TempInventoryVersion`, `HouseInventoryVersion`: any handler touching a list advances it, a read that
+cannot change it does not). The bridge parses each list once per version and element type. The bank is parsed per
+item: the model never changes a bank item in place (a changed stack is stored as a changed copy, an item moved in from
+the backpack is copied; only a `setGameObject` under `world.bankinfo` or a reset advances its generation), so after a
+move only the new item is parsed (`WorldModel.ReadBankItems`; 24 MB -> 0.4 MB for 3000 items). The backpack's equipped
+class shows the class points as its quantity (they change every kill): only that item is redone. Skua.Core's lookups
+(Contains, GetItem, TryGetItem, GetQuantity, IsMaxStack of Bank, Inventory, TempInv, House) read a shared immutable
+snapshot with name and ID indexes through an optional `IFlashUtil` capability (`IItemListSnapshots`, `ItemLookup`) and
+copy only the item they return; the desktop has no such bridge and runs the interface's own code. Names compare as
+before: ignoring case (Skua's assemblies are woven with Caseless), first match in list order (`ItemLookupTests` checks
+every lookup against a fresh parse, with duplicate names, case variants, classes, quantity 0 and the class points).
+`Items` still gives a new list of new items (a script may change it): 0.4 MB for 3000. The bank's JSON text is built
+only for a raw `getGameObject` of the path and held weakly. `GameClient.Character()` copies the item lists only when
+they changed. The app's bank rows (the same list instance while the bank is unchanged) are built without copying
+each item's stored object (`GetBank(raw: false)`: 12 MB -> 1.4 MB per rebuild); a count or one item never copies the
+bank (`BankCount`, `FindBankItem`). The World lists are read on a worker thread (throttled like the Control page) and
+only shown on the UI thread; the Control page's Bank tab (a plain list in the page's scroll view) shows at most 100
+items with a search box. The Junk list sums quantities by lookup instead of scanning the bank per item.
 
 **Reputation** (a tab of the World lists): every faction of Skua's `IScriptFaction.FactionList` (the headless client's
 rank math) with name, ID, rank, reputation in the rank, the rank's span, what remains and the total; highest rank
@@ -583,10 +623,13 @@ Settings tab shows the hub and the app is in the foreground.
   its answer, measured in `AqwConnection`; last and moving average), packets per minute in and out over the last
   minute (from the connection's counters), totals, the send queue and drops, the pacer's gaps, slow-down warnings,
   liveness probes, time since the server last sent anything.
-* **Memory**: RSS and peak, PSS (`/proc/self/smaps_rollup`, read on demand), managed heap and total allocated, GC
-  collections, GC pauses (the stall probe's longest stall since the last heartbeat and the last one over 0.1 s, with
-  the collection that ran in it; committed memory), loaded script assemblies, thread pool, the watchdog's threshold,
-  mode and current verdict.
+* **Memory**: RSS and peak, PSS (`/proc/self/smaps_rollup`, read on demand) split into the app's own memory and code
+  and mapped files, what is swapped out (zram; above 64 MB the phone is short of memory), managed heap in use and held
+  by the collector, what lies outside the managed heap (RSS minus the collector's: the runtime, native libraries,
+  code), the allocation rate since the last heartbeat, total allocated, GC collections, GC pauses (the stall probe's
+  longest stall since the last heartbeat and the last one over 0.1 s, with the collection that ran in it), loaded
+  script assemblies, thread pool, the watchdog's threshold, mode and current verdict. The memory line on the Dashboard
+  shows the managed heap next to the RSS ("725 MB (heap 150)").
 * **Flash gaps**: `HeadlessFlashUtil`'s gap log (Missing / Impossible / Approximated, name and argument shape, count,
   what was answered instead), most frequent first.
 * **Process exits**: the exits Android reported (the `previous exit (...)` lines the crash reporting writes to the
