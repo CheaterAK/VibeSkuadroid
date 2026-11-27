@@ -46,6 +46,29 @@ public partial class ScriptInventory : IScriptInventory
     [ObjectBinding("world.myAvatar.items", Default = "new()")]
     private List<InventoryItem> _items;
 
+    // The lookups below read the bridge's shared snapshot when it offers one, else the whole list as before (ItemLookup).
+    private const string ItemsPath = "world.myAvatar.items";
+
+    public bool Contains(string name, int quantity = 1) => ItemLookup.Contains(Flash, ItemsPath, this, name, quantity);
+
+    public bool Contains(int id, int quantity = 1) => ItemLookup.Contains(Flash, ItemsPath, this, id, quantity);
+
+    public InventoryItem? GetItem(string name) => ItemLookup.GetItem(Flash, ItemsPath, this, name);
+
+    public InventoryItem? GetItem(int id) => ItemLookup.GetItem(Flash, ItemsPath, this, id);
+
+    public bool TryGetItem(string name, out InventoryItem? item) => (item = GetItem(name)) is not null;
+
+    public bool TryGetItem(int id, out InventoryItem? item) => (item = GetItem(id)) is not null;
+
+    public int GetQuantity(string name) => ItemLookup.GetQuantity(Flash, ItemsPath, this, name);
+
+    public int GetQuantity(int id) => ItemLookup.GetQuantity(Flash, ItemsPath, this, id);
+
+    public bool IsMaxStack(string name) => ItemLookup.IsMaxStack(Flash, ItemsPath, this, name);
+
+    public bool IsMaxStack(int id) => ItemLookup.IsMaxStack(Flash, ItemsPath, this, id);
+
     [ObjectBinding("world.myAvatar.objData.iBagSlots")]
     private int _slots;
 

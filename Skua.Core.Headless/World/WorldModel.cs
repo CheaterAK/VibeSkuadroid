@@ -57,7 +57,11 @@ public sealed partial class WorldModel
     private JsonObject? _lastTurnIn;
     private long _version;
     private long _bankVersion;
-    private string? _bankJson;
+    private long _bankGeneration;
+    private long _inventoryVersion;
+    private long _tempVersion;
+    private long _houseVersion;
+    private WeakReference<string>? _bankJson;
     private long _bankJsonVersion = -1;
     private long _total;
 
@@ -140,7 +144,7 @@ public sealed partial class WorldModel
             AddItemsToBankCore(items, adopt);
             _bankLoaded = true;
             count = BankItems.Count;
-        }, "bank");
+        }, "bank", touchesItems: false);
         return count;
     }
 
@@ -209,7 +213,12 @@ public sealed partial class WorldModel
                 ["target"] = null,
             },
         };
+        // Versions only ever grow (a cache keyed by one never sees a version again after a reset).
         _bankVersion++;
+        _bankGeneration++;
+        _inventoryVersion++;
+        _tempVersion++;
+        _houseVersion++;
         _bankJson = null;
         _lastArea = null;
         _me = null;
@@ -253,9 +262,48 @@ public sealed partial class WorldModel
     // ---------------------------------------------------------------- tree accessors (call under _gate)
     private JsonObject MyAvatar => (JsonObject)_world["myAvatar"]!;
     private JsonObject ObjData => (JsonObject)MyAvatar["objData"]!;
-    private JsonArray Items => (JsonArray)MyAvatar["items"]!;
-    private JsonArray TempItems => (JsonArray)MyAvatar["tempitems"]!;
-    private JsonArray HouseItems => (JsonArray)MyAvatar["houseitems"]!;
+    // Like BankItems: any access through Items, TempItems or HouseItems may change that list, so it advances the list's
+    // version (the Flash bridge's parsed lists are keyed by them); reads that cannot change it use the views. Code that
+    // replaces a list (MyAvatar["items"] = ...) advances the version itself (ItemListsReplaced).
+    private JsonArray Items
+    {
+        get
+        {
+            _inventoryVersion++;
+            return ItemsView;
+        }
+    }
+
+    private JsonArray TempItems
+    {
+        get
+        {
+            _tempVersion++;
+            return TempItemsView;
+        }
+    }
+
+    private JsonArray HouseItems
+    {
+        get
+        {
+            _houseVersion++;
+            return HouseItemsView;
+        }
+    }
+
+    private JsonArray ItemsView => (JsonArray)MyAvatar["items"]!;
+    private JsonArray TempItemsView => (JsonArray)MyAvatar["tempitems"]!;
+    private JsonArray HouseItemsView => (JsonArray)MyAvatar["houseitems"]!;
+
+    /// <summary>The backpack, temporary and house lists may all have changed (a list replaced, a client write, a reset).</summary>
+    private void ItemListsReplaced()
+    {
+        _inventoryVersion++;
+        _tempVersion++;
+        _houseVersion++;
+    }
+
     private JsonArray Factions => (JsonArray)MyAvatar["factions"]!;
     private JsonObject UoTree => (JsonObject)_world["uoTree"]!;
     private JsonObject MonTree => (JsonObject)_world["monTree"]!;
@@ -577,17 +625,17 @@ public sealed partial class WorldModel
 
     public IReadOnlyList<ItemInfo> GetInventory()
     {
-        lock (_gate) return ItemsOf(Items, temp: false);
+        lock (_gate) return ItemsOf(ItemsView, temp: false);
     }
 
     public IReadOnlyList<ItemInfo> GetTempInventory()
     {
-        lock (_gate) return ItemsOf(TempItems, temp: true);
+        lock (_gate) return ItemsOf(TempItemsView, temp: true);
     }
 
     public IReadOnlyList<ItemInfo> GetHouseInventory()
     {
-        lock (_gate) return ItemsOf(HouseItems, temp: false);
+        lock (_gate) return ItemsOf(HouseItemsView, temp: false);
     }
 
     /// <summary>Bank items known so far (the bank is only sent on <c>loadBank</c>; see <see cref="IsBankLoaded"/>).</summary>
@@ -605,7 +653,55 @@ public sealed partial class WorldModel
         get { lock (_gate) return _bankVersion; }
     }
 
-    /// <summary>Drops the cached bank JSON text (memory pressure); the next read builds it again.</summary>
+    /// <summary>
+    /// Advances when the backpack (<c>world.myAvatar.items</c>) may have changed, with the class points the client shows
+    /// as the quantity of the equipped class (<c>objData.iCP</c>, GameClient.DecorateItems): equal keys mean an
+    /// unchanged <c>getGameObject("world.myAvatar.items")</c>.
+    /// </summary>
+    public (long Version, long ClassPoints) InventoryKey
+    {
+        get
+        {
+            lock (_gate)
+                return (_inventoryVersion, JsonUtil.AsLongOrNull(ObjData["iCP"]) ?? long.MinValue);
+        }
+    }
+
+    /// <summary>The versions of the backpack, temporary and house lists, read at once.</summary>
+    public ItemListVersions ItemListVersions
+    {
+        get { lock (_gate) return ItemListVersionsUnsafe; }
+    }
+
+    /// <summary><see cref="ItemListVersions"/> for a caller already under the lock (a <see cref="Read{T}"/> delegate).</summary>
+    internal ItemListVersions ItemListVersionsUnsafe =>
+        new(_inventoryVersion, _tempVersion, _houseVersion);
+
+    /// <summary>Advances when the temporary inventory (<c>world.myAvatar.tempitems</c>) may have changed.</summary>
+    public long TempInventoryVersion
+    {
+        get { lock (_gate) return _tempVersion; }
+    }
+
+    /// <summary>Advances when the house inventory (<c>world.myAvatar.houseitems</c>) may have changed.</summary>
+    public long HouseInventoryVersion
+    {
+        get { lock (_gate) return _houseVersion; }
+    }
+
+    /// <summary>How many items the backpack holds (no copy).</summary>
+    public int InventoryCount
+    {
+        get { lock (_gate) return ItemsView.Count; }
+    }
+
+    /// <summary>How many items the bank holds (no copy).</summary>
+    public int BankCount
+    {
+        get { lock (_gate) return BankItemsView.Count; }
+    }
+
+    /// <summary>Kept for callers that trim on memory pressure; the bank's JSON text is no longer kept (see <see cref="GetBankItemsJson"/>).</summary>
     public void TrimCaches()
     {
         lock (_gate)
@@ -614,21 +710,52 @@ public sealed partial class WorldModel
 
     /// <summary>
     /// The JSON text of <c>world.bankinfo.items</c> (what <see cref="GetGameObject"/> returns for that path) and the
-    /// <see cref="BankVersion"/> it belongs to, serialised once per version. Before, every read copied and serialised
-    /// the whole bank (18 MB allocated per read of a 3000-item bank), and CoreBots reads it several times per kill.
+    /// <see cref="BankVersion"/> it belongs to. Built when asked and held only weakly (7 MB of text for 3000 items; the
+    /// bridge's typed reads no longer use it, see <see cref="ReadBankItems"/>).
     /// </summary>
     public (long Version, string Json) GetBankItemsJson()
     {
         lock (_gate)
         {
-            if (_bankJson is null || _bankJsonVersion != _bankVersion)
-            {
-                _bankJson = JsonUtil.ToJson(BankItemsView);
-                _bankJsonVersion = _bankVersion;
-            }
-            return (_bankVersion, _bankJson);
+            if (_bankJson is not null && _bankJsonVersion == _bankVersion && _bankJson.TryGetTarget(out string? kept))
+                return (_bankVersion, kept);
+            string json = JsonUtil.ToJson(BankItemsView);
+            _bankJson = new WeakReference<string>(json);
+            _bankJsonVersion = _bankVersion;
+            return (_bankVersion, json);
         }
     }
+
+    /// <summary>
+    /// The bank's items for a reader that keeps its own parse of each item (the Flash bridge): in order, each with an
+    /// opaque key (the stored item object) and, for an item the reader does not have, its JSON text. A key stands for
+    /// the same content as long as <see cref="BankItemsRead.Generation"/> is unchanged: the model never changes a
+    /// bank item in place (a change stores a changed copy; an item moved in from the backpack is copied too), except a
+    /// <c>setGameObject</c> under <c>world.bankinfo</c> or a reset, which advance the generation. So after one move of
+    /// a 3000-item bank only one item is serialised and parsed again, not 3000.
+    /// </summary>
+    /// <param name="generation">The generation the reader's parses belong to (any other value: all items get text).</param>
+    /// <param name="has">Whether the reader holds a parse of this key (only asked within the same generation).</param>
+    /// <remarks>Runs under the model's lock: <paramref name="has"/> must be quick and must not call into the model.</remarks>
+    public BankItemsRead ReadBankItems(long generation, Func<object, bool> has)
+    {
+        lock (_gate)
+        {
+            JsonArray bank = BankItemsView;
+            bool same = generation == _bankGeneration;
+            List<object> keys = new(bank.Count);
+            List<string?> json = new(bank.Count);
+            foreach (JsonNode? node in bank)
+            {
+                object key = node ?? (object)s_nullBankItem;
+                keys.Add(key);
+                json.Add(same && has(key) ? null : JsonUtil.ToJson(node));
+            }
+            return new BankItemsRead(_bankVersion, _bankGeneration, keys, json);
+        }
+    }
+
+    private static readonly object s_nullBankItem = new();
 
     private static List<ItemInfo> ItemsOf(JsonArray array, bool temp)
     {

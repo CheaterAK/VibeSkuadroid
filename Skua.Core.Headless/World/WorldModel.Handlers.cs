@@ -475,6 +475,7 @@ public sealed partial class WorldModel
                 return true;
 
             case "loadInventoryBig":
+                ItemListsReplaced();
                 MyAvatar["items"] = CloneItemArray(d["items"]);
                 MyAvatar["houseitems"] = CloneItemArray(d["hitems"]);
                 MyAvatar["factions"] = d["factions"] is JsonArray f ? (JsonArray)f.DeepClone() : new JsonArray();
@@ -485,10 +486,12 @@ public sealed partial class WorldModel
                 return true;
 
             case "initInventory":
+                ItemListsReplaced();
                 MyAvatar["items"] = CloneItemArray(d["items"]);
                 return true;
 
             case "loadHouseInventory":
+                ItemListsReplaced();
                 MyAvatar["houseitems"] = CloneItemArray(d["items"]);
                 return true;
 
@@ -969,6 +972,39 @@ public sealed partial class WorldModel
         bag.Add(added);
     }
 
+    // The bank's AddToStack and TakeFromStack: the same rules, but a changed stack is stored as a changed copy, never
+    // changed in place, so a reader's parse of an item stays valid while its object is in the bank (ReadBankItems).
+    private void AddToBankStack(JsonObject grant)
+    {
+        JsonArray bank = BankItems;
+        JsonObject? have = FindById(bank, "ItemID", JsonUtil.AsInt(grant["ItemID"]));
+        if (have is null)
+        {
+            AddToStack(bank, grant);
+            return;
+        }
+        JsonObject changed = (JsonObject)have.DeepClone();
+        JsonArray scratch = new();
+        scratch.Add(changed);
+        AddToStack(scratch, grant);
+        scratch.Clear();
+        bank[bank.IndexOf(have)] = changed;
+    }
+
+    private void TakeFromBankStack(JsonObject item, int qty, int? qtyNow)
+    {
+        JsonArray bank = BankItems;
+        int left = qtyNow ?? (JsonUtil.AsInt(item["iQty"]) - qty);
+        if (left < 1)
+        {
+            bank.Remove(item);
+            return;
+        }
+        JsonObject changed = (JsonObject)item.DeepClone();
+        changed["iQty"] = left;
+        bank[bank.IndexOf(item)] = changed;
+    }
+
     private static void TakeFromStack(JsonArray bag, JsonObject item, int qty, int? qtyNow)
     {
         int left = qtyNow ?? (JsonUtil.AsInt(item["iQty"]) - qty);
@@ -994,7 +1030,7 @@ public sealed partial class WorldModel
             bool temp = item.ContainsKey("bTemp") ? JsonUtil.AsBool(item["bTemp"]) : !item.ContainsKey("CharItemID");
             if (bank)
             {
-                AddToStack(BankItems, item);
+                AddToBankStack(item);
             }
             else if (temp)
             {
@@ -1016,9 +1052,9 @@ public sealed partial class WorldModel
 
     private JsonObject? KnownItem(int itemId)
     {
-        return FindById(Items, "ItemID", itemId)
-            ?? FindById(BankItems, "ItemID", itemId)
-            ?? FindById(TempItems, "ItemID", itemId)
+        return FindById(ItemsView, "ItemID", itemId)
+            ?? FindById(BankItemsView, "ItemID", itemId)
+            ?? FindById(TempItemsView, "ItemID", itemId)
             ?? (_drops.TryGetValue(itemId, out DropState? drop) ? drop.Raw : null);
     }
 
@@ -1068,7 +1104,7 @@ public sealed partial class WorldModel
             item.Remove("iQtyNow");
         item["bTemp"] = 0;
         if (JsonUtil.AsBool(d["bBank"]))
-            AddToStack(BankItems, item);
+            AddToBankStack(item);
         else
             AddToStack(IsHouseItem(item) ? HouseItems : Items, item);
     }
@@ -1098,8 +1134,13 @@ public sealed partial class WorldModel
         int charItemId = JsonUtil.AsInt(d["CharItemID"]);
         int qty = JsonUtil.AsInt(d["iQty"], 1);
         int? qtyNow = JsonUtil.AsIntOrNull(d["iQtyNow"]);
-        JsonArray[] bags = JsonUtil.AsBool(d["bBank"]) ? new[] { BankItems } : new[] { Items, HouseItems };
-        foreach (JsonArray bag in bags)
+        if (JsonUtil.AsBool(d["bBank"]))
+        {
+            if (FindById(BankItemsView, "CharItemID", charItemId) is JsonObject banked)
+                TakeFromBankStack(banked, qty, qtyNow);
+            return;
+        }
+        foreach (JsonArray bag in new[] { Items, HouseItems })
         {
             if (FindById(bag, "CharItemID", charItemId) is JsonObject item)
             {
@@ -1124,7 +1165,7 @@ public sealed partial class WorldModel
             item["iQtyNow"] = qtyNow.DeepClone();
         // Seam: the price is not deducted here; the next balance/initUserData carries the real gold.
         if (JsonUtil.AsBool(d["bBank"]))
-            AddToStack(BankItems, item);
+            AddToBankStack(item);
         else
             AddToStack(IsHouseItem(item) ? HouseItems : Items, item);
     }
@@ -1253,10 +1294,13 @@ public sealed partial class WorldModel
             if (FindById(bag, "ItemID", itemId) is not JsonObject item)
                 continue;
             bag.Remove(item);
-            item["bEquip"] = 0;
-            if (FindById(BankItems, "ItemID", itemId) is JsonObject existing)
-                BankItems.Remove(existing);
-            BankItems.Add(item);
+            // A copy goes to the bank: bank items are never changed in place (see ReadBankItems).
+            JsonObject banked = (JsonObject)item.DeepClone();
+            banked["bEquip"] = 0;
+            JsonArray bank = BankItems;
+            if (FindById(bank, "ItemID", itemId) is JsonObject existing)
+                bank.Remove(existing);
+            bank.Add(banked);
             if (!JsonUtil.AsBool(item["bCoins"]))
                 MyAvatar["iBankCount"] = JsonUtil.AsInt(MyAvatar["iBankCount"]) + 1;
             return;

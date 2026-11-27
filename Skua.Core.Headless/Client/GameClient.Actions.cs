@@ -7,15 +7,19 @@ using System.Text.Json.Nodes;
 
 namespace Skua.Core.Headless.Client;
 
-/// <summary>The character as the client rules see it: copies taken once, so a decision reads one consistent state.</summary>
+/// <summary>
+/// The character as the client rules see it: copies taken once, so a decision reads one consistent state.
+/// <see cref="ObjData"/> and <see cref="Factions"/> are this snapshot's own; <see cref="Items"/>, <see cref="Temp"/>
+/// and <see cref="House"/> are shared by every snapshot taken while those lists are unchanged (read only).
+/// </summary>
 public sealed class CharacterSnapshot : IQuestCharacter
 {
-    internal CharacterSnapshot(JsonObject objData, JsonArray items, JsonArray temp, JsonArray house, JsonArray factions)
+    internal CharacterSnapshot(JsonObject objData, IReadOnlyList<JsonObject> items, IReadOnlyList<JsonObject> temp, IReadOnlyList<JsonObject> house, JsonArray factions)
     {
         ObjData = objData;
-        Items = items.OfType<JsonObject>().ToList();
-        Temp = temp.OfType<JsonObject>().ToList();
-        House = house.OfType<JsonObject>().ToList();
+        Items = items;
+        Temp = temp;
+        House = house;
         Factions = factions.OfType<JsonObject>().ToList();
     }
 
@@ -100,29 +104,114 @@ public sealed partial class GameClient
             return items;
         foreach (JsonObject it in items.OfType<JsonObject>())
         {
-            if (JsonUtil.AsString(it["sES"]) == "ar" && JsonUtil.AsBool(it["bEquip"]) && JsonUtil.AsString(it["sType"]) == "Class")
+            if (ShowsClassPoints(it))
                 it["iQty"] = cp;
         }
         return items;
     }
 
-    /// <summary>A consistent copy of the character for the rules.</summary>
+    /// <summary>Whether <see cref="DecorateItems"/> shows the class points as this item's quantity (the equipped class).</summary>
+    public static bool ShowsClassPoints(JsonObject item) =>
+        JsonUtil.AsString(item["sES"]) == "ar" && JsonUtil.AsBool(item["bEquip"]) && JsonUtil.AsString(item["sType"]) == "Class";
+
+    // The item lists of the last Character(): copies with the model's versions they belong to, and the backpack as
+    // decorated for the last class points seen (only the equipped class item differs, so a kill copies one item).
+    private sealed class CharacterItems
+    {
+        private Decorated? _decorated;
+
+        private sealed record Decorated(long ClassPoints, IReadOnlyList<JsonObject> Items);
+
+        public CharacterItems(ItemListVersions key, JsonObject[] items, JsonObject[] temp, JsonObject[] house)
+        {
+            Key = key;
+            Raw = items;
+            Temp = temp;
+            House = house;
+            ClassItems = Enumerable.Range(0, items.Length).Where(i => ShowsClassPoints(items[i])).ToArray();
+        }
+
+        public ItemListVersions Key { get; }
+
+        public JsonObject[] Raw { get; }
+
+        public IReadOnlyList<JsonObject> Temp { get; }
+
+        public IReadOnlyList<JsonObject> House { get; }
+
+        public int[] ClassItems { get; }
+
+        public IReadOnlyList<JsonObject> Items(long? classPoints)
+        {
+            if (classPoints is null || ClassItems.Length == 0)
+                return Raw;
+            Decorated? decorated = Volatile.Read(ref _decorated);
+            if (decorated is not null && decorated.ClassPoints == classPoints.Value)
+                return decorated.Items;
+            JsonObject[] items = (JsonObject[])Raw.Clone();
+            foreach (int i in ClassItems)
+            {
+                JsonObject it = (JsonObject)items[i].DeepClone();
+                it["iQty"] = classPoints.Value;
+                Touch(it);
+                items[i] = it;
+            }
+            Volatile.Write(ref _decorated, new Decorated(classPoints.Value, items));
+            return items;
+        }
+    }
+
+    private CharacterItems? _characterItems;
+
+    /// <summary>
+    /// A consistent copy of the character for the rules. objData and the factions are copied each time; the backpack,
+    /// temporary and house items only when the model says they changed (WorldModel.ItemListVersions). Before, every
+    /// call copied them all: with a 250-item backpack 1 MB per inventoryBagUsedSlots, inventoryHasSpaceFor or quest check.
+    /// </summary>
     public CharacterSnapshot Character()
     {
-        (JsonObject objData, JsonArray items, JsonArray temp, JsonArray house, JsonArray factions) = World.Read((w, _) =>
+        CharacterItems? cached = Volatile.Read(ref _characterItems);
+        (JsonObject objData, JsonArray factions, CharacterItems lists) = World.Read((w, _) =>
         {
             JsonObject my = (JsonObject)w["myAvatar"]!;
-            return (
-                (JsonObject)my["objData"]!.DeepClone(),
-                (JsonArray)my["items"]!.DeepClone(),
-                (JsonArray)my["tempitems"]!.DeepClone(),
-                (JsonArray)my["houseitems"]!.DeepClone(),
-                (JsonArray)my["factions"]!.DeepClone());
+            ItemListVersions key = World.ItemListVersionsUnsafe;
+            CharacterItems items = cached is not null && cached.Key == key
+                ? cached
+                : new CharacterItems(key, Copy(my["items"]), Copy(my["tempitems"]), Copy(my["houseitems"]));
+            return ((JsonObject)my["objData"]!.DeepClone(), (JsonArray)my["factions"]!.DeepClone(), items);
         });
+        if (!ReferenceEquals(lists, cached))
+            Volatile.Write(ref _characterItems, lists);
         DecorateObjData(objData);
-        DecorateItems(items, objData);
         DecorateFactions(factions);
-        return new CharacterSnapshot(objData, items, temp, house, factions);
+        return new CharacterSnapshot(objData, lists.Items(JsonUtil.AsLongOrNull(objData["iCP"])), lists.Temp, lists.House, factions);
+    }
+
+    // A copy of an item list, every node read once so that later concurrent reads change nothing (System.Text.Json
+    // nodes fill their storage on first access).
+    private static JsonObject[] Copy(JsonNode? list)
+    {
+        if (list is not JsonArray array)
+            return Array.Empty<JsonObject>();
+        JsonObject[] copy = array.OfType<JsonObject>().Select(o => (JsonObject)o.DeepClone()).ToArray();
+        foreach (JsonObject o in copy)
+            Touch(o);
+        return copy;
+    }
+
+    private static void Touch(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject o:
+                foreach (KeyValuePair<string, JsonNode?> p in o)
+                    Touch(p.Value);
+                break;
+            case JsonArray a:
+                foreach (JsonNode? n in a)
+                    Touch(n);
+                break;
+        }
     }
 
     /// <summary>
@@ -469,7 +558,7 @@ public sealed partial class GameClient
                     leaf["strFrame"] = cell;
                     leaf["strPad"] = pad;
                 }
-            }, "moveToCell");
+            }, "moveToCell", touchesItems: false);
             return;
         }
         Send(Packets.MoveToCell(World.RoomId, cell, pad));

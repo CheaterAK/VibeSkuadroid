@@ -24,11 +24,7 @@ public sealed partial class HeadlessFlashUtil
         Add("loadClient", _ => LoadClient());
         NoOp("setBackgroundValues", _ => null);
         Add("isTrue", _ => "true");
-        Add("isNull", a =>
-        {
-            Lookup l = Resolve(As3.Str(a, 0), recordGaps: false);
-            return Bool(l.IsNullish);
-        });
+        Add("isNull", a => Bool(IsNullish(As3.Str(a, 0))));
         Add("getGameObject", a =>
         {
             if (TryBankItemsJson(As3.Str(a, 0), out string? bank))

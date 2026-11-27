@@ -17,12 +17,16 @@ public sealed partial class WorldModel
     /// (<c>world.bankinfo</c>) is not changed this way: only through the model's bank members, which advance
     /// <see cref="BankVersion"/> (its caches would otherwise go stale).
     /// </summary>
-    internal void Write(Action<JsonObject, string?> write, string reason = "client")
+    /// <param name="touchesItems">The write may change the backpack, temporary or house items (their versions advance);
+    /// false only for writes that certainly leave them alone (movement, drops, quests).</param>
+    internal void Write(Action<JsonObject, string?> write, string reason = "client", bool touchesItems = true)
     {
         long version;
         lock (_gate)
         {
             write(_world, _me);
+            if (touchesItems)
+                ItemListsReplaced();
             _version++;
             version = _version;
         }
@@ -55,7 +59,7 @@ public sealed partial class WorldModel
                 _dropOrder.Remove(id);
                 removed++;
             }
-        }, "rejectExcept");
+        }, "rejectExcept", touchesItems: false);
         return removed;
     }
 
@@ -67,7 +71,7 @@ public sealed partial class WorldModel
             _acceptedQuests.Remove(questId);
             if (((JsonObject)w["questTree"]!)[questId.ToString(System.Globalization.CultureInfo.InvariantCulture)] is JsonObject q)
                 q["status"] = null;
-        }, "abandonQuest");
+        }, "abandonQuest", touchesItems: false);
     }
 
     /// <summary>
@@ -145,7 +149,13 @@ public sealed partial class WorldModel
             if (!done)
                 return false;
             if (parts[1] == "bankinfo")
+            {
+                // A bank item may have been changed in place: readers parse every item again.
                 _bankVersion++;
+                _bankGeneration++;
+            }
+            if (parts[1] == "myAvatar")
+                ItemListsReplaced();
             _version++;
             version = _version;
         }

@@ -208,3 +208,13 @@ public sealed class WorldChangedEventArgs : EventArgs
 
     public long Version { get; }
 }
+
+/// <summary>
+/// <see cref="WorldModel.ReadBankItems"/>: the bank's items in order, an opaque key per item (equal keys within one
+/// <paramref name="Generation"/> mean equal content) and the JSON text of the items the reader did not have (null
+/// where it has them).
+/// </summary>
+public sealed record BankItemsRead(long Version, long Generation, IReadOnlyList<object> Keys, IReadOnlyList<string?> Json);
+
+/// <summary><see cref="WorldModel.ItemListVersions"/>: equal values mean unchanged backpack, temporary and house lists.</summary>
+public readonly record struct ItemListVersions(long Inventory, long Temp, long House);

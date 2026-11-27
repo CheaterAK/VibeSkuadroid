@@ -105,7 +105,8 @@ public sealed class LargeBankTests : IAsyncLifetime
 
         // Regression bounds (before: 27 MB and 49 MB per Contains at 3000 and 5000 items; 0.7 s and 4 s per load).
         Assert.True(contains.Bytes < count * 400L, $"Bank.Contains allocated {contains}");
-        Assert.True(raw.Bytes < 64 * 1024, $"getGameObject of the bank allocated {raw}");
+        // The raw text (no Skua read asks for it; scripts rarely do) is built per read and held only weakly.
+        Assert.True(raw.Bytes < 6 * bodyBytes, $"getGameObject of the bank allocated {raw}");
         Assert.True(load.Ms < 3000, $"the load took {load}");
     }
 
@@ -134,17 +135,22 @@ public sealed class LargeBankTests : IAsyncLifetime
         Assert.NotEqual(999, bot.Bank.Items[0].Quantity);
         Assert.Equal(parses, _session.Flash.BankParses);
 
-        // A move to the backpack is seen at once, and parsed once.
+        // A move to the backpack is seen at once, and rebuilt once without parsing any item again.
         InventoryItem wing = bot.Bank.Items.Single(i => i.Name == "Pixie Wing");
+        long itemParses = _session.Flash.BankItemParses;
         Assert.True(bot.Bank.EnsureToInventory("Pixie Wing", loadBank: false));
         Assert.False(bot.Bank.Contains("Pixie Wing"));
         Assert.Equal(200, bot.Bank.Items.Count);
         Assert.Equal(parses + 1, _session.Flash.BankParses);
+        Assert.Equal(itemParses, _session.Flash.BankItemParses);
         Assert.True(bot.Inventory.Contains(wing.ID));
 
-        // Back to the bank: seen again.
+        // Back to the bank: seen again, and only that item is parsed.
         Assert.True(bot.Inventory.EnsureToBank("Pixie Wing"));
         Assert.True(await FakeWorld.Until(() => bot.Bank.Contains("Pixie Wing")));
+        Assert.Equal(itemParses + 1, _session.Flash.BankItemParses);
+        Assert.Equal(Newtonsoft.Json.JsonConvert.SerializeObject(fresh.Select(i => i.Name).OrderBy(n => n)),
+            Newtonsoft.Json.JsonConvert.SerializeObject(bot.Bank.Items.Select(i => i.Name).OrderBy(n => n)));
 
         // Other types and paths still parse normally.
         Assert.Equal(201, flash.GetGameObject<List<Dictionary<string, object>>>("world.bankinfo.items")!.Count);

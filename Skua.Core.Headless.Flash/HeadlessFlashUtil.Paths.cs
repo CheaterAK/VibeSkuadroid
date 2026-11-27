@@ -90,6 +90,19 @@ public sealed partial class HeadlessFlashUtil
         };
     }
 
+    /// <summary>
+    /// isNull: whether <paramref name="path"/> resolves to null or undefined. <c>world.myAvatar</c> is answered without
+    /// building it: in game it is always an object, and Resolve would copy the whole avatar (backpack, objData,
+    /// factions: ~2 MB with a 250-item backpack) only to throw it away. Skua asks about 50 times a second (its timer
+    /// thread's Player.LoggedIn / Alive checks, every 20 ms, script or not): 100 MB/s of garbage measured.
+    /// </summary>
+    internal bool IsNullish(string path)
+    {
+        if (path == "world.myAvatar")
+            return !Game.IsInGame;
+        return Resolve(path, recordGaps: false).IsNullish;
+    }
+
     private Lookup Unmodelled(string path, bool record)
     {
         if (record)
@@ -280,6 +293,9 @@ public sealed partial class HeadlessFlashUtil
             case "objData":
                 Game.World.TryGetGameObjectNode("world.myAvatar.objData", out JsonNode? objData);
                 return Walk(Lookup.Of(Game.Client.DecorateObjData(objData as JsonObject ?? new JsonObject())), parts, i + 1);
+            case "items" when parts.Length == i + 2 && parts[i + 1] == "length":
+                // Player.Loaded reads it every second: the count, without copying the backpack (decorating changes no count).
+                return Lookup.Of(JsonValue.Create(Game.World.InventoryCount));
             case "items":
                 Game.World.TryGetGameObjectNode("world.myAvatar.items", out JsonNode? items);
                 Game.World.TryGetGameObjectNode("world.myAvatar.objData", out JsonNode? od);

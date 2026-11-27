@@ -131,7 +131,7 @@ public sealed partial class GameClient
                 leaf["ty"] = y;
                 leaf["sp"] = speed;
             }
-        }, "pushMove");
+        }, "pushMove", touchesItems: false);
         int walkSpeed;
         bool bitWalk;
         lock (_gate)

@@ -226,6 +226,9 @@ public sealed class FakeAqwServer : IAsyncDisposable
     /// <summary>Items every new session's backpack starts with besides the default ones (unequipped).</summary>
     public List<int> ExtraInventory { get; } = new();
 
+    /// <summary>Whole item objects every new session's backpack starts with besides the default ones (a copy each; large-inventory tests).</summary>
+    public List<JsonObject> ExtraInventoryItems { get; } = new();
+
     /// <summary>
     /// Every outfit request (equipLoadout, wearLoadout, addLoadout, removeLoadout) as the server read it, oldest first:
     /// the command, its fields after the room, and why it broke the game client's request contract (null when it met it).
@@ -379,6 +382,12 @@ public sealed class FakeAqwServer : IAsyncDisposable
             Number = number;
             foreach (int id in server.ExtraInventory)
                 Inventory.Add(WithQty(Copy(id), _charItem++, 1, equip: false));
+            foreach (JsonObject extra in server.ExtraInventoryItems)
+            {
+                JsonObject item = (JsonObject)extra.DeepClone();
+                item["bBank"] = 0;
+                Inventory.Add(item);
+            }
             // Gear enhanced with Lucky (pattern 9), as most farming gear is.
             foreach (JsonObject gear in Inventory.Where(x => (string?)x["sES"] is "ar" or "Weapon" or "he" or "ba"))
                 gear["EnhPatternID"] = 9;
